@@ -80,9 +80,65 @@ document.getElementById("bouton-analyser").addEventListener("click", async () =>
   }
 });
 
-document.getElementById("bouton-traduire").addEventListener("click", () => {
-  alert("La traduction complète sera branchée à l'API dans une prochaine itération.");
-});
+const elBoutonReprendre = document.getElementById("bouton-reprendre");
+const elRepriseProgression = document.getElementById("reprise-progression");
+
+async function checkResume(chemin) {
+  if (!chemin) return;
+  try {
+    const reponse = await fetch(`${API_BASE}/check-resume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chemin_pdf: chemin }),
+    });
+    if (!reponse.ok) return;
+    const etat = await reponse.json();
+    if (etat && etat.derniere_section_completee > 0) {
+      elRepriseProgression.textContent = `section ${etat.derniere_section_completee}/${etat.total_sections}`;
+      elBoutonReprendre.hidden = false;
+    } else {
+      elBoutonReprendre.hidden = true;
+    }
+  } catch (e) {
+    elBoutonReprendre.hidden = true;
+  }
+}
+
+elCheminPdf.addEventListener("blur", () => checkResume(elCheminPdf.value.trim()));
+
+async function lancerTraduction(resume = false) {
+  const chemin = elCheminPdf.value.trim();
+  if (!chemin) { alert("Indique le chemin du PDF d'abord."); return; }
+
+  elContenuAnalyse.textContent = resume ? "Reprise en cours..." : "Traduction en cours...";
+  elResultatAnalyse.hidden = false;
+
+  try {
+    const reponse = await fetch(`${API_BASE}/translate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chemin_pdf: chemin,
+        langue_source: elLangueSource.value,
+        langue_cible: elLangueCible.value,
+        modele_ollama: elModele.value,
+        resume,
+      }),
+    });
+    const data = await reponse.json();
+    if (!reponse.ok) {
+      elContenuAnalyse.textContent = `Erreur : ${data.detail}`;
+      return;
+    }
+    elContenuAnalyse.textContent = `✅ Terminé — ${data.sections_traitees} sections\nFichier : ${data.chemin_sortie}`;
+    elBoutonReprendre.hidden = true;
+  } catch (e) {
+    elContenuAnalyse.textContent = `Erreur de connexion à l'API : ${e}`;
+  }
+}
+
+document.getElementById("bouton-traduire").addEventListener("click", () => lancerTraduction(false));
+elBoutonReprendre.addEventListener("click", () => lancerTraduction(true));
 
 verifierStatut();
 chargerModeles();
