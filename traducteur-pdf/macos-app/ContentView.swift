@@ -1,6 +1,6 @@
 import SwiftUI
+import Combine
 
-@MainActor
 final class AppViewModel: ObservableObject {
     @Published var apiEnLigne: Bool? = nil
     @Published var ollamaOk: Bool? = nil

@@ -1,0 +1,97 @@
+"""
+Agent d'analyse préliminaire d'un PDF.
+Partie déterministe : extraction texte, comptage pages, estimation chunks/durée.
+Partie LLM : langue détectée + recommandation (appel direct Ollama, texte libre).
+"""
+
+import requests
+
+from app.models.schemas import ResultatAnalyse
+from app.services.pdf_extractor import compter_pages, extraire_texte, decouper_en_chunks
+from app.services.translation_runner import SECONDES_PAR_CHUNK_ESTIME
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+NB_PAGES_ANALYSE_DEFAUT = 5
+
+
+def _appel_llm(prompt: str, modele: str = "llama3.1") -> str:
+    """Appel direct à Ollama, retourne du texte libre."""
+    try:
+        r = requests.post(
+            OLLAMA_URL,
+            json={"model": modele, "prompt": prompt, "stream": False,
+                  "options": {"temperature": 0.1}},
+            timeout=60,
+        )
+        r.raise_for_status()
+        return r.json().get("response", "").strip()
+    except Exception as e:
+        return f"(LLM inaccessible : {e})"
+
+
+def analyser_pdf(chemin_pdf: str, nb_pages: int = NB_PAGES_ANALYSE_DEFAUT) -> ResultatAnalyse:
+    """
+    Analyse un PDF ou document source : déterministe pour les métriques, LLM pour la langue et
+    la recommandation.
+    """
+    texte_complet = extraire_texte(chemin_pdf)
+    nb_pages_total = compter_pages(chemin_pdf)
+    texte_extractible = bool(texte_complet.strip())
+
+    chunks = decouper_en_chunks(texte_complet) if texte_extractible else []
+    nb_chunks = len(chunks)
+    estimation_temps = nb_chunks * SECONDES_PAR_CHUNK_ESTIME
+
+    if not texte_extractible:
+        return ResultatAnalyse(
+            nb_pages_analysees=min(nb_pages, nb_pages_total),
+            texte_extractible=False,
+            avertissements=["Aucun texte extrait — le PDF est probablement scanné (image)."],
+            recommandation="Effectuer une OCR avant de tenter une traduction.",
+            estimation_nb_chunks=0,
+            estimation_temps_secondes=0,
+        )
+
+    # Extrait pour le LLM (~2000 caractères suffisent pour la langue et la qualité)
+    extrait = texte_complet[:2000]
+
+    prompt = (
+        "Analyse cet extrait de document PDF.\n"
+        "Réponds en 2 lignes seulement :\n"
+        "Ligne 1 — LANGUE: <la langue du texte>\n"
+        "Ligne 2 — RECOMMANDATION: <une phrase courte sur la qualité du texte et "
+        "si la traduction automatique est conseillée>\n\n"
+        f"Extrait :\n{extrait}"
+    )
+
+    reponse_llm = _appel_llm(prompt)
+
+    # Parsing simple des deux lignes
+    langue_detectee = None
+    recommandation = "Texte extractible, traduction automatique possible."
+    avertissements: list[str] = []
+
+    for ligne in reponse_llm.splitlines():
+        if ligne.upper().startswith("LANGUE:") or "LANGUE:" in ligne.upper():
+            partie = ligne.split(":", 1)[-1].strip()
+            if partie:
+                langue_detectee = partie
+        elif ligne.upper().startswith("RECOMMANDATION:") or "RECOMMANDATION:" in ligne.upper():
+            partie = ligne.split(":", 1)[-1].strip()
+            if partie:
+                recommandation = partie
+
+    if nb_chunks > 50:
+        avertissements.append(
+            f"Document volumineux ({nb_chunks} sections) — la traduction peut prendre du temps."
+        )
+
+    return ResultatAnalyse(
+        nb_pages_analysees=min(nb_pages, nb_pages_total),
+        texte_extractible=True,
+        langue_detectee=langue_detectee,
+        avertissements=avertissements,
+        recommandation=recommandation,
+        estimation_nb_chunks=nb_chunks,
+        estimation_temps_secondes=estimation_temps,
+    )
