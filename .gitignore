@@ -22,4 +22,14 @@ output/
 
 # État des jobs de traduction (pause/reprise) — données locales, pas dans le repo
 *.job_state.json
+*.state.json
 .DS_Store
+
+# Traductions planifiées — données locales, pas dans le repo
+scheduled_jobs.json
+
+# Dossier de tests manuels avec PDFs personnels
+traducteur-pdf/test_integre/
+
+# État Xcode utilisateur
+xcuserdata/

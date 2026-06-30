@@ -10,35 +10,54 @@ enum EtatOperation {
 struct ResultatView: View {
     let etat: EtatOperation
     let repriseInfo: String?
+    let jobEnCours: Bool
     let onAnalyser: () -> Void
+    let onConvertir: () -> Void
     let onTraduire: () -> Void
     let onReprendre: () -> Void
+    let onPlanifier: () -> Void
+    let onVoirJobsPlanifies: () -> Void
+    let confirmationPlanification: String?
 
     var body: some View {
         GroupBox("Actions") {
             VStack(alignment: .leading, spacing: 12) {
-                // Boutons
                 HStack(spacing: 12) {
                     Button("Analyser") { onAnalyser() }
                         .buttonStyle(.bordered)
-                        .disabled(estEnCours)
+                        .disabled(bloque)
 
-                    Button("Traduire") { onTraduire() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(estEnCours)
+                    Button("Convertir en Markdown") { onConvertir() }
+                        .buttonStyle(.bordered)
+                        .disabled(bloque)
+
+                    Menu("Traduire") {
+                        Button("Traduire maintenant") { onTraduire() }
+                        Button("Planifier la traduction…") { onPlanifier() }
+                        Divider()
+                        Button("Voir les traductions planifiées") { onVoirJobsPlanifies() }
+                    }
+                    .menuStyle(.borderedButton)
+                    .fixedSize()
+                    .disabled(bloque)
 
                     if let info = repriseInfo {
                         Button("Reprendre (\(info))") { onReprendre() }
                             .buttonStyle(.bordered)
-                            .disabled(estEnCours)
+                            .disabled(bloque)
                     }
 
-                    if estEnCours {
+                    if bloque {
                         ProgressView().scaleEffect(0.7)
                     }
                 }
 
-                // Résultat
+                if let conf = confirmationPlanification {
+                    Text(conf)
+                        .font(.footnote)
+                        .foregroundStyle(.green)
+                }
+
                 if case .vide = etat { } else {
                     Divider()
                     ScrollView {
@@ -55,9 +74,8 @@ struct ResultatView: View {
         }
     }
 
-    private var estEnCours: Bool {
-        if case .enCours = etat { return true }
-        return false
+    private var bloque: Bool {
+        jobEnCours || { if case .enCours = etat { return true }; return false }()
     }
 
     private var texteResultat: String {

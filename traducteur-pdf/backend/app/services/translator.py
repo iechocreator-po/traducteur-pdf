@@ -14,7 +14,11 @@ def traduire_texte(texte: str, modele: str, langue_source: str, langue_cible: st
     prompt = (
         f"Traduis le texte suivant de {langue_source} vers {langue_cible}. "
         f"Traduis INTÉGRALEMENT, mot à mot, sans rien résumer, sans rien omettre. "
-        f"INTERDIT : ne commence PAS par 'Voici la traduction', 'Bien sûr', ou toute phrase d'introduction. "
+        f"RÈGLES ABSOLUES pour le formatage Markdown : "
+        f"— Conserve EXACTEMENT tous les symboles Markdown : #, ##, ###, **, *, _, `, ```, |, >, -, [ ], ( ) "
+        f"— Ne traduis PAS les URLs, les noms de fichiers, ni le code dans les blocs ``` "
+        f"— Les cellules de tableaux (séparées par |) doivent rester alignées "
+        f"— INTERDIT : ne commence PAS par 'Voici la traduction', 'Bien sûr', ou toute phrase d'introduction. "
         f"Réponds UNIQUEMENT avec le texte traduit, rien avant, rien après.\n\n"
         f"{texte}"
     )

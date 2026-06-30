@@ -36,19 +36,48 @@ def extraire_urls(chemin_pdf: str) -> list[str]:
 
 def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
     """
-    Découpe le texte en morceaux d'une taille raisonnable, en essayant de
-    couper sur des paragraphes plutôt qu'en plein milieu d'une phrase.
+    Découpe le Markdown en chunks en respectant les frontières structurelles :
+    - Ne coupe jamais à l'intérieur d'un bloc de code (```) ou d'un tableau (|)
+    - Préfère couper avant un titre (#) ou entre deux paragraphes
+    - Si un bloc dépasse taille_max seul, il est conservé tel quel (non tronqué)
     """
-    paragraphes = texte.split("\n\n")
+    import re
+
+    blocs: list[str] = []
+    bloc_courant: list[str] = []
+    dans_code = False
+
+    for ligne in texte.splitlines():
+        # Suivi des blocs de code fencés
+        if ligne.strip().startswith("```"):
+            dans_code = not dans_code
+
+        est_titre = not dans_code and re.match(r"^#{1,6} ", ligne)
+
+        if est_titre and bloc_courant:
+            blocs.append("\n".join(bloc_courant))
+            bloc_courant = [ligne]
+        else:
+            bloc_courant.append(ligne)
+
+    if bloc_courant:
+        blocs.append("\n".join(bloc_courant))
+
+    # Fusionne les blocs jusqu'à taille_max, sans jamais couper un tableau
     chunks: list[str] = []
     chunk_actuel = ""
 
-    for paragraphe in paragraphes:
-        if len(chunk_actuel) + len(paragraphe) > taille_max and chunk_actuel:
+    for bloc in blocs:
+        separateur = "\n\n" if chunk_actuel else ""
+        candidat = chunk_actuel + separateur + bloc
+
+        est_tableau = any(l.strip().startswith("|") for l in bloc.splitlines())
+
+        if chunk_actuel and len(candidat) > taille_max and not est_tableau:
             chunks.append(chunk_actuel.strip())
-            chunk_actuel = paragraphe
+            chunk_actuel = bloc
         else:
-            chunk_actuel += "\n\n" + paragraphe if chunk_actuel else paragraphe
+            chunk_actuel = candidat
 
     if chunk_actuel.strip():
         chunks.append(chunk_actuel.strip())

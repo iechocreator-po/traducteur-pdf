@@ -54,10 +54,14 @@ class EtatJob(BaseModel):
     statut: StatutJob
     derniere_section_completee: int = 0
     total_sections: int = 0
+    total_pages: int = 0
+    total_mots: int = 0
+    mots_traduits: int = 0
     temps_debut: float | None = None
     temps_ecoule_secondes: float = 0.0
     estimation_temps_total_secondes: float | None = None
     erreurs: list[str] = Field(default_factory=list)
+    journal: list[str] = Field(default_factory=list)
 
 
 class ResultatAnalyse(BaseModel):

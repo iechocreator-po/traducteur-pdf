@@ -402,6 +402,44 @@ elBoutonContinuer.addEventListener("click", () => {
   lancerTraduction(true);
 });
 
+// ── Conversion PDF → Markdown ─────────────────────────────────────────────────
+
+const elResultatConversion = document.getElementById("resultat-conversion");
+const elContenuConversion  = document.getElementById("contenu-conversion");
+
+async function convertirEnMarkdown() {
+  const chemin = elCheminPdf.value.trim();
+  if (!chemin) { alert("Indique le chemin du PDF d'abord."); return; }
+
+  elContenuConversion.innerHTML = "<em>Conversion en cours…</em>";
+  elResultatConversion.hidden = false;
+
+  try {
+    const reponse = await fetch(`${API_BASE}/convert`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chemin_pdf: chemin,
+        extracteur_pdf: elExtracteurPdf.value,
+      }),
+    });
+
+    const data = await reponse.json();
+    if (!reponse.ok) {
+      elContenuConversion.innerHTML = `<span class="erreur">Erreur : ${data.detail}</span>`;
+      return;
+    }
+
+    elContenuConversion.innerHTML =
+      `<p>✅ Conversion terminée — ${data.nb_caracteres.toLocaleString()} caractères<br>` +
+      `Fichier : <code>${data.chemin_sortie}</code></p>`;
+  } catch (e) {
+    elContenuConversion.innerHTML = `<span class="erreur">Erreur de connexion à l'API : ${e}</span>`;
+  }
+}
+
+document.getElementById("bouton-convertir").addEventListener("click", convertirEnMarkdown);
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 verifierStatut();

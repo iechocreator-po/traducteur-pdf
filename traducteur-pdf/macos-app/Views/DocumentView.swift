@@ -6,7 +6,9 @@ struct DocumentView: View {
     @Binding var modeleChoisi: String
     @Binding var langueSource: Langue
     @Binding var langueCible: Langue
+    @Binding var extracteurChoisi: String
     let modeles: [String]
+    let extracteurs: [ExtracteurConfig]
     let onCheminChange: () -> Void
 
     var body: some View {
@@ -22,7 +24,7 @@ struct DocumentView: View {
 
                 // Modèle
                 HStack {
-                    Text("Modèle Ollama :")
+                    Text("Modèle LLM :")
                         .frame(width: 120, alignment: .trailing)
                     Picker("", selection: $modeleChoisi) {
                         ForEach(modeles, id: \.self) { Text($0).tag($0) }
@@ -31,6 +33,23 @@ struct DocumentView: View {
                         }
                     }
                     .labelsHidden()
+                }
+
+                // Extracteur PDF
+                HStack {
+                    Text("Extracteur PDF :")
+                        .frame(width: 120, alignment: .trailing)
+                    Picker("", selection: $extracteurChoisi) {
+                        ForEach(extracteurs) { ext in
+                            Text(ext.disponible ? ext.nom : "\(ext.nom) (bientôt)")
+                                .tag(ext.id)
+                        }
+                        if extracteurs.isEmpty {
+                            Text("PyMuPDF4LLM").tag("pymupdf4llm")
+                        }
+                    }
+                    .labelsHidden()
+                    .disabled(extracteurs.filter(\.disponible).count <= 1)
                 }
 
                 // Langues
