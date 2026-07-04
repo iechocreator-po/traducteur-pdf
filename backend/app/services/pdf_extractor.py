@@ -93,6 +93,21 @@ def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
     if bloc_courant:
         blocs.append("\n".join(bloc_courant))
 
+    # Sous-découpe les blocs trop gros sur les frontières de paragraphes,
+    # sauf s'ils contiennent du code ou un tableau (jamais coupés).
+    blocs_affines: list[str] = []
+    for bloc in blocs:
+        contient_code_ou_tableau = "```" in bloc or any(
+            l.strip().startswith("|") for l in bloc.splitlines()
+        )
+        if len(bloc) <= taille_max or contient_code_ou_tableau:
+            blocs_affines.append(bloc)
+            continue
+        for paragraphe in bloc.split("\n\n"):
+            if paragraphe.strip():
+                blocs_affines.append(paragraphe)
+    blocs = blocs_affines
+
     # Fusionne les blocs jusqu'à taille_max, sans jamais couper un tableau
     chunks: list[str] = []
     chunk_actuel = ""
