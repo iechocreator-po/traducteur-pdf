@@ -3,7 +3,6 @@ Tests du service d'extraction PDF.
 On utilise un petit PDF généré à la volée pour ne dépendre d'aucun fichier externe.
 """
 
-import pdfplumber
 import pytest
 from reportlab.pdfgen import canvas
 

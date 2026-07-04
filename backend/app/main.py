@@ -23,11 +23,18 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Autorise le frontend (servi séparément, ex: file:// ou http://localhost:5500)
-# à appeler cette API depuis le navigateur.
+# Autorise uniquement le frontend local à appeler cette API depuis le navigateur :
+# http://localhost:5500 (python -m http.server) et "null" (fichier ouvert en file://).
+# L'API acceptant des chemins absolus en entrée, un wildcard laisserait n'importe
+# quel site visité déclencher des lectures/écritures de fichiers locaux.
+# Le client Swift (URLSession) n'est pas soumis au CORS et n'est pas affecté.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+        "null",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )

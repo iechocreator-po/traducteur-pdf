@@ -1,25 +1,33 @@
 """
-Orchestrates a full PDF translation job in a background thread.
-Supports pause/resume via an in-memory flag checked between chunks.
+Orchestre un job complet de traduction de PDF, exécuté par le worker unique
+de la file d'attente (un seul job à la fois pour ne pas saturer Ollama).
+Supporte pause/reprise et annulation via des flags mémoire vérifiés entre chunks.
 """
 
-import time
-import threading
-import uuid
-import os
-
 import datetime
+import glob as _glob
+import os
+import re
+import time
+import uuid
 
 from app.models.schemas import EtatJob, StatutJob, Langue
-from app.config.settings import CHUNK_TAILLE_MAX, CHAPITRE_SOUS_CHUNK_TAILLE_MAX
+from app.config.settings import (
+    CHUNK_TAILLE_MAX,
+    CHAPITRE_SOUS_CHUNK_TAILLE_MAX,
+    RATIO_TRADUCTION_SUSPECT,
+    CONTROLE_QUALITE_LONGUEUR_MIN,
+)
 from app.services.pdf_extractor import extraire_texte, decouper_en_chunks, compter_pages
 from app.services.translator import traduire_texte
+from app.services import cache_traduction
 from app.services.job_manager import (
     sauvegarder_etat,
     charger_etat,
     enregistrer_job,
-    enregistrer_thread,
     est_en_pause,
+    est_annule,
+    soumettre_travail,
     supprimer_job_registre,
     journaliser_erreur,
 )
@@ -27,8 +35,8 @@ from app.services.job_manager import (
 SECONDES_PAR_CHUNK_ESTIME = 10  # used for initial estimate before real timing data
 
 
-import re
-import glob as _glob
+class AnnulationDemandee(Exception):
+    """Levée quand l'annulation du job est demandée pendant la traduction."""
 
 
 def _base_depuis_source(chemin: str) -> str:
@@ -65,11 +73,66 @@ def _journaliser(state: EtatJob, message: str) -> None:
     state.journal.append(f"[{_horodatage()}] {message}")
 
 
+def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], etiquette: str) -> str:
+    """
+    Traduit un texte avec cache et contrôle qualité anti-résumé.
+    - Si le texte est déjà dans le cache (même modèle/langues), le retourne directement.
+    - Si la traduction est trop courte (ratio < RATIO_TRADUCTION_SUSPECT), le modèle
+      a probablement résumé : une seconde tentative est faite, et un avertissement
+      est ajouté au job si le ratio reste suspect (résultat alors non mis en cache,
+      pour qu'un re-run retente la section).
+    """
+    cle = cache_traduction.calculer_cle(
+        texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value
+    )
+    if cle in cache:
+        _journaliser(state, f"{etiquette} : reprise depuis le cache")
+        return cache[cle]
+
+    traduit = traduire_texte(
+        texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value
+    )
+    ratio = len(traduit) / max(len(texte), 1)
+
+    if len(texte) >= CONTROLE_QUALITE_LONGUEUR_MIN and ratio < RATIO_TRADUCTION_SUSPECT:
+        _journaliser(state, f"{etiquette} : traduction suspecte (ratio {ratio:.2f}) — nouvelle tentative")
+        nouvelle = traduire_texte(
+            texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value
+        )
+        nouveau_ratio = len(nouvelle) / max(len(texte), 1)
+        if nouveau_ratio > ratio:
+            traduit, ratio = nouvelle, nouveau_ratio
+        if ratio < RATIO_TRADUCTION_SUSPECT:
+            avertissement = (
+                f"{etiquette} : traduction possiblement résumée "
+                f"(ratio longueur {ratio:.2f} < {RATIO_TRADUCTION_SUSPECT})"
+            )
+            state.avertissements.append(avertissement)
+            journaliser_erreur(state.chemin_sortie, avertissement)
+            return traduit
+
+    cache[cle] = traduit
+    return traduit
+
+
 def _executer_traduction(state: EtatJob, chunks: list[str]) -> None:
-    """Runs in a background thread. Checks pause flag between each chunk."""
+    """Exécuté par le worker de la file. Vérifie pause et annulation entre chaque chunk."""
     output_path = state.chemin_sortie
+
+    if est_annule(state.job_id):
+        state.statut = StatutJob.ANNULE
+        _journaliser(state, "Job annulé avant démarrage")
+        sauvegarder_etat(state)
+        supprimer_job_registre(state.job_id)
+        return
+
+    state.statut = StatutJob.EN_COURS
+    _journaliser(state, "Démarrage de la traduction")
+    sauvegarder_etat(state)
+
     start_index = state.derniere_section_completee
     temps_debut_session = time.time()
+    cache = cache_traduction.charger_cache(output_path)
 
     try:
         with open(output_path, "a", encoding="utf-8") as f:
@@ -77,7 +140,15 @@ def _executer_traduction(state: EtatJob, chunks: list[str]) -> None:
                 if i < start_index:
                     continue
 
-                # Check pause flag before each chunk
+                # Vérifie le flag d'annulation avant chaque chunk
+                if est_annule(state.job_id):
+                    state.temps_ecoule_secondes += time.time() - temps_debut_session
+                    state.statut = StatutJob.ANNULE
+                    _journaliser(state, f"Annulation — section {i}/{state.total_sections}")
+                    sauvegarder_etat(state)
+                    return
+
+                # Vérifie le flag de pause avant chaque chunk
                 if est_en_pause(state.job_id):
                     elapsed = time.time() - temps_debut_session
                     state.temps_ecoule_secondes += elapsed
@@ -88,13 +159,11 @@ def _executer_traduction(state: EtatJob, chunks: list[str]) -> None:
                     return
 
                 try:
-                    translated = traduire_texte(
-                        chunk,
-                        state.modele_ollama,
-                        state.langue_source.value,
-                        state.langue_cible.value,
+                    translated = _traduire_avec_controle(
+                        chunk, state, cache, f"Section {i + 1}/{state.total_sections}"
                     )
                     f.write(translated + "\n\n")
+                    cache_traduction.sauvegarder_cache(output_path, cache)
                 except Exception as e:
                     msg = f"Erreur section {i + 1}/{state.total_sections} : {e}"
                     state.erreurs.append(msg)
@@ -202,29 +271,49 @@ def _mettre_a_jour_entete_chapitres(chemin_sortie: str, chapitres_traduits: list
 def _executer_traduction_chapitres(state: EtatJob, chapitres: list[dict]) -> None:
     """Traduit une liste de chapitres et les ajoute au fichier de sortie."""
     output_path = state.chemin_sortie
+
+    if est_annule(state.job_id):
+        state.statut = StatutJob.ANNULE
+        _journaliser(state, "Job annulé avant démarrage")
+        sauvegarder_etat(state)
+        supprimer_job_registre(state.job_id)
+        return
+
+    state.statut = StatutJob.EN_COURS
+    _journaliser(state, "Démarrage de la traduction par chapitres")
+    sauvegarder_etat(state)
+
     temps_debut_session = time.time()
+    cache = cache_traduction.charger_cache(output_path)
 
     try:
         for i, chap in enumerate(chapitres):
+            if est_annule(state.job_id):
+                raise AnnulationDemandee
             _journaliser(state, f"Début chapitre {i + 1}/{state.total_sections} — {chap['titre']}")
             sauvegarder_etat(state)
             try:
                 # Sous-découpe les chapitres en petits morceaux pour limiter le temps par appel Ollama
                 sous_chunks = decouper_en_chunks(chap["contenu"], taille_max=CHAPITRE_SOUS_CHUNK_TAILLE_MAX)
                 parties_traduites = []
-                for sous_chunk in sous_chunks:
+                for j, sous_chunk in enumerate(sous_chunks):
+                    if est_annule(state.job_id):
+                        raise AnnulationDemandee
                     parties_traduites.append(
-                        traduire_texte(
+                        _traduire_avec_controle(
                             sous_chunk,
-                            state.modele_ollama,
-                            state.langue_source.value,
-                            state.langue_cible.value,
+                            state,
+                            cache,
+                            f"Chapitre {chap['index']} ({chap['titre']}), partie {j + 1}/{len(sous_chunks)}",
                         )
                     )
+                    cache_traduction.sauvegarder_cache(output_path, cache)
                 traduit = "\n\n".join(parties_traduites)
                 with open(output_path, "a", encoding="utf-8") as f:
                     f.write(f"\n<!-- === chapitre {chap['index']} : {chap['titre']} === -->\n\n")
                     f.write(traduit + "\n")
+            except AnnulationDemandee:
+                raise
             except Exception as e:
                 msg = f"Erreur chapitre {chap['index']} ({chap['titre']}) : {e}"
                 state.erreurs.append(msg)
@@ -249,6 +338,11 @@ def _executer_traduction_chapitres(state: EtatJob, chapitres: list[dict]) -> Non
         _journaliser(state, "Traduction des chapitres terminée")
         sauvegarder_etat(state)
 
+    except AnnulationDemandee:
+        state.temps_ecoule_secondes += time.time() - temps_debut_session
+        state.statut = StatutJob.ANNULE
+        _journaliser(state, f"Annulation — chapitre {state.derniere_section_completee}/{state.total_sections}")
+        sauvegarder_etat(state)
     except Exception as e:
         msg = f"Erreur fatale du job : {e}"
         state.erreurs.append(msg)
@@ -310,7 +404,7 @@ def _demarrer_traduction_chapitres(
     if existing:
         state = existing
         state.job_id = str(uuid.uuid4())
-        state.statut = StatutJob.EN_COURS
+        state.statut = StatutJob.EN_ATTENTE
         state.total_sections = nb
         state.derniere_section_completee = 0
         state.total_mots = total_mots
@@ -327,7 +421,7 @@ def _demarrer_traduction_chapitres(
             langue_source=langue_source,
             langue_cible=langue_cible,
             modele_ollama=modele,
-            statut=StatutJob.EN_COURS,
+            statut=StatutJob.EN_ATTENTE,
             derniere_section_completee=0,
             total_sections=nb,
             total_pages=0,
@@ -348,16 +442,14 @@ def _demarrer_traduction_chapitres(
         state,
         f"Traduction de {nb} chapitre(s) : {[c['index'] for c in chapitres_a_traduire]}",
     )
+    _journaliser(state, "Job ajouté à la file d'attente")
     enregistrer_job(state.job_id)
     sauvegarder_etat(state)
 
-    thread = threading.Thread(
-        target=_executer_traduction_chapitres,
-        args=(state, chapitres_a_traduire),
-        daemon=True,
+    soumettre_travail(
+        state.job_id,
+        lambda: _executer_traduction_chapitres(state, chapitres_a_traduire),
     )
-    enregistrer_thread(state.job_id, thread)
-    thread.start()
     return state.job_id
 
 
@@ -384,7 +476,7 @@ def demarrer_traduction(
 
     if resume and existing and existing.statut in (StatutJob.EN_PAUSE, StatutJob.EN_COURS):
         state = existing
-        state.statut = StatutJob.EN_COURS
+        state.statut = StatutJob.EN_ATTENTE
         _journaliser(state, f"Reprise de la traduction — section {state.derniere_section_completee}/{state.total_sections}")
     else:
         texte = _lire_source_markdown(source_path, extracteur)
@@ -402,7 +494,7 @@ def demarrer_traduction(
             langue_source=langue_source,
             langue_cible=langue_cible,
             modele_ollama=modele,
-            statut=StatutJob.EN_COURS,
+            statut=StatutJob.EN_ATTENTE,
             derniere_section_completee=0,
             total_sections=nb_chunks,
             total_pages=nb_pages,
@@ -420,16 +512,11 @@ def demarrer_traduction(
     texte = _lire_source_markdown(source_path, extracteur)
     chunks = decouper_en_chunks(texte, taille_max=CHUNK_TAILLE_MAX)
 
+    _journaliser(state, "Job ajouté à la file d'attente")
     enregistrer_job(state.job_id)
     sauvegarder_etat(state)
 
-    thread = threading.Thread(
-        target=_executer_traduction,
-        args=(state, chunks),
-        daemon=True,
-    )
-    enregistrer_thread(state.job_id, thread)
-    thread.start()
+    soumettre_travail(state.job_id, lambda: _executer_traduction(state, chunks))
 
     return state.job_id
 

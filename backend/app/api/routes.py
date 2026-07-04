@@ -196,6 +196,19 @@ def pause_job(job_id: str) -> dict:
     return {"statut": "pause_demandee"}
 
 
+@router.post("/job/{job_id}/annuler")
+def annuler_job_en_cours(job_id: str) -> dict:
+    """
+    Demande l'annulation d'un job en cours ou en file d'attente.
+    Le job s'arrête au prochain chunk et passe au statut « annule ».
+    """
+    from app.services.job_manager import demander_annulation
+    ok = demander_annulation(job_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Job introuvable ou déjà terminé.")
+    return {"statut": "annulation_demandee"}
+
+
 @router.post("/job/{job_id}/reprendre")
 def reprendre_job(job_id: str) -> dict:
     """

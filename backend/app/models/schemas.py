@@ -21,6 +21,7 @@ class StatutJob(str, Enum):
     EN_PAUSE = "en_pause"
     TERMINE = "termine"
     ERREUR = "erreur"
+    ANNULE = "annule"
 
 
 class DemandeTraduction(BaseModel):
@@ -61,6 +62,7 @@ class EtatJob(BaseModel):
     temps_ecoule_secondes: float = 0.0
     estimation_temps_total_secondes: float | None = None
     erreurs: list[str] = Field(default_factory=list)
+    avertissements: list[str] = Field(default_factory=list)
     journal: list[str] = Field(default_factory=list)
     chapitres_traduits: list[int] = Field(default_factory=list)
 

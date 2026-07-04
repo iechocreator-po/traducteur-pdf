@@ -20,3 +20,14 @@ CHUNK_TAILLE_MAX = 3000
 # Taille max (caractères) des sous-chunks lors de la traduction par chapitres.
 # Plus petit = appels Ollama plus courts = moins de risque de timeout.
 CHAPITRE_SOUS_CHUNK_TAILLE_MAX = 1500
+
+# ── Contrôle qualité ──────────────────────────────────────────────────────────
+
+# Ratio longueur traduit/source en dessous duquel une traduction est suspecte
+# (le modèle a probablement résumé au lieu de traduire). Une tentative de plus
+# est faite, puis un avertissement est ajouté au job si le ratio reste bas.
+RATIO_TRADUCTION_SUSPECT = 0.5
+
+# Longueur minimale (caractères) du texte source pour appliquer le contrôle :
+# les très petits chunks (titres, lignes isolées) peuvent légitimement raccourcir.
+CONTROLE_QUALITE_LONGUEUR_MIN = 200

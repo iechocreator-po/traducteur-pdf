@@ -98,7 +98,7 @@ def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
     blocs_affines: list[str] = []
     for bloc in blocs:
         contient_code_ou_tableau = "```" in bloc or any(
-            l.strip().startswith("|") for l in bloc.splitlines()
+            ligne.strip().startswith("|") for ligne in bloc.splitlines()
         )
         if len(bloc) <= taille_max or contient_code_ou_tableau:
             blocs_affines.append(bloc)
@@ -116,7 +116,7 @@ def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
         separateur = "\n\n" if chunk_actuel else ""
         candidat = chunk_actuel + separateur + bloc
 
-        est_tableau = any(l.strip().startswith("|") for l in bloc.splitlines())
+        est_tableau = any(ligne.strip().startswith("|") for ligne in bloc.splitlines())
 
         if chunk_actuel and len(candidat) > taille_max and not est_tableau:
             chunks.append(chunk_actuel.strip())
