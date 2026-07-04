@@ -9,3 +9,5 @@ pydantic-ai>=0.0.13
 pytest>=8.3.0
 pytest-cov>=5.0.0
 reportlab>=4.2.0
+pymupdf4llm
+marker-pdf

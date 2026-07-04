@@ -17,6 +17,15 @@ FLAGS_PAR_DEFAUT = {
     "planification_differee": False,
 }
 
+EXTRACTEURS_PDF = [
+    {"id": "pymupdf4llm",  "nom": "PyMuPDF4LLM",  "disponible": True},
+    {"id": "marker",       "nom": "Marker",         "disponible": True},
+    {"id": "llamaparse",   "nom": "LlamaParse",     "disponible": False},
+    {"id": "unstructured", "nom": "Unstructured",   "disponible": False},
+]
+
+EXTRACTEUR_PAR_DEFAUT = "pymupdf4llm"
+
 
 def charger_flags() -> dict[str, bool]:
     """

@@ -30,6 +30,7 @@ class DemandeTraduction(BaseModel):
     langue_source: Langue = Langue.ANGLAIS
     langue_cible: Langue = Langue.FRANCAIS
     modele_ollama: str = Field(default="llama3.1", description="Nom du modèle Ollama à utiliser")
+    extracteur_pdf: str = Field(default="pymupdf4llm", description="Librairie d'extraction PDF")
 
 
 class SectionTraduite(BaseModel):
@@ -53,6 +54,15 @@ class EtatJob(BaseModel):
     statut: StatutJob
     derniere_section_completee: int = 0
     total_sections: int = 0
+    total_pages: int = 0
+    total_mots: int = 0
+    mots_traduits: int = 0
+    temps_debut: float | None = None
+    temps_ecoule_secondes: float = 0.0
+    estimation_temps_total_secondes: float | None = None
+    erreurs: list[str] = Field(default_factory=list)
+    journal: list[str] = Field(default_factory=list)
+    chapitres_traduits: list[int] = Field(default_factory=list)
 
 
 class ResultatAnalyse(BaseModel):
@@ -63,3 +73,5 @@ class ResultatAnalyse(BaseModel):
     langue_detectee: str | None = None
     avertissements: list[str] = Field(default_factory=list)
     recommandation: str
+    estimation_nb_chunks: int = 0
+    estimation_temps_secondes: int = 0

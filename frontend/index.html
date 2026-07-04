@@ -10,16 +10,35 @@
     <h1>Traducteur PDF</h1>
     <p class="sous-titre">Traduction locale via Ollama — aucune donnée ne quitte ton ordinateur.</p>
 
-    <section class="carte" id="statut-section">
-      <h2>État du système</h2>
-      <p id="statut-api">Vérification en cours...</p>
-      <p id="statut-ollama"></p>
+    <section class="carte" id="section-parametres">
+      <h2>⚙ Paramètres</h2>
+
+      <div class="parametre-ligne">
+        <span class="parametre-label">Backend FastAPI</span>
+        <span id="statut-api" class="statut-badge">Vérification…</span>
+        <button id="bouton-lancer-backend" class="bouton-launcher">Lancer</button>
+      </div>
+
+      <div class="parametre-ligne">
+        <span class="parametre-label">Ollama</span>
+        <span id="statut-ollama" class="statut-badge"></span>
+      </div>
     </section>
 
     <section class="carte">
       <h2>1. Document à traduire</h2>
-      <p class="aide">Chemin complet du fichier PDF sur ton ordinateur (ex: /Users/toi/Documents/chapitre1.pdf)</p>
-      <input type="text" id="chemin-pdf" placeholder="/Users/.../document.pdf">
+      <div class="mode-toggle">
+        <button id="mode-pdf" class="mode-btn mode-btn-actif">PDF</button>
+        <button id="mode-md" class="mode-btn">Markdown</button>
+      </div>
+      <div id="zone-pdf">
+        <p class="aide">Chemin complet du fichier PDF sur ton ordinateur (ex: /Users/toi/Documents/chapitre1.pdf)</p>
+        <input type="text" id="chemin-pdf" placeholder="/Users/.../document.pdf">
+      </div>
+      <div id="zone-md" hidden>
+        <p class="aide">Chemin complet du fichier Markdown déjà converti (ex: /Users/toi/Documents/chapitre1_converti_py.md)</p>
+        <input type="text" id="chemin-md" placeholder="/Users/.../document_converti_py.md">
+      </div>
     </section>
 
     <section class="carte">
@@ -36,24 +55,79 @@
 
       <label for="langue-cible">Langue cible :</label>
       <select id="langue-cible">
-        <option value="francais" selected>Français</option>
+        <option value="français" selected>Français</option>
         <option value="anglais">Anglais</option>
         <option value="espagnol">Espagnol</option>
       </select>
+
+      <div id="zone-extracteur">
+        <label for="extracteur-pdf">Extracteur PDF :</label>
+        <select id="extracteur-pdf"></select>
+      </div>
     </section>
 
     <section class="carte">
-      <button id="bouton-analyser" class="bouton-secondaire">Analyser le document</button>
-      <button id="bouton-traduire" class="bouton-principal">Traduire</button>
+      <h2>3. Chapitres (optionnel)</h2>
+      <p class="aide">Identifie les chapitres pour ne traduire que certaines sections. Sans sélection, tout le document est traduit.</p>
+      <button id="bouton-identifier-chapitres" class="bouton-secondaire">📋 Identifier les chapitres</button>
+      <div id="zone-chapitres" hidden>
+        <p id="chapitres-source" class="aide"></p>
+        <div class="chapitres-barre">
+          <button id="chapitres-tout" class="bouton-mini">Tout sélectionner</button>
+          <button id="chapitres-aucun" class="bouton-mini">Tout désélectionner</button>
+          <span id="chapitres-compte" class="chapitres-compte"></span>
+        </div>
+        <div id="liste-chapitres" class="liste-chapitres"></div>
+      </div>
+    </section>
+
+    <section class="carte">
+      <button id="bouton-analyser" class="bouton-secondaire">🔍 Analyser le document</button>
+      <button id="bouton-convertir" class="bouton-secondaire">📄 Convertir en Markdown</button>
+      <button id="bouton-traduire" class="bouton-principal">▶ Traduire</button>
       <button id="bouton-reprendre" class="bouton-principal" hidden>⏯ Reprendre (<span id="reprise-progression"></span>)</button>
     </section>
 
+    <!-- Résultat de conversion -->
+    <section class="carte" id="resultat-conversion" hidden>
+      <h2>Conversion en Markdown</h2>
+      <div id="contenu-conversion"></div>
+    </section>
+
+    <!-- Résultat d'analyse -->
     <section class="carte" id="resultat-analyse" hidden>
       <h2>Résultat de l'analyse</h2>
-      <pre id="contenu-analyse"></pre>
+      <div id="contenu-analyse"></div>
     </section>
+
+    <!-- Progression de la traduction -->
+    <section class="carte" id="section-progression" hidden>
+      <h2>Progression</h2>
+      <div class="progression-info">
+        <span id="progression-texte">0 / 0 sections</span>
+        <span id="progression-temps"></span>
+      </div>
+      <div class="barre-conteneur">
+        <div class="barre-progression" id="barre-progression" style="width:0%"></div>
+      </div>
+      <div class="progression-timing">
+        <span>Temps écoulé : <strong id="temps-ecoule">0:00</strong></span>
+        <span>Temps restant estimé : <strong id="temps-restant">—</strong></span>
+      </div>
+      <div class="boutons-controle">
+        <button id="bouton-pause" class="bouton-secondaire">⏸ Pause</button>
+        <button id="bouton-continuer" class="bouton-principal" hidden>▶ Continuer</button>
+      </div>
+    </section>
+
+    <!-- Journal d'erreurs -->
+    <section class="carte" id="section-erreurs" hidden>
+      <h2>⚠ Journal d'erreurs</h2>
+      <pre id="contenu-erreurs"></pre>
+    </section>
+
   </main>
 
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=2"></script>
 </body>
 </html>

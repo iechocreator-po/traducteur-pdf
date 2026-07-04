@@ -23,3 +23,14 @@ output/
 # État des jobs de traduction (pause/reprise) — données locales, pas dans le repo
 *.job_state.json
 .DS_Store
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+
+# Claude
+.claude/
+backend/scheduled_jobs.json
+test_integre/

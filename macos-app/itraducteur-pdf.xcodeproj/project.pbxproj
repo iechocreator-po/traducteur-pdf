@@ -15,6 +15,9 @@
 		C3C9B5BE2FF1C302007507DA /* BackendLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B52FF1C302007507DA /* BackendLauncher.swift */; };
 		C3C9B5BF2FF1C302007507DA /* DocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B72FF1C302007507DA /* DocumentView.swift */; };
 		C3C9B5C02FF1C302007507DA /* ResultatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B82FF1C302007507DA /* ResultatView.swift */; };
+		C3C9B5C12FF1C302007507DA /* ProgressionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5C22FF1C302007507DA /* ProgressionView.swift */; };
+		C3EE385B2FF34B09003E6118 /* ScheduledJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */; };
+		C3EE385C2FF34B09003E6118 /* ScheduleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EE385A2FF34B09003E6118 /* ScheduleSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -38,6 +41,7 @@
 		C34AC1672FF1BFD3005EE689 /* itraducteur-pdf.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "itraducteur-pdf.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C34AC1742FF1BFD5005EE689 /* itraducteur-pdfTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "itraducteur-pdfTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C34AC17E2FF1BFD5005EE689 /* itraducteur-pdfUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "itraducteur-pdfUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C3AA11112FF1C302007507DA /* itraducteur-pdf.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "itraducteur-pdf.entitlements"; sourceTree = "<group>"; };
 		C3AEC60A2FF1C8AC00257B8D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C3AEC60B2FF1C8AC00257B8D /* itraducteur_pdfApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = itraducteur_pdfApp.swift; sourceTree = "<group>"; };
 		C3C9B5B22FF1C302007507DA /* AppModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModels.swift; sourceTree = "<group>"; };
@@ -46,6 +50,9 @@
 		C3C9B5B72FF1C302007507DA /* DocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentView.swift; sourceTree = "<group>"; };
 		C3C9B5B82FF1C302007507DA /* ResultatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultatView.swift; sourceTree = "<group>"; };
 		C3C9B5B92FF1C302007507DA /* StatutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatutView.swift; sourceTree = "<group>"; };
+		C3C9B5C22FF1C302007507DA /* ProgressionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressionView.swift; sourceTree = "<group>"; };
+		C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledJobsView.swift; sourceTree = "<group>"; };
+		C3EE385A2FF34B09003E6118 /* ScheduleSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -97,6 +104,7 @@
 				C34AC1772FF1BFD5005EE689 /* itraducteur-pdfTests */,
 				C34AC1812FF1BFD5005EE689 /* itraducteur-pdfUITests */,
 				C34AC1682FF1BFD3005EE689 /* Products */,
+				C3AA11112FF1C302007507DA /* itraducteur-pdf.entitlements */,
 			);
 			sourceTree = "<group>";
 		};
@@ -131,7 +139,10 @@
 			isa = PBXGroup;
 			children = (
 				C3C9B5B72FF1C302007507DA /* DocumentView.swift */,
+				C3C9B5C22FF1C302007507DA /* ProgressionView.swift */,
 				C3C9B5B82FF1C302007507DA /* ResultatView.swift */,
+				C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */,
+				C3EE385A2FF34B09003E6118 /* ScheduleSheet.swift */,
 				C3C9B5B92FF1C302007507DA /* StatutView.swift */,
 			);
 			path = Views;
@@ -286,6 +297,9 @@
 				C3C9B5BE2FF1C302007507DA /* BackendLauncher.swift in Sources */,
 				C3C9B5BF2FF1C302007507DA /* DocumentView.swift in Sources */,
 				C3C9B5C02FF1C302007507DA /* ResultatView.swift in Sources */,
+				C3EE385B2FF34B09003E6118 /* ScheduledJobsView.swift in Sources */,
+				C3EE385C2FF34B09003E6118 /* ScheduleSheet.swift in Sources */,
+				C3C9B5C12FF1C302007507DA /* ProgressionView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -440,6 +454,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "itraducteur-pdf.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4M5YRHC722;
@@ -484,6 +499,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "itraducteur-pdf.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4M5YRHC722;
