@@ -16,6 +16,7 @@ struct ResultatView: View {
     let onConvertir: () -> Void
     let onTraduire: () -> Void
     let onReprendre: () -> Void
+    let onAnnuler: () -> Void
     let onPlanifier: () -> Void
     let onVoirJobsPlanifies: () -> Void
     let confirmationPlanification: String?
@@ -48,6 +49,11 @@ struct ResultatView: View {
                         Button("Reprendre (\(info))") { onReprendre() }
                             .buttonStyle(.bordered)
                             .disabled(bloque)
+                    }
+
+                    if jobEnCours {
+                        Button("Annuler", role: .destructive) { onAnnuler() }
+                            .buttonStyle(.bordered)
                     }
 
                     if bloque {

@@ -30,6 +30,7 @@ nonisolated struct EtatJob: Codable {
     let tempsEcouleSecondes: Double
     let estimationTempsTotalSecondes: Double?
     let erreurs: [String]
+    let avertissements: [String]
     let journal: [String]
     let chapitresTraduits: [Int]
 
@@ -50,6 +51,7 @@ nonisolated struct EtatJob: Codable {
         tempsEcouleSecondes = try c.decode(Double.self, forKey: .tempsEcouleSecondes)
         estimationTempsTotalSecondes = try c.decodeIfPresent(Double.self, forKey: .estimationTempsTotalSecondes)
         erreurs = try c.decode([String].self, forKey: .erreurs)
+        avertissements = (try? c.decode([String].self, forKey: .avertissements)) ?? []
         journal = try c.decode([String].self, forKey: .journal)
         chapitresTraduits = (try? c.decode([Int].self, forKey: .chapitresTraduits)) ?? []
     }
@@ -70,6 +72,7 @@ nonisolated struct EtatJob: Codable {
         case tempsEcouleSecondes = "temps_ecoule_secondes"
         case estimationTempsTotalSecondes = "estimation_temps_total_secondes"
         case erreurs
+        case avertissements
         case journal
         case chapitresTraduits = "chapitres_traduits"
     }

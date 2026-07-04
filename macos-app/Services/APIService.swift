@@ -110,6 +110,12 @@ actor APIService {
         _ = try await URLSession.shared.data(for: req)
     }
 
+    func annulerJob(jobId: String) async throws {
+        var req = URLRequest(url: base.appendingPathComponent("job/\(jobId)/annuler"))
+        req.httpMethod = "POST"
+        _ = try await URLSession.shared.data(for: req)
+    }
+
     func statutJob(jobId: String, cheminPdf: String) async throws -> EtatJob {
         var components = URLComponents(url: base.appendingPathComponent("job/\(jobId)/statut"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "chemin_pdf", value: cheminPdf)]

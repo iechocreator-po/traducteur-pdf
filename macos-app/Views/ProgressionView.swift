@@ -52,6 +52,13 @@ struct ProgressionView: View {
                         .font(.caption)
                 }
 
+                if let avertissements = etatJob?.avertissements, !avertissements.isEmpty {
+                    Divider()
+                    Text("🔎 Qualité : \(avertissements.count) section(s) possiblement résumée(s)\n\(avertissements.last ?? "")")
+                        .foregroundStyle(.yellow)
+                        .font(.caption)
+                }
+
                 if let journal = etatJob?.journal, !journal.isEmpty {
                     Divider()
                     Text("Trace")

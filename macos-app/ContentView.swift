@@ -195,6 +195,15 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func annulerJob() {
+        guard let job = jobActuel else { return }
+        etat = .enCours("Annulation en cours…")
+        Task {
+            try? await APIService.shared.annulerJob(jobId: job.jobId)
+            // Le polling détecte le passage au statut "annule" et nettoie l'état
+        }
+    }
+
     // MARK: - Polling
 
     private func demarrerPolling() {
@@ -229,6 +238,15 @@ final class AppViewModel: ObservableObject {
         case "en_pause":
             arreterPolling()
             repriseInfo = "section \(j.derniereSectionCompletee)/\(j.totalSections)"
+        case "annule":
+            arreterPolling()
+            jobActuel = nil
+            etat = .succes("Traduction annulée — \(j.derniereSectionCompletee)/\(j.totalSections) section(s) traduites")
+            if j.derniereSectionCompletee > 0 {
+                repriseInfo = "section \(j.derniereSectionCompletee)/\(j.totalSections)"
+            }
+        case "en_attente":
+            etat = .enCours("En file d'attente…")
         default:
             break
         }
@@ -295,6 +313,7 @@ struct ContentView: View {
                     onConvertir: vm.convertir,
                     onTraduire: { vm.traduire(resume: false) },
                     onReprendre: { vm.traduire(resume: true) },
+                    onAnnuler: vm.annulerJob,
                     onPlanifier: { vm.afficherScheduleSheet = true },
                     onVoirJobsPlanifies: { vm.afficherJobsPlanifies = true },
                     confirmationPlanification: vm.derniereConfirmationPlanification
