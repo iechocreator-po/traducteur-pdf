@@ -34,3 +34,19 @@ def test_feature_flags_retourne_un_dictionnaire():
 def test_analyser_document_fichier_introuvable():
     reponse = client.post("/api/analyser", json={"chemin_pdf": "/chemin/inexistant.pdf"})
     assert reponse.status_code == 404
+
+
+def test_glossaire_lecture_et_ecriture(tmp_path, monkeypatch):
+    from app.services import glossaire
+    monkeypatch.setattr(glossaire, "_FICHIER_GLOSSAIRE", str(tmp_path / "glossaire.json"))
+
+    reponse = client.get("/api/glossaire")
+    assert reponse.status_code == 200
+    assert reponse.json() == {"termes": []}
+
+    reponse = client.put("/api/glossaire", json={"termes": [" FastAPI ", "", "fastapi", "Ollama"]})
+    assert reponse.status_code == 200
+    assert reponse.json() == {"termes": ["FastAPI", "Ollama"]}
+
+    reponse = client.get("/api/glossaire")
+    assert reponse.json() == {"termes": ["FastAPI", "Ollama"]}

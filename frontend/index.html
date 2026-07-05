@@ -22,23 +22,15 @@
       <div class="parametre-ligne">
         <span class="parametre-label">Ollama</span>
         <span id="statut-ollama" class="statut-badge"></span>
+        <button id="bouton-reconnecter" class="bouton-mini" title="Re-vérifier les connexions backend et Ollama">🔄 Reconnecter</button>
       </div>
     </section>
 
     <section class="carte">
       <h2>1. Document à traduire</h2>
-      <div class="mode-toggle">
-        <button id="mode-pdf" class="mode-btn mode-btn-actif">PDF</button>
-        <button id="mode-md" class="mode-btn">Markdown</button>
-      </div>
-      <div id="zone-pdf">
-        <p class="aide">Chemin complet du fichier PDF sur ton ordinateur (ex: /Users/toi/Documents/chapitre1.pdf)</p>
-        <input type="text" id="chemin-pdf" placeholder="/Users/.../document.pdf">
-      </div>
-      <div id="zone-md" hidden>
-        <p class="aide">Chemin complet du fichier Markdown déjà converti (ex: /Users/toi/Documents/chapitre1_converti_py.md)</p>
-        <input type="text" id="chemin-md" placeholder="/Users/.../document_converti_py.md">
-      </div>
+      <p class="aide">Chemin complet du fichier PDF ou Markdown — le type est détecté automatiquement (ex: /Users/toi/Documents/chapitre1.pdf)</p>
+      <input type="text" id="chemin-fichier" placeholder="/Users/.../document.pdf ou .md">
+      <p id="type-detecte" class="aide"></p>
     </section>
 
     <section class="carte">
@@ -78,6 +70,16 @@
           <span id="chapitres-compte" class="chapitres-compte"></span>
         </div>
         <div id="liste-chapitres" class="liste-chapitres"></div>
+      </div>
+    </section>
+
+    <section class="carte">
+      <h2>4. Glossaire (optionnel)</h2>
+      <p class="aide">Termes à ne jamais traduire (noms propres, acronymes, marques…) — un par ligne. Appliqué à toutes les traductions.</p>
+      <textarea id="glossaire-termes" rows="4" placeholder="Quatre-Chemins.org&#10;FastAPI"></textarea>
+      <div>
+        <button id="bouton-sauver-glossaire" class="bouton-secondaire">💾 Enregistrer le glossaire</button>
+        <span id="glossaire-statut" class="aide"></span>
       </div>
     </section>
 

@@ -9,8 +9,16 @@ import json
 import os
 
 
-def calculer_cle(texte: str, modele: str, langue_source: str, langue_cible: str) -> str:
+def calculer_cle(
+    texte: str, modele: str, langue_source: str, langue_cible: str, extra: str = ""
+) -> str:
+    """
+    extra : contexte additionnel qui invalide le cache s'il change (ex. glossaire).
+    N'entre dans la clé que s'il est non vide, pour préserver les caches existants.
+    """
     contenu = f"{texte}|{modele}|{langue_source}|{langue_cible}"
+    if extra:
+        contenu += f"|{extra}"
     return hashlib.sha256(contenu.encode("utf-8")).hexdigest()
 
 

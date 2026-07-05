@@ -6,8 +6,8 @@ const API_BASE = "http://localhost:8000/api";
 const elStatutApi          = document.getElementById("statut-api");
 const elStatutOllama       = document.getElementById("statut-ollama");
 const elModele             = document.getElementById("modele");
-const elCheminPdf          = document.getElementById("chemin-pdf");
-const elCheminMd           = document.getElementById("chemin-md");
+const elCheminFichier      = document.getElementById("chemin-fichier");
+const elTypeDetecte        = document.getElementById("type-detecte");
 const elLangueSource       = document.getElementById("langue-source");
 const elLangueCible        = document.getElementById("langue-cible");
 const elExtracteurPdf      = document.getElementById("extracteur-pdf");
@@ -104,42 +104,38 @@ document.getElementById("chapitres-aucun").addEventListener("click", () => {
   afficherChapitres();
 });
 
-// ── Toggle PDF / Markdown ────────────────────────────────────────────────────
+// ── Détection du type de fichier (PDF ou Markdown) ──────────────────────────
+// Plus de toggle : l'extension du chemin détermine le mode.
 
-let modeSource = "pdf"; // "pdf" | "md"
+function modeSourceActuel() {
+  const chemin = elCheminFichier.value.trim().toLowerCase();
+  return chemin.endsWith(".md") || chemin.endsWith(".markdown") ? "md" : "pdf";
+}
 
-document.getElementById("mode-pdf").addEventListener("click", () => {
-  modeSource = "pdf";
-  document.getElementById("zone-pdf").hidden = false;
-  document.getElementById("zone-md").hidden = true;
-  document.getElementById("zone-extracteur").hidden = false;
-  document.getElementById("mode-pdf").classList.add("mode-btn-actif");
-  document.getElementById("mode-md").classList.remove("mode-btn-actif");
-  document.getElementById("bouton-analyser").hidden = false;
-  document.getElementById("bouton-convertir").hidden = false;
-  reinitialiserChapitres();
-});
+function mettreAJourTypeDetecte() {
+  const chemin = elCheminFichier.value.trim();
+  const estMd = modeSourceActuel() === "md";
+  elTypeDetecte.textContent = !chemin
+    ? ""
+    : estMd
+      ? "📝 Markdown détecté — traduction directe, sans extraction"
+      : "📄 PDF détecté";
+  // Extraction, analyse et conversion ne concernent que les PDF
+  document.getElementById("zone-extracteur").hidden = estMd;
+  document.getElementById("bouton-analyser").hidden = estMd;
+  document.getElementById("bouton-convertir").hidden = estMd;
+}
 
-document.getElementById("mode-md").addEventListener("click", () => {
-  modeSource = "md";
-  document.getElementById("zone-pdf").hidden = true;
-  document.getElementById("zone-md").hidden = false;
-  document.getElementById("zone-extracteur").hidden = true;
-  document.getElementById("mode-md").classList.add("mode-btn-actif");
-  document.getElementById("mode-pdf").classList.remove("mode-btn-actif");
-  document.getElementById("bouton-analyser").hidden = true;
-  document.getElementById("bouton-convertir").hidden = true;
-  reinitialiserChapitres();
-});
+elCheminFichier.addEventListener("input", mettreAJourTypeDetecte);
 
 function cheminSource() {
-  return modeSource === "md" ? elCheminMd.value.trim() : elCheminPdf.value.trim();
+  return elCheminFichier.value.trim();
 }
 
 function corpsSourcePourApi(extra = {}) {
-  return modeSource === "md"
-    ? { chemin_md: elCheminMd.value.trim(), ...extra }
-    : { chemin_pdf: elCheminPdf.value.trim(), ...extra };
+  return modeSourceActuel() === "md"
+    ? { chemin_md: cheminSource(), ...extra }
+    : { chemin_pdf: cheminSource(), ...extra };
 }
 
 // Progression
@@ -186,24 +182,57 @@ const elBoutonLancerBackend = document.getElementById("bouton-lancer-backend");
 
 // ── Santé & modèles ──────────────────────────────────────────────────────────
 
+const elBoutonReconnecter = document.getElementById("bouton-reconnecter");
+let timerReconnexionAuto = null;
+
 async function verifierStatut() {
   const backendEnLigne = await verifierBackend();
   await mettreAJourBoutonLauncher();
+  let ollamaOk = false;
   if (backendEnLigne) {
     try {
       const reponse = await fetch(`${API_BASE}/health`);
       const data = await reponse.json();
-      elStatutOllama.textContent =
-        data.ollama_accessible === "oui"
-          ? "Accessible ✅"
-          : "Inaccessible ⚠️ (vérifie qu'il est lancé)";
+      ollamaOk = data.ollama_accessible === "oui";
+      elStatutOllama.textContent = ollamaOk
+        ? "Accessible ✅"
+        : "Inaccessible ⚠️ (vérifie qu'il est lancé)";
     } catch {
       elStatutOllama.textContent = "";
     }
   } else {
     elStatutOllama.textContent = "";
   }
+  planifierReconnexionAuto(backendEnLigne && ollamaOk);
+  return { backendEnLigne, ollamaOk };
 }
+
+// Tant qu'un voyant est rouge, on retente automatiquement toutes les 30 s.
+function planifierReconnexionAuto(toutVaBien) {
+  clearTimeout(timerReconnexionAuto);
+  timerReconnexionAuto = null;
+  if (!toutVaBien) {
+    timerReconnexionAuto = setTimeout(reconnecter, 30000);
+  }
+}
+
+async function reconnecter() {
+  elBoutonReconnecter.disabled = true;
+  elBoutonReconnecter.textContent = "🔄 Vérification…";
+  try {
+    const { backendEnLigne } = await verifierStatut();
+    if (backendEnLigne) {
+      await chargerModeles();
+      await chargerExtracteurs();
+      await chargerGlossaire();
+    }
+  } finally {
+    elBoutonReconnecter.disabled = false;
+    elBoutonReconnecter.textContent = "🔄 Reconnecter";
+  }
+}
+
+elBoutonReconnecter.addEventListener("click", reconnecter);
 
 async function verifierBackend() {
   try {
@@ -293,10 +322,42 @@ async function chargerExtracteurs() {
   }
 }
 
+// ── Glossaire ────────────────────────────────────────────────────────────────
+
+const elGlossaireTermes = document.getElementById("glossaire-termes");
+const elGlossaireStatut = document.getElementById("glossaire-statut");
+
+async function chargerGlossaire() {
+  try {
+    const rep = await fetch(`${API_BASE}/glossaire`);
+    const data = await rep.json();
+    elGlossaireTermes.value = data.termes.join("\n");
+  } catch {
+    // Backend hors ligne — le glossaire sera rechargé à la reconnexion
+  }
+}
+
+document.getElementById("bouton-sauver-glossaire").addEventListener("click", async () => {
+  const termes = elGlossaireTermes.value.split("\n").map(t => t.trim()).filter(Boolean);
+  try {
+    const rep = await fetch(`${API_BASE}/glossaire`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ termes }),
+    });
+    const data = await rep.json();
+    elGlossaireTermes.value = data.termes.join("\n");
+    elGlossaireStatut.textContent = `✅ ${data.termes.length} terme(s) enregistré(s)`;
+    setTimeout(() => { elGlossaireStatut.textContent = ""; }, 4000);
+  } catch {
+    elGlossaireStatut.textContent = "❌ Sauvegarde impossible (backend hors ligne ?)";
+  }
+});
+
 // ── Analyse ──────────────────────────────────────────────────────────────────
 
 async function analyserDocument() {
-  const chemin = elCheminPdf.value.trim();
+  const chemin = cheminSource();
   if (!chemin) { alert("Indique le chemin du PDF d'abord."); return; }
   // L'analyse n'est disponible qu'en mode PDF
 
@@ -366,20 +427,30 @@ async function checkResume(chemin) {
   }
 }
 
-elCheminPdf.addEventListener("blur", () => { checkResume(elCheminPdf.value.trim()); reinitialiserChapitres(); });
-elCheminMd.addEventListener("blur", () => { checkResume(elCheminMd.value.trim()); reinitialiserChapitres(); });
+elCheminFichier.addEventListener("blur", () => { checkResume(cheminSource()); reinitialiserChapitres(); });
 
 // ── Lancement de la traduction ────────────────────────────────────────────────
 
 async function lancerTraduction(resume = false) {
   const chemin = cheminSource();
   if (!chemin) {
-    alert(modeSource === "md" ? "Indique le chemin du fichier Markdown d'abord." : "Indique le chemin du PDF d'abord.");
+    alert("Indique le chemin du fichier à traduire d'abord.");
+    return;
+  }
+
+  // Re-vérifier les connexions juste avant de lancer — inutile de partir un job voué à l'échec.
+  const sante = await verifierStatut();
+  if (!sante.backendEnLigne) {
+    alert("Le backend est hors ligne. Lance-le d'abord (bouton « Lancer »), puis réessaie.");
+    return;
+  }
+  if (!sante.ollamaOk) {
+    alert("Ollama est inaccessible. Vérifie qu'il est lancé, puis clique 🔄 Reconnecter et réessaie.");
     return;
   }
 
   // En mode PDF : analyse préalable si pas encore faite
-  if (modeSource === "pdf" && !resume && !derniereAnalyse) {
+  if (modeSourceActuel() === "pdf" && !resume && !derniereAnalyse) {
     elContenuAnalyse.innerHTML = "<em>Analyse préalable en cours…</em>";
     elResultatAnalyse.hidden = false;
     await analyserDocument();
@@ -387,7 +458,7 @@ async function lancerTraduction(resume = false) {
   }
 
   // Confirmation avec estimation du temps (mode PDF uniquement)
-  if (modeSource === "pdf" && !resume && derniereAnalyse) {
+  if (modeSourceActuel() === "pdf" && !resume && derniereAnalyse) {
     const duree = formaterDuree(derniereAnalyse.estimation_temps_secondes);
     const chunks = derniereAnalyse.estimation_nb_chunks;
     const ok = confirm(
@@ -592,7 +663,7 @@ const elResultatConversion = document.getElementById("resultat-conversion");
 const elContenuConversion  = document.getElementById("contenu-conversion");
 
 async function convertirEnMarkdown() {
-  const chemin = elCheminPdf.value.trim();
+  const chemin = cheminSource();
   if (!chemin) { alert("Indique le chemin du PDF d'abord."); return; }
   // La conversion n'est disponible qu'en mode PDF
 
@@ -630,3 +701,4 @@ document.getElementById("bouton-convertir").addEventListener("click", convertirE
 verifierStatut();
 chargerModeles();
 chargerExtracteurs();
+chargerGlossaire();

@@ -54,7 +54,7 @@ def test_deux_jobs_ne_traduisent_jamais_en_parallele(tmp_path, monkeypatch):
     en_cours = 0
     max_simultanes = 0
 
-    def fausse_traduction(texte, modele, langue_source, langue_cible):
+    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None):
         nonlocal en_cours, max_simultanes
         with verrou:
             en_cours += 1
@@ -80,7 +80,7 @@ def test_deux_jobs_ne_traduisent_jamais_en_parallele(tmp_path, monkeypatch):
 
 
 def test_annulation_d_un_job_en_cours(tmp_path, monkeypatch):
-    def fausse_traduction(texte, modele, langue_source, langue_cible):
+    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None):
         time.sleep(0.15)
         return texte
 
@@ -99,7 +99,7 @@ def test_annulation_d_un_job_en_cours(tmp_path, monkeypatch):
 
 
 def test_annulation_d_un_job_en_file_d_attente(tmp_path, monkeypatch):
-    def fausse_traduction(texte, modele, langue_source, langue_cible):
+    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None):
         time.sleep(0.1)
         return texte
 
@@ -124,7 +124,7 @@ def test_annulation_d_un_job_en_file_d_attente(tmp_path, monkeypatch):
 def test_controle_qualite_retente_puis_avertit(tmp_path, monkeypatch):
     appels = []
 
-    def traduction_qui_resume(texte, modele, langue_source, langue_cible):
+    def traduction_qui_resume(texte, modele, langue_source, langue_cible, termes_a_conserver=None):
         appels.append(texte)
         return "trop court"  # ratio très inférieur à RATIO_TRADUCTION_SUSPECT
 
@@ -144,7 +144,7 @@ def test_controle_qualite_retente_puis_avertit(tmp_path, monkeypatch):
 def test_cache_evite_de_retraduire_au_re_run(tmp_path, monkeypatch):
     appels = []
 
-    def fausse_traduction(texte, modele, langue_source, langue_cible):
+    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None):
         appels.append(texte)
         return texte.upper()
 

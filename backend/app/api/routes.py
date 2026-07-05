@@ -285,6 +285,24 @@ def annuler_job_planifie(job_id: str) -> dict:
     return {"statut": "annule"}
 
 
+class GlossaireRequest(BaseModel):
+    termes: list[str]
+
+
+@router.get("/glossaire")
+def lire_glossaire() -> dict:
+    """Retourne les termes du glossaire (jamais traduits)."""
+    from app.services.glossaire import charger_termes
+    return {"termes": charger_termes()}
+
+
+@router.put("/glossaire")
+def modifier_glossaire(req: GlossaireRequest) -> dict:
+    """Remplace le glossaire par la liste fournie (nettoyée et dédupliquée)."""
+    from app.services.glossaire import sauvegarder_termes
+    return {"termes": sauvegarder_termes(req.termes)}
+
+
 @router.post("/analyser", response_model=ResultatAnalyse)
 def analyser_document(demande: DemandeTraduction) -> ResultatAnalyse:
     """Lance l'analyse préliminaire d'un PDF."""

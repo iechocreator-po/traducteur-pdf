@@ -33,4 +33,5 @@ build/
 # Claude
 .claude/
 backend/scheduled_jobs.json
+backend/glossaire.json
 test_integre/

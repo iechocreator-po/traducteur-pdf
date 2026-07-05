@@ -20,7 +20,7 @@ from app.config.settings import (
 )
 from app.services.pdf_extractor import extraire_texte, decouper_en_chunks, compter_pages
 from app.services.translator import traduire_texte
-from app.services import cache_traduction
+from app.services import cache_traduction, glossaire
 from app.services.job_manager import (
     sauvegarder_etat,
     charger_etat,
@@ -75,29 +75,35 @@ def _journaliser(state: EtatJob, message: str) -> None:
 
 def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], etiquette: str) -> str:
     """
-    Traduit un texte avec cache et contrôle qualité anti-résumé.
-    - Si le texte est déjà dans le cache (même modèle/langues), le retourne directement.
+    Traduit un texte avec cache, glossaire et contrôle qualité anti-résumé.
+    - Si le texte est déjà dans le cache (même modèle/langues/glossaire), le retourne.
+    - Les termes du glossaire présents dans le texte sont imposés au traducteur,
+      puis leur présence est vérifiée dans la traduction (avertissement si perdus).
     - Si la traduction est trop courte (ratio < RATIO_TRADUCTION_SUSPECT), le modèle
       a probablement résumé : une seconde tentative est faite, et un avertissement
       est ajouté au job si le ratio reste suspect (résultat alors non mis en cache,
       pour qu'un re-run retente la section).
     """
+    termes = glossaire.termes_presents(texte)
     cle = cache_traduction.calculer_cle(
-        texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value
+        texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value,
+        extra=",".join(termes),
     )
     if cle in cache:
         _journaliser(state, f"{etiquette} : reprise depuis le cache")
         return cache[cle]
 
     traduit = traduire_texte(
-        texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value
+        texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value,
+        termes_a_conserver=termes,
     )
     ratio = len(traduit) / max(len(texte), 1)
 
     if len(texte) >= CONTROLE_QUALITE_LONGUEUR_MIN and ratio < RATIO_TRADUCTION_SUSPECT:
         _journaliser(state, f"{etiquette} : traduction suspecte (ratio {ratio:.2f}) — nouvelle tentative")
         nouvelle = traduire_texte(
-            texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value
+            texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value,
+            termes_a_conserver=termes,
         )
         nouveau_ratio = len(nouvelle) / max(len(texte), 1)
         if nouveau_ratio > ratio:
@@ -110,6 +116,16 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
             state.avertissements.append(avertissement)
             journaliser_erreur(state.chemin_sortie, avertissement)
             return traduit
+
+    perdus = glossaire.termes_perdus(termes, traduit)
+    if perdus:
+        avertissement = (
+            f"{etiquette} : terme(s) du glossaire absent(s) de la traduction : "
+            f"{', '.join(perdus)}"
+        )
+        state.avertissements.append(avertissement)
+        journaliser_erreur(state.chemin_sortie, avertissement)
+        return traduit  # non mis en cache — un re-run retentera la section
 
     cache[cle] = traduit
     return traduit

@@ -11,8 +11,17 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
 
 
-def traduire_texte(texte: str, modele: str, langue_source: str, langue_cible: str) -> str:
-    """Envoie un texte à Ollama et retourne la traduction."""
+def traduire_texte(
+    texte: str,
+    modele: str,
+    langue_source: str,
+    langue_cible: str,
+    termes_a_conserver: list[str] | None = None,
+) -> str:
+    """
+    Envoie un texte à Ollama et retourne la traduction.
+    termes_a_conserver : termes du glossaire à recopier tels quels (jamais traduits).
+    """
     system = (
         f"You are a professional literal translator. Traduis de {langue_source} vers {langue_cible}.\n"
         f"RÈGLES STRICTES :\n"
@@ -24,6 +33,11 @@ def traduire_texte(texte: str, modele: str, langue_source: str, langue_cible: st
         f"6. Conserve EXACTEMENT tous les symboles Markdown : #, ##, ###, **, *, _, `, ```, |, >, -, [ ], ( ).\n"
         f"7. Ne traduis PAS les URLs, noms de fichiers, ni le code dans les blocs ```."
     )
+    if termes_a_conserver:
+        liste = ", ".join(f"« {t} »" for t in termes_a_conserver)
+        system += (
+            f"\n8. Ne traduis JAMAIS ces termes, recopie-les EXACTEMENT tels quels : {liste}."
+        )
 
     reponse = requests.post(
         OLLAMA_URL,
