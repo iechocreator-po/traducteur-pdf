@@ -163,3 +163,54 @@ def test_cache_evite_de_retraduire_au_re_run(tmp_path, monkeypatch):
     assert etat2.statut == StatutJob.TERMINE
     assert len(appels) == nb_appels_premier_run
     assert any("cache" in ligne for ligne in etat2.journal)
+
+
+def test_annexe_liens_ajoutee_une_seule_fois(tmp_path, monkeypatch):
+    """L'annexe des liens du PDF est ajoutée à la fin, sans doublon au re-run."""
+    import time as _time
+    from app.models.schemas import EtatJob, StatutJob, Langue
+
+    monkeypatch.setattr(
+        translation_runner, "extraire_urls",
+        lambda chemin: ["https://a.org", "https://b.org", "https://a.org"],
+    )
+
+    sortie = tmp_path / "doc_traduit_ll.md"
+    sortie.write_text("Texte traduit.\n")
+    state = EtatJob(
+        job_id="test", chemin_pdf=str(tmp_path / "doc.pdf"), chemin_sortie=str(sortie),
+        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS, modele_ollama="llama3.1",
+        statut=StatutJob.EN_COURS, derniere_section_completee=1, total_sections=1,
+        total_pages=1, total_mots=2, mots_traduits=2, temps_debut=_time.time(),
+    )
+
+    translation_runner._annexer_liens_source(state)
+    contenu = sortie.read_text()
+    assert "## Liens du document original" in contenu
+    assert contenu.count("https://a.org") == 1  # dédoublonné
+    assert "https://b.org" in contenu
+
+    # Re-run : pas de seconde annexe
+    translation_runner._annexer_liens_source(state)
+    assert sortie.read_text().count("## Liens du document original") == 1
+
+
+def test_annexe_liens_ignoree_pour_source_markdown(tmp_path, monkeypatch):
+    import time as _time
+    from app.models.schemas import EtatJob, StatutJob, Langue
+
+    monkeypatch.setattr(
+        translation_runner, "extraire_urls",
+        lambda chemin: ["https://a.org"],
+    )
+    sortie = tmp_path / "doc_traduit_ll.md"
+    sortie.write_text("Texte traduit.\n")
+    state = EtatJob(
+        job_id="test", chemin_pdf=str(tmp_path / "doc.md"), chemin_sortie=str(sortie),
+        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS, modele_ollama="llama3.1",
+        statut=StatutJob.EN_COURS, derniere_section_completee=1, total_sections=1,
+        total_pages=0, total_mots=2, mots_traduits=2, temps_debut=_time.time(),
+    )
+
+    translation_runner._annexer_liens_source(state)
+    assert "## Liens du document original" not in sortie.read_text()

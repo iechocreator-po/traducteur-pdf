@@ -18,7 +18,7 @@ from app.config.settings import (
     RATIO_TRADUCTION_SUSPECT,
     CONTROLE_QUALITE_LONGUEUR_MIN,
 )
-from app.services.pdf_extractor import extraire_texte, decouper_en_chunks, compter_pages
+from app.services.pdf_extractor import extraire_texte, decouper_en_chunks, compter_pages, extraire_urls
 from app.services.translator import traduire_texte
 from app.services import cache_traduction, glossaire
 from app.services.job_manager import (
@@ -131,6 +131,36 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
     return traduit
 
 
+TITRE_ANNEXE_LIENS = "## Liens du document original"
+
+
+def _annexer_liens_source(state: EtatJob) -> None:
+    """
+    Ajoute en fin de fichier traduit la liste des liens cliquables du PDF source
+    (annotations extraites par pdfplumber — le texte traduit peut les avoir perdus).
+    Sans effet si la source n'est pas un PDF ou si l'annexe existe déjà (re-run).
+    """
+    source = state.chemin_pdf
+    if not source.lower().endswith(".pdf"):
+        return
+    try:
+        with open(state.chemin_sortie, "r", encoding="utf-8") as f:
+            if TITRE_ANNEXE_LIENS in f.read():
+                return
+        urls = extraire_urls(source)
+    except Exception:
+        return  # Non critique — la traduction reste valide sans l'annexe
+
+    uniques = list(dict.fromkeys(urls))
+    if not uniques:
+        return
+    with open(state.chemin_sortie, "a", encoding="utf-8") as f:
+        f.write(f"\n\n---\n\n{TITRE_ANNEXE_LIENS}\n\n")
+        for url in uniques:
+            f.write(f"- <{url}>\n")
+    _journaliser(state, f"{len(uniques)} lien(s) du PDF source ajoutés en annexe")
+
+
 def _executer_traduction(state: EtatJob, chunks: list[str]) -> None:
     """Exécuté par le worker de la file. Vérifie pause et annulation entre chaque chunk."""
     output_path = state.chemin_sortie
@@ -199,6 +229,7 @@ def _executer_traduction(state: EtatJob, chunks: list[str]) -> None:
                 state.temps_ecoule_secondes = elapsed_total
                 sauvegarder_etat(state)
 
+        _annexer_liens_source(state)
         state.statut = StatutJob.TERMINE
         state.temps_ecoule_secondes += time.time() - temps_debut_session
         _journaliser(state, "Traduction terminée")
@@ -350,6 +381,7 @@ def _executer_traduction_chapitres(state: EtatJob, chapitres: list[dict]) -> Non
             sauvegarder_etat(state)
             _mettre_a_jour_entete_chapitres(output_path, state.chapitres_traduits, state)
 
+        _annexer_liens_source(state)
         state.statut = StatutJob.TERMINE
         _journaliser(state, "Traduction des chapitres terminée")
         sauvegarder_etat(state)

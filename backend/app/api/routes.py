@@ -65,6 +65,16 @@ def convertir_pdf(req: ConvertRequest) -> dict:
     with open(chemin_sortie, "w", encoding="utf-8") as f:
         f.write(f"<!-- extracteur : {req.extracteur_pdf} -->\n\n")
         f.write(contenu_md)
+        # Annexe les liens cliquables du PDF (souvent perdus par l'extraction texte)
+        try:
+            from app.services.pdf_extractor import extraire_urls
+            uniques = list(dict.fromkeys(extraire_urls(req.chemin_pdf)))
+            if uniques:
+                f.write("\n\n---\n\n## Liens du document original\n\n")
+                for url in uniques:
+                    f.write(f"- <{url}>\n")
+        except Exception:
+            pass  # Non critique — la conversion reste valide sans l'annexe
 
     return {"chemin_sortie": chemin_sortie, "nb_caracteres": len(contenu_md)}
 
