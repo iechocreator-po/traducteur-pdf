@@ -10,14 +10,22 @@ struct ScheduleSheet: View {
     var chapitresSelectionnes: [Int]? = nil
 
     @Binding var isPresented: Bool
-    var onPlanifie: (JobPlanifie) -> Void
+    var onPlanifie: ([JobPlanifie]) -> Void
 
     @State private var dateChoisie: Date = {
         // Proposer dans 1 heure par défaut
         Calendar.current.date(byAdding: .hour, value: 1, to: Date()) ?? Date()
     }()
+    @State private var fichiersSupplementaires: String = ""
     @State private var enCours = false
     @State private var erreur: String? = nil
+
+    private var extras: [String] {
+        fichiersSupplementaires
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -52,6 +60,27 @@ struct ScheduleSheet: View {
             )
             .datePickerStyle(.field)
 
+            GroupBox("Autres fichiers à enchaîner (optionnel)") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Un chemin complet par ligne (.pdf ou .md). Ils seront traduits l'un après l'autre, à la suite du fichier principal.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $fichiersSupplementaires)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(height: 60)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        )
+                    if !extras.isEmpty, chapitresSelectionnes?.isEmpty == false {
+                        Text("⚠️ En mode multi-fichiers, la sélection de chapitres est ignorée : les documents sont traduits en entier.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                .padding(.top, 4)
+            }
+
             if let err = erreur {
                 Text(err)
                     .foregroundStyle(.red)
@@ -81,17 +110,35 @@ struct ScheduleSheet: View {
         erreur = nil
         Task {
             do {
-                let job = try await APIService.shared.planifier(
-                    cheminPdf: cheminPdf,
-                    cheminMd: cheminMd,
-                    modele: modele,
-                    langueSource: langueSource,
-                    langueCible: langueCible,
-                    extracteur: extracteur,
-                    executer_a: dateChoisie,
-                    chapitresSelectionnes: chapitresSelectionnes
-                )
-                onPlanifie(job)
+                if extras.isEmpty {
+                    let job = try await APIService.shared.planifier(
+                        cheminPdf: cheminPdf,
+                        cheminMd: cheminMd,
+                        modele: modele,
+                        langueSource: langueSource,
+                        langueCible: langueCible,
+                        extracteur: extracteur,
+                        executer_a: dateChoisie,
+                        chapitresSelectionnes: chapitresSelectionnes
+                    )
+                    onPlanifie([job])
+                } else {
+                    // Multi-fichiers : le principal + les extras, enchaînés par la file d'attente
+                    var chemins: [String] = []
+                    if let principal = cheminMd ?? cheminPdf, !principal.isEmpty {
+                        chemins.append(principal)
+                    }
+                    chemins.append(contentsOf: extras)
+                    let jobs = try await APIService.shared.planifierBatch(
+                        chemins: chemins,
+                        modele: modele,
+                        langueSource: langueSource,
+                        langueCible: langueCible,
+                        extracteur: extracteur,
+                        executerA: dateChoisie
+                    )
+                    onPlanifie(jobs)
+                }
                 isPresented = false
             } catch {
                 erreur = error.localizedDescription

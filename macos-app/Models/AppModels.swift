@@ -162,6 +162,14 @@ nonisolated struct JobsPlanifiesResponse: Codable {
     let jobs: [JobPlanifie]
 }
 
+nonisolated struct GlossaireResponse: Codable {
+    let termes: [String]
+}
+
+nonisolated struct APIDetailErreur: Codable {
+    let detail: String
+}
+
 nonisolated struct Chapitre: Codable, Identifiable {
     let index: Int
     let titre: String

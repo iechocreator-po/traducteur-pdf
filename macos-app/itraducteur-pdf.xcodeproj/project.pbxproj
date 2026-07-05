@@ -18,6 +18,7 @@
 		C3C9B5C12FF1C302007507DA /* ProgressionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5C22FF1C302007507DA /* ProgressionView.swift */; };
 		C3EE385B2FF34B09003E6118 /* ScheduledJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */; };
 		C3EE385C2FF34B09003E6118 /* ScheduleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EE385A2FF34B09003E6118 /* ScheduleSheet.swift */; };
+		C3EE385E2FF34B09003E6118 /* GlossaireView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EE385D2FF34B09003E6118 /* GlossaireView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -53,6 +54,7 @@
 		C3C9B5C22FF1C302007507DA /* ProgressionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressionView.swift; sourceTree = "<group>"; };
 		C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledJobsView.swift; sourceTree = "<group>"; };
 		C3EE385A2FF34B09003E6118 /* ScheduleSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleSheet.swift; sourceTree = "<group>"; };
+		C3EE385D2FF34B09003E6118 /* GlossaireView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlossaireView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -139,6 +141,7 @@
 			isa = PBXGroup;
 			children = (
 				C3C9B5B72FF1C302007507DA /* DocumentView.swift */,
+				C3EE385D2FF34B09003E6118 /* GlossaireView.swift */,
 				C3C9B5C22FF1C302007507DA /* ProgressionView.swift */,
 				C3C9B5B82FF1C302007507DA /* ResultatView.swift */,
 				C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */,
@@ -299,6 +302,7 @@
 				C3C9B5C02FF1C302007507DA /* ResultatView.swift in Sources */,
 				C3EE385B2FF34B09003E6118 /* ScheduledJobsView.swift in Sources */,
 				C3EE385C2FF34B09003E6118 /* ScheduleSheet.swift in Sources */,
+				C3EE385E2FF34B09003E6118 /* GlossaireView.swift in Sources */,
 				C3C9B5C12FF1C302007507DA /* ProgressionView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -304,6 +304,8 @@ struct ContentView: View {
                     onIdentifier: vm.identifierChapitres
                 )
 
+                GlossaireView()
+
                 ResultatView(
                     etat: vm.etat,
                     repriseInfo: vm.repriseInfo,
@@ -331,19 +333,24 @@ struct ContentView: View {
                             ? nil
                             : Array(vm.chapitresSelectionnes),
                         isPresented: $vm.afficherScheduleSheet
-                    ) { job in
+                    ) { jobs in
                         let fmt = DateFormatter()
                         fmt.dateStyle = .medium
                         fmt.timeStyle = .short
-                        let date = job.dateExecution.map { fmt.string(from: $0) } ?? job.executer_a
-                        let chapitresInfo: String
-                        if vm.chapitresDisponibles.isEmpty || vm.chapitresSelectionnes.isEmpty {
-                            chapitresInfo = "document complet"
+                        let date = jobs.first.flatMap { $0.dateExecution.map { fmt.string(from: $0) } ?? $0.executer_a } ?? "—"
+                        if jobs.count > 1 {
+                            vm.derniereConfirmationPlanification =
+                                "\(jobs.count) fichiers planifiés à partir du \(date) — traduits l'un après l'autre"
                         } else {
-                            let indices = vm.chapitresSelectionnes.sorted().map { String($0 + 1) }.joined(separator: ", ")
-                            chapitresInfo = "\(vm.chapitresSelectionnes.count) chapitre(s) : \(indices)"
+                            let chapitresInfo: String
+                            if vm.chapitresDisponibles.isEmpty || vm.chapitresSelectionnes.isEmpty {
+                                chapitresInfo = "document complet"
+                            } else {
+                                let indices = vm.chapitresSelectionnes.sorted().map { String($0 + 1) }.joined(separator: ", ")
+                                chapitresInfo = "\(vm.chapitresSelectionnes.count) chapitre(s) : \(indices)"
+                            }
+                            vm.derniereConfirmationPlanification = "Planifiée le \(date) — \(chapitresInfo)"
                         }
-                        vm.derniereConfirmationPlanification = "Planifiée le \(date) — \(chapitresInfo)"
                     }
                 }
                 .sheet(isPresented: $vm.afficherJobsPlanifies) {

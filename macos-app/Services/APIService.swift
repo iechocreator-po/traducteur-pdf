@@ -99,9 +99,59 @@ actor APIService {
         return try decoder.decode(JobPlanifie.self, from: data)
     }
 
+    func planifierBatch(
+        chemins: [String],
+        modele: String,
+        langueSource: Langue,
+        langueCible: Langue,
+        extracteur: String,
+        executerA: Date
+    ) async throws -> [JobPlanifie] {
+        let fmt = ISO8601DateFormatter()
+        let body: [String: Any] = [
+            "chemins": chemins,
+            "modele_ollama": modele,
+            "langue_source": langueSource.rawValue,
+            "langue_cible": langueCible.rawValue,
+            "extracteur_pdf": extracteur,
+            "executer_a": fmt.string(from: executerA),
+        ]
+        let data = try await postAny("schedule/batch", body: body)
+        if let rep = try? decoder.decode(JobsPlanifiesResponse.self, from: data) {
+            return rep.jobs
+        }
+        // Le backend renvoie {"detail": …} en cas d'erreur (ex. fichier introuvable)
+        if let err = try? decoder.decode(APIDetailErreur.self, from: data) {
+            throw NSError(domain: "APIService", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: err.detail])
+        }
+        throw NSError(domain: "APIService", code: 2,
+                      userInfo: [NSLocalizedDescriptionKey: "Réponse inattendue du backend."])
+    }
+
     func jobsPlanifies() async throws -> [JobPlanifie] {
         let rep: JobsPlanifiesResponse = try await get("scheduled")
         return rep.jobs
+    }
+
+    func tousJobsPlanifies() async throws -> [JobPlanifie] {
+        let rep: JobsPlanifiesResponse = try await get("scheduled/tous")
+        return rep.jobs
+    }
+
+    func glossaire() async throws -> [String] {
+        let rep: GlossaireResponse = try await get("glossaire")
+        return rep.termes
+    }
+
+    func sauvegarderGlossaire(termes: [String]) async throws -> [String] {
+        var req = URLRequest(url: base.appendingPathComponent("glossaire"))
+        req.httpMethod = "PUT"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["termes": termes])
+        let (data, _) = try await URLSession.shared.data(for: req)
+        let rep = try decoder.decode(GlossaireResponse.self, from: data)
+        return rep.termes
     }
 
     func annulerJobPlanifie(id: String) async throws {
