@@ -17,9 +17,11 @@ Document de travail en attendant la mise en place d'un vrai tableau kanban
 | 1 | Pause / reprise de traduction | ✅ | Fichier `.state.json` à côté de la sortie ; boutons Pause/Continuer/Reprendre (web + app macOS). |
 | 2 | Langues anglais / français / espagnol (entrée + sortie) | ✅ | Menus déroulants dans le frontend et l'app Swift. |
 | 3 | Programmation différée (traduction de nuit) | ✅ | `scheduler.py` + `scheduled_jobs.json`, vues Swift ScheduleSheet/ScheduledJobsView. |
-| 4 | Préservation des liens URL | 🔶 | `extraire_urls()` écrit dans `pdf_extractor.py` (pdfplumber) mais pas encore branché sur la sortie traduite. |
+| 4 | Préservation des liens URL | ✅ | Annexe « Liens du document original » en fin de fichier traduit et de conversion (dédoublonnée, une seule fois au re-run). |
 | 5 | Analyse préliminaire des 5 premières pages | ✅ | Route `/api/analyser` : langue détectée, nb de chunks, durée estimée, avertissements, recommandation. |
-| 6 | Indicateur Ollama vert/rouge dans l'UI | 🔶 | Statut « Accessible ✅ / Inaccessible ⚠️ » affiché au chargement (web). Reste : re-vérifier juste avant de lancer une traduction. |
+| 6 | Indicateur Ollama vert/rouge dans l'UI | ✅ | Bouton 🔄 Reconnecter (retry auto 30 s), re-vérification backend/Ollama juste avant chaque lancement de traduction. |
+| 7 | Choix de fichier sans toggle PDF/Markdown | ✅ | Un seul champ — le type est détecté par l'extension, les options s'adaptent. |
+| 8 | Planification multi-fichiers avec liste et statuts | ✅ | `POST /api/schedule/batch`, section « 5. Planification » : tableau fichier / planifié pour / statut réel / retirer. |
 
 ## Fonctionnalités proposées par Claude
 
@@ -28,7 +30,7 @@ Document de travail en attendant la mise en place d'un vrai tableau kanban
 | A | Détection automatique de la langue source | ✅ | Faite pendant l'analyse préliminaire (`analysis_agent.py`). |
 | B | Estimation du temps total avant de lancer | ✅ | Affichée dans l'analyse + confirmation avant lancement ; temps restant pendant le job. |
 | C | Journal d'erreurs/avertissements par section | ✅ | `.errors.log` à côté de la sortie ; le job continue malgré les échecs de section. |
-| D | Glossaire de termes à ne pas traduire | 🔲 | Utile pour noms propres, acronymes, termes Quatre-Chemins.org. |
+| D | Glossaire de termes à ne pas traduire | ✅ | Section « 4. Glossaire » (un terme par ligne), injection dans le prompt, vérification post-traduction avec avertissement. |
 | E | Mode relecture comparative (côte à côte) | 🔲 | Affichage anglais/français en parallèle pour validation rapide. |
 
 ## Livré en plus (delta v2 → v4)
