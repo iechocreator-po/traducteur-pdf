@@ -151,6 +151,7 @@ const elTempsEcoule        = document.getElementById("temps-ecoule");
 const elTempsRestant       = document.getElementById("temps-restant");
 const elBoutonPause        = document.getElementById("bouton-pause");
 const elBoutonContinuer    = document.getElementById("bouton-continuer");
+const elBoutonAnnuler      = document.getElementById("bouton-annuler");
 
 // Erreurs
 const elSectionErreurs  = document.getElementById("section-erreurs");
@@ -450,6 +451,13 @@ function afficherProgression(visible) {
   if (!visible) return;
   elBoutonPause.hidden = false;
   elBoutonContinuer.hidden = true;
+  elBoutonAnnuler.disabled = false;
+  elBoutonAnnuler.textContent = "✕ Annuler";
+}
+
+function afficherAvertissements(etat) {
+  if (!etat.avertissements || etat.avertissements.length === 0) return "";
+  return `<p class="erreur">⚠ Avertissements qualité :<br>${etat.avertissements.join("<br>")}</p>`;
 }
 
 function mettreAJourProgression(etat) {
@@ -470,14 +478,30 @@ function mettreAJourProgression(etat) {
 
   afficherErreurs(etat.erreurs);
 
+  if (etat.statut === "en_attente") {
+    elProgressionTexte.textContent = "⏳ En file d'attente — un autre job est en cours…";
+  }
+
   if (etat.statut === "termine") {
     arreterPolling();
     afficherProgression(false);
     elContenuAnalyse.innerHTML =
       `<p>✅ Traduction terminée — ${etat.total_sections} sections<br>` +
-      `Fichier : <code>${etat.chemin_sortie}</code></p>`;
+      `Fichier : <code>${etat.chemin_sortie}</code></p>` +
+      afficherAvertissements(etat);
     elResultatAnalyse.hidden = false;
     elBoutonReprendre.hidden = true;
+    jobActuel = null;
+  } else if (etat.statut === "annule") {
+    arreterPolling();
+    afficherProgression(false);
+    elContenuAnalyse.innerHTML =
+      `<p>✕ Traduction annulée — ${etat.derniere_section_completee} / ${etat.total_sections} sections complétées.<br>` +
+      `Tu peux reprendre plus tard là où le job s'est arrêté.</p>`;
+    elResultatAnalyse.hidden = false;
+    elRepriseProgression.textContent =
+      `section ${etat.derniere_section_completee}/${etat.total_sections}`;
+    elBoutonReprendre.hidden = etat.derniere_section_completee === 0;
     jobActuel = null;
   } else if (etat.statut === "en_pause") {
     arreterPolling();
@@ -537,6 +561,29 @@ elBoutonContinuer.addEventListener("click", () => {
   elBoutonPause.hidden = false;
   elBoutonPause.textContent = "⏸ Pause";
   lancerTraduction(true);
+});
+
+// ── Annulation ───────────────────────────────────────────────────────────────
+
+elBoutonAnnuler.addEventListener("click", async () => {
+  if (!jobActuel) return;
+  if (!confirm("Annuler la traduction en cours ?\nLa progression déjà faite est conservée.")) return;
+  elBoutonAnnuler.disabled = true;
+  elBoutonAnnuler.textContent = "✕ Annulation demandée…";
+  try {
+    const rep = await fetch(`${API_BASE}/job/${jobActuel.job_id}/annuler`, { method: "POST" });
+    if (!rep.ok) {
+      const data = await rep.json();
+      alert(`Impossible d'annuler : ${data.detail}`);
+      elBoutonAnnuler.disabled = false;
+      elBoutonAnnuler.textContent = "✕ Annuler";
+    }
+    // L'état "annule" sera détecté par le prochain poll
+  } catch (e) {
+    alert(`Impossible d'annuler : ${e}`);
+    elBoutonAnnuler.disabled = false;
+    elBoutonAnnuler.textContent = "✕ Annuler";
+  }
 });
 
 // ── Conversion PDF → Markdown ─────────────────────────────────────────────────

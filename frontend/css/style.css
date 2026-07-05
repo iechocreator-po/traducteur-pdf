@@ -85,6 +85,11 @@ button {
   color: var(--couleur-texte);
 }
 
+.bouton-danger {
+  background: #fdecea;
+  color: #c0392b;
+}
+
 pre {
   white-space: pre-wrap;
   font-size: 0.85rem;
