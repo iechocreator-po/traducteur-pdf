@@ -27,6 +27,9 @@ n'existe côté interface. Ça permet de remplacer ou faire évoluer l'UI sans t
 - [Ollama](https://ollama.com) installé et lancé, avec au moins un modèle téléchargé
   (`ollama pull llama3.1`)
 - Python 3.10+
+- (Optionnel) [Tesseract](https://github.com/tesseract-ocr/tesseract) pour l'extracteur OCR,
+  utile pour les PDF scannés ou à couche texte corrompue : `brew install tesseract`
+  (+ `brew install tesseract-lang` pour le français/espagnol)
 
 ## Installation
 

@@ -30,3 +30,26 @@ def test_executer_agent_en_securite_capture_les_exceptions():
     resultat = executer_agent_en_securite(fonction_qui_echoue)
     assert resultat.succes is False
     assert "Ollama inaccessible" in resultat.erreur
+
+
+# ── Détection de couche texte corrompue ──────────────────────────────────────
+
+def test_ratio_texte_corrompu():
+    from app.agents.analysis_agent import _ratio_texte_corrompu
+    assert _ratio_texte_corrompu("Texte parfaitement sain.") == 0.0
+    assert _ratio_texte_corrompu("\x01\x01 \x01\x01\n\x01") == 1.0
+    assert _ratio_texte_corrompu("") == 0.0
+    assert 0.4 < _ratio_texte_corrompu("ab���") < 0.7
+
+
+def test_analyse_detecte_couche_texte_corrompue(monkeypatch):
+    from app.agents import analysis_agent
+
+    monkeypatch.setattr(analysis_agent, "extraire_texte", lambda c: "\x01\x01\x01 \x01\x01 �����\n" * 50)
+    monkeypatch.setattr(analysis_agent, "compter_pages", lambda c: 1)
+
+    resultat = analysis_agent.analyser_pdf("/fake/corrompu.pdf")
+
+    assert resultat.texte_extractible is False
+    assert any("corrompue" in a for a in resultat.avertissements)
+    assert "Tesseract" in resultat.recommandation

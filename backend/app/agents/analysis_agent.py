@@ -13,6 +13,19 @@ from app.services.translation_runner import SECONDES_PAR_CHUNK_ESTIME
 OLLAMA_URL = "http://localhost:11434/api/generate"
 NB_PAGES_ANALYSE_DEFAUT = 5
 
+# Au-delà de cette part de caractères illisibles, la couche texte est jugée
+# corrompue (police sans table ToUnicode, ex. export Aperçu/Quartz).
+SEUIL_TEXTE_CORROMPU = 0.3
+
+
+def _ratio_texte_corrompu(texte: str) -> float:
+    """Part de caractères illisibles (contrôle ou U+FFFD) parmi les non-blancs."""
+    significatifs = [c for c in texte if not c.isspace()]
+    if not significatifs:
+        return 0.0
+    illisibles = sum(1 for c in significatifs if c == "�" or ord(c) < 32)
+    return illisibles / len(significatifs)
+
 
 def _appel_llm(prompt: str, modele: str = "llama3.1") -> str:
     """Appel direct à Ollama, retourne du texte libre."""
@@ -47,7 +60,21 @@ def analyser_pdf(chemin_pdf: str, nb_pages: int = NB_PAGES_ANALYSE_DEFAUT) -> Re
             nb_pages_analysees=min(nb_pages, nb_pages_total),
             texte_extractible=False,
             avertissements=["Aucun texte extrait — le PDF est probablement scanné (image)."],
-            recommandation="Effectuer une OCR avant de tenter une traduction.",
+            recommandation="Utiliser l'extracteur Tesseract (OCR) avant de tenter une traduction.",
+            estimation_nb_chunks=0,
+            estimation_temps_secondes=0,
+        )
+
+    ratio_corrompu = _ratio_texte_corrompu(texte_complet)
+    if ratio_corrompu > SEUIL_TEXTE_CORROMPU:
+        return ResultatAnalyse(
+            nb_pages_analysees=min(nb_pages, nb_pages_total),
+            texte_extractible=False,
+            avertissements=[
+                f"Couche texte corrompue ({ratio_corrompu:.0%} de caractères illisibles) — "
+                "police sans table ToUnicode (ex. PDF ré-enregistré par Aperçu) ou scan."
+            ],
+            recommandation="Utiliser l'extracteur Tesseract (OCR), ou repartir du PDF original.",
             estimation_nb_chunks=0,
             estimation_temps_secondes=0,
         )

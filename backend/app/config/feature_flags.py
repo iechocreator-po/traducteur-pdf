@@ -5,6 +5,7 @@ Permet d'activer/désactiver des fonctionnalités en développement sans changer
 
 import json
 import os
+import shutil
 from pathlib import Path
 
 CHEMIN_FLAGS_DEFAUT = Path(__file__).parent / "feature_flags.json"
@@ -20,6 +21,9 @@ FLAGS_PAR_DEFAUT = {
 EXTRACTEURS_PDF = [
     {"id": "pymupdf4llm",  "nom": "PyMuPDF4LLM",  "disponible": True},
     {"id": "marker",       "nom": "Marker",         "disponible": True},
+    # OCR — pour les PDF sans couche texte exploitable (scans, exports Aperçu).
+    # Nécessite le binaire système : brew install tesseract
+    {"id": "tesseract",    "nom": "Tesseract (OCR)", "disponible": shutil.which("tesseract") is not None},
     {"id": "llamaparse",   "nom": "LlamaParse",     "disponible": False},
     {"id": "unstructured", "nom": "Unstructured",   "disponible": False},
 ]

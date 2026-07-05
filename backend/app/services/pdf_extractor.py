@@ -6,6 +6,8 @@ Logique pure, sans dépendance à une interface ou à Ollama — facile à teste
 import glob as _glob
 import os
 import re
+import shutil
+import subprocess
 
 import pdfplumber
 import pymupdf4llm
@@ -17,6 +19,8 @@ def extraire_texte(chemin_pdf: str, extracteur: str = "pymupdf4llm") -> str:
         return pymupdf4llm.to_markdown(chemin_pdf)
     if extracteur == "marker":
         return _extraire_avec_marker(chemin_pdf)
+    if extracteur == "tesseract":
+        return _extraire_avec_tesseract(chemin_pdf)
     if extracteur in ("llamaparse", "unstructured"):
         raise NotImplementedError(
             f"L'extracteur '{extracteur}' n'est pas encore implémenté."
@@ -46,6 +50,58 @@ def _extraire_avec_marker(chemin_pdf: str) -> str:
     rendered = converter(chemin_pdf)
     texte, _, _ = text_from_rendered(rendered)
     return texte
+
+
+def tesseract_disponible() -> bool:
+    """Vrai si le binaire tesseract est installé sur la machine."""
+    return shutil.which("tesseract") is not None
+
+
+def _langues_tesseract() -> str:
+    """
+    Croise les langues de l'app (anglais/français/espagnol) avec les modèles
+    Tesseract réellement installés. Retourne une spec du type « eng+fra ».
+    """
+    try:
+        res = subprocess.run(
+            ["tesseract", "--list-langs"],
+            capture_output=True, text=True, timeout=10,
+        )
+        installees = set(res.stdout.strip().splitlines()[1:])
+    except Exception:
+        return "eng"
+    souhaitees = [langue for langue in ("eng", "fra", "spa") if langue in installees]
+    return "+".join(souhaitees) or "eng"
+
+
+def _extraire_avec_tesseract(chemin_pdf: str, dpi: int = 300) -> str:
+    """
+    OCR page par page : rendu de chaque page en image (PyMuPDF) puis
+    reconnaissance par le binaire tesseract. À utiliser pour les PDF sans
+    couche texte exploitable (scans, exports Aperçu à police corrompue).
+    """
+    if not tesseract_disponible():
+        raise RuntimeError(
+            "Tesseract n'est pas installé. Installe-le avec : brew install tesseract"
+        )
+    import fitz
+
+    langues = _langues_tesseract()
+    pages_texte = []
+    with fitz.open(chemin_pdf) as doc:
+        for i, page in enumerate(doc):
+            pix = page.get_pixmap(dpi=dpi)
+            res = subprocess.run(
+                ["tesseract", "stdin", "stdout", "-l", langues],
+                input=pix.tobytes("png"),
+                capture_output=True,
+                timeout=300,
+            )
+            if res.returncode != 0:
+                erreur = res.stderr.decode("utf-8", errors="replace")[:200]
+                raise RuntimeError(f"Échec OCR de la page {i + 1} : {erreur}")
+            pages_texte.append(res.stdout.decode("utf-8", errors="replace").strip())
+    return "\n\n".join(pages_texte)
 
 
 def extraire_urls(chemin_pdf: str) -> list[str]:

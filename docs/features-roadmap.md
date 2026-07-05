@@ -38,7 +38,8 @@ Document de travail en attendant la mise en place d'un vrai tableau kanban
 | Fonctionnalité | Notes |
 |---|---|
 | Traduction par chapitres | Sélection via signets PDF / TOC, route `/api/chapitres`. |
-| Extracteurs PDF multiples | pymupdf4llm / marker, configurable. |
+| Extracteurs PDF multiples | pymupdf4llm / marker / tesseract (OCR), configurable. |
+| Détection de couche texte corrompue | L'analyse détecte les PDF « muets » (police sans ToUnicode, ex. export Aperçu) et recommande l'OCR Tesseract. |
 | Conversion PDF → Markdown seule | Route `/api/convert`. |
 | App macOS native (Swift) | `macos-app/itraducteur-pdf.xcodeproj`, polling 2 s. |
 | File d'attente séquentielle | Worker unique dans `job_manager.py`, statut `en_attente`. |
