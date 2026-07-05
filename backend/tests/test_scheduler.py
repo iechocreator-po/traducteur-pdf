@@ -89,3 +89,15 @@ def test_date_naive_traitee_comme_utc(monkeypatch):
     scheduler._verifier_et_declencher()
 
     assert len(lancements) == 1
+
+
+def test_lister_tous_jobs_inclut_annules_et_declenches():
+    job_a = _planifier(datetime.now(timezone.utc) + timedelta(hours=2), "/fake/a.pdf")
+    _planifier(datetime.now(timezone.utc) + timedelta(hours=3), "/fake/b.pdf")
+    scheduler.annuler_job(job_a["id"])
+
+    tous = scheduler.lister_tous_jobs()
+    assert len(tous) == 2
+    assert {j["statut"] for j in tous} == {"annule", "planifie"}
+    # La vue filtrée ne montre que les planifiés
+    assert len(scheduler.lister_jobs_planifies()) == 1

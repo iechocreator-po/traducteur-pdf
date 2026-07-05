@@ -73,6 +73,12 @@ def lister_jobs_planifies() -> list[dict[str, Any]]:
         return [j for j in _charger() if j["statut"] == "planifie"]
 
 
+def lister_tous_jobs() -> list[dict[str, Any]]:
+    """Tous les jobs planifiés, y compris déclenchés et annulés (pour la vue liste)."""
+    with _lock:
+        return _charger()
+
+
 def annuler_job(job_id: str) -> bool:
     with _lock:
         jobs = _charger()

@@ -270,10 +270,68 @@ def creer_job_planifie(req: ScheduleRequest) -> dict:
     return job
 
 
+class ScheduleBatchRequest(BaseModel):
+    chemins: list[str]
+    langue_source: str = "anglais"
+    langue_cible: str = "français"
+    modele_ollama: str = "llama3.1"
+    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    executer_a: str  # ISO 8601 datetime
+
+    @model_validator(mode="after")
+    def valider_chemins(self):
+        if not self.chemins:
+            raise ValueError("Au moins un chemin de fichier est requis.")
+        return self
+
+
+@router.post("/schedule/batch")
+def creer_jobs_planifies(req: ScheduleBatchRequest) -> dict:
+    """
+    Planifie plusieurs fichiers d'un coup, à la même heure de départ.
+    La file d'attente séquentielle les traduira l'un après l'autre.
+    """
+    from datetime import datetime
+    from app.services.scheduler import planifier_job
+
+    try:
+        executer_a = datetime.fromisoformat(req.executer_a)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Format de date invalide (attendu ISO 8601).")
+
+    chemins = [c.strip() for c in req.chemins if c.strip()]
+    introuvables = [c for c in chemins if not os.path.exists(c)]
+    if introuvables:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Fichier(s) introuvable(s) : {', '.join(introuvables)}",
+        )
+
+    jobs = [
+        planifier_job(
+            chemin_source=chemin,
+            langue_source=req.langue_source,
+            langue_cible=req.langue_cible,
+            modele_ollama=req.modele_ollama,
+            extracteur_pdf=req.extracteur_pdf,
+            executer_a=executer_a,
+        )
+        for chemin in chemins
+    ]
+    return {"jobs": jobs}
+
+
 @router.get("/scheduled")
 def liste_jobs_planifies() -> dict:
     from app.services.scheduler import lister_jobs_planifies
     return {"jobs": lister_jobs_planifies()}
+
+
+@router.get("/scheduled/tous")
+def liste_tous_jobs_planifies() -> dict:
+    """Tous les jobs planifiés (y compris déclenchés/annulés), pour la vue liste."""
+    from app.services.scheduler import lister_tous_jobs
+    return {"jobs": lister_tous_jobs()}
 
 
 @router.delete("/scheduled/{job_id}")

@@ -50,3 +50,44 @@ def test_glossaire_lecture_et_ecriture(tmp_path, monkeypatch):
 
     reponse = client.get("/api/glossaire")
     assert reponse.json() == {"termes": ["FastAPI", "Ollama"]}
+
+
+def test_schedule_batch_planifie_plusieurs_fichiers(tmp_path, monkeypatch):
+    from app.services import scheduler
+    monkeypatch.setattr(scheduler, "_FICHIER_JOBS", str(tmp_path / "scheduled_jobs.json"))
+
+    doc1 = tmp_path / "doc1.md"
+    doc2 = tmp_path / "doc2.md"
+    doc1.write_text("# Un")
+    doc2.write_text("# Deux")
+
+    reponse = client.post("/api/schedule/batch", json={
+        "chemins": [str(doc1), str(doc2)],
+        "executer_a": "2030-01-01T23:00:00",
+    })
+    assert reponse.status_code == 200
+    jobs = reponse.json()["jobs"]
+    assert len(jobs) == 2
+    assert all(j["statut"] == "planifie" for j in jobs)
+
+    reponse = client.get("/api/scheduled/tous")
+    assert len(reponse.json()["jobs"]) == 2
+
+
+def test_schedule_batch_fichier_introuvable(tmp_path, monkeypatch):
+    from app.services import scheduler
+    monkeypatch.setattr(scheduler, "_FICHIER_JOBS", str(tmp_path / "scheduled_jobs.json"))
+
+    reponse = client.post("/api/schedule/batch", json={
+        "chemins": ["/chemin/inexistant.pdf"],
+        "executer_a": "2030-01-01T23:00:00",
+    })
+    assert reponse.status_code == 404
+
+
+def test_schedule_batch_liste_vide_refusee():
+    reponse = client.post("/api/schedule/batch", json={
+        "chemins": [],
+        "executer_a": "2030-01-01T23:00:00",
+    })
+    assert reponse.status_code == 422

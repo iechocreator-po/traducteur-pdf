@@ -84,6 +84,26 @@
     </section>
 
     <section class="carte">
+      <h2>5. Planification (optionnel)</h2>
+      <p class="aide">Planifie un ou plusieurs fichiers (un chemin par ligne). Ils se traduiront l'un après l'autre à partir de l'heure choisie, avec les options ci-dessus.</p>
+      <textarea id="plan-fichiers" rows="3" placeholder="/Users/.../doc1.pdf&#10;/Users/.../doc2.pdf"></textarea>
+      <label for="plan-heure">Exécuter à partir de :</label>
+      <input type="datetime-local" id="plan-heure">
+      <div>
+        <button id="bouton-planifier" class="bouton-secondaire">🕐 Planifier</button>
+        <span id="plan-statut" class="aide"></span>
+      </div>
+      <div id="zone-planifies" hidden>
+        <table class="tableau-analyse">
+          <thead>
+            <tr><th>Fichier</th><th>Planifié pour</th><th>Statut</th><th></th></tr>
+          </thead>
+          <tbody id="tbody-planifies"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="carte">
       <button id="bouton-analyser" class="bouton-secondaire">🔍 Analyser le document</button>
       <button id="bouton-convertir" class="bouton-secondaire">📄 Convertir en Markdown</button>
       <button id="bouton-traduire" class="bouton-principal">▶ Traduire</button>

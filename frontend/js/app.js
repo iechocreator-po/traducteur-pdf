@@ -657,6 +657,144 @@ elBoutonAnnuler.addEventListener("click", async () => {
   }
 });
 
+// ── Planification multi-fichiers ─────────────────────────────────────────────
+
+const elPlanFichiers   = document.getElementById("plan-fichiers");
+const elPlanHeure      = document.getElementById("plan-heure");
+const elPlanStatut     = document.getElementById("plan-statut");
+const elZonePlanifies  = document.getElementById("zone-planifies");
+const elTbodyPlanifies = document.getElementById("tbody-planifies");
+
+function nomFichier(chemin) {
+  return chemin.split("/").pop();
+}
+
+function formaterDateISO(iso) {
+  try {
+    return new Date(iso).toLocaleString("fr-CA", { dateStyle: "short", timeStyle: "short" });
+  } catch {
+    return iso;
+  }
+}
+
+// Pré-remplit l'heure d'exécution à ce soir 23 h (format local exigé par datetime-local)
+(function initHeurePlanification() {
+  const d = new Date();
+  d.setHours(23, 0, 0, 0);
+  const pad = n => String(n).padStart(2, "0");
+  elPlanHeure.value =
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+})();
+
+async function planifierFichiers() {
+  const chemins = elPlanFichiers.value.split("\n").map(c => c.trim()).filter(Boolean);
+  if (chemins.length === 0) { alert("Indique au moins un chemin de fichier (un par ligne)."); return; }
+  if (!elPlanHeure.value) { alert("Choisis la date et l'heure d'exécution."); return; }
+
+  try {
+    const rep = await fetch(`${API_BASE}/schedule/batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chemins,
+        executer_a: new Date(elPlanHeure.value).toISOString(),
+        langue_source: elLangueSource.value,
+        langue_cible: elLangueCible.value,
+        modele_ollama: elModele.value,
+        extracteur_pdf: elExtracteurPdf.value,
+      }),
+    });
+    const data = await rep.json();
+    if (!rep.ok) {
+      elPlanStatut.textContent = `❌ ${data.detail}`;
+      return;
+    }
+    elPlanStatut.textContent = `✅ ${data.jobs.length} fichier(s) planifié(s)`;
+    setTimeout(() => { elPlanStatut.textContent = ""; }, 4000);
+    elPlanFichiers.value = "";
+    await rafraichirPlanifies();
+  } catch {
+    elPlanStatut.textContent = "❌ Planification impossible (backend hors ligne ?)";
+  }
+}
+
+async function statutReelJob(chemin) {
+  // Pour un job déclenché, va chercher l'état réel de la traduction
+  try {
+    const cle = chemin.toLowerCase().endsWith(".md") ? "chemin_md" : "chemin_pdf";
+    const rep = await fetch(`${API_BASE}/check-resume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [cle]: chemin }),
+    });
+    if (!rep.ok) return "▶ Déclenché";
+    const etat = await rep.json();
+    if (!etat) return "▶ Déclenché";
+    switch (etat.statut) {
+      case "termine":    return "✅ Terminé";
+      case "erreur":     return "❌ Erreur";
+      case "annule":     return "✕ Annulé";
+      case "en_pause":   return "⏸ En pause";
+      case "en_attente": return "⏳ En file d'attente";
+      default:           return `🔄 En cours — ${etat.derniere_section_completee}/${etat.total_sections} sections`;
+    }
+  } catch {
+    return "▶ Déclenché";
+  }
+}
+
+async function rafraichirPlanifies() {
+  let jobs = [];
+  try {
+    const rep = await fetch(`${API_BASE}/scheduled/tous`);
+    if (!rep.ok) return;
+    jobs = (await rep.json()).jobs;
+  } catch {
+    return; // Backend hors ligne — on retentera au prochain rafraîchissement
+  }
+
+  jobs.sort((a, b) => (b.cree_a || "").localeCompare(a.cree_a || ""));
+  elZonePlanifies.hidden = jobs.length === 0;
+  elTbodyPlanifies.innerHTML = "";
+
+  for (const job of jobs) {
+    const tr = document.createElement("tr");
+
+    const tdFichier = document.createElement("td");
+    tdFichier.textContent = nomFichier(job.chemin_pdf);
+    tdFichier.title = job.chemin_pdf;
+
+    const tdQuand = document.createElement("td");
+    tdQuand.textContent = formaterDateISO(job.executer_a);
+
+    const tdStatut = document.createElement("td");
+    if (job.statut === "planifie") tdStatut.textContent = "🕐 Planifié";
+    else if (job.statut === "annule") tdStatut.textContent = "✕ Annulé";
+    else {
+      tdStatut.textContent = "▶ Déclenché";
+      statutReelJob(job.chemin_pdf).then(txt => { tdStatut.textContent = txt; });
+    }
+
+    const tdAction = document.createElement("td");
+    if (job.statut === "planifie") {
+      const btn = document.createElement("button");
+      btn.className = "bouton-mini";
+      btn.textContent = "✕ Retirer";
+      btn.addEventListener("click", async () => {
+        await fetch(`${API_BASE}/scheduled/${job.id}`, { method: "DELETE" });
+        rafraichirPlanifies();
+      });
+      tdAction.appendChild(btn);
+    }
+
+    tr.append(tdFichier, tdQuand, tdStatut, tdAction);
+    elTbodyPlanifies.appendChild(tr);
+  }
+}
+
+document.getElementById("bouton-planifier").addEventListener("click", planifierFichiers);
+setInterval(rafraichirPlanifies, 10000);
+
 // ── Conversion PDF → Markdown ─────────────────────────────────────────────────
 
 const elResultatConversion = document.getElementById("resultat-conversion");
@@ -702,3 +840,4 @@ verifierStatut();
 chargerModeles();
 chargerExtracteurs();
 chargerGlossaire();
+rafraichirPlanifies();
