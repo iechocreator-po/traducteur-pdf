@@ -154,6 +154,53 @@ actor APIService {
         return rep.termes
     }
 
+    // MARK: - Text-to-Speech
+
+    func moteursTts() async throws -> [MoteurTTS] {
+        let rep: MoteursTTSResponse = try await get("tts/moteurs")
+        return rep.moteurs
+    }
+
+    /// Synthétise un court extrait et retourne les octets WAV (à jouer via AVAudioPlayer).
+    func ecouterExtrait(texte: String, moteur: String, voix: String) async throws -> Data {
+        let data = try await postAny("tts/extrait", body: [
+            "texte": texte, "moteur": moteur, "voix": voix,
+        ])
+        // Une réponse JSON signale une erreur ; un WAV commence par « RIFF »
+        if data.starts(with: Array("RIFF".utf8)) {
+            return data
+        }
+        if let err = try? decoder.decode(APIDetailErreur.self, from: data) {
+            throw NSError(domain: "APIService", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: err.detail])
+        }
+        throw NSError(domain: "APIService", code: 2,
+                      userInfo: [NSLocalizedDescriptionKey: "Réponse audio inattendue."])
+    }
+
+    func genererAudio(cheminMd: String, moteur: String, voix: String) async throws -> TTSGenerationResponse {
+        let data = try await postAny("tts", body: [
+            "chemin_md": cheminMd, "moteur": moteur, "voix": voix,
+        ])
+        if let rep = try? decoder.decode(TTSGenerationResponse.self, from: data) {
+            return rep
+        }
+        if let err = try? decoder.decode(APIDetailErreur.self, from: data) {
+            throw NSError(domain: "APIService", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: err.detail])
+        }
+        throw NSError(domain: "APIService", code: 2,
+                      userInfo: [NSLocalizedDescriptionKey: "Réponse inattendue du backend."])
+    }
+
+    func statutAudio(cheminMd: String) async throws -> EtatAudio? {
+        var components = URLComponents(url: base.appendingPathComponent("tts/statut"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "chemin_md", value: cheminMd)]
+        let (data, _) = try await URLSession.shared.data(from: components.url!)
+        if data.isEmpty || data == Data("null".utf8) { return nil }
+        return try decoder.decode(EtatAudio.self, from: data)
+    }
+
     func annulerJobPlanifie(id: String) async throws {
         var req = URLRequest(url: base.appendingPathComponent("scheduled/\(id)"))
         req.httpMethod = "DELETE"

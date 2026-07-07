@@ -306,6 +306,10 @@ struct ContentView: View {
 
                 GlossaireView()
 
+                LectureAudioView(
+                    cheminSource: vm.modeSource == .markdown ? vm.cheminMd : vm.cheminPdf
+                )
+
                 ResultatView(
                     etat: vm.etat,
                     repriseInfo: vm.repriseInfo,

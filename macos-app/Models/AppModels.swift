@@ -166,6 +166,50 @@ nonisolated struct GlossaireResponse: Codable {
     let termes: [String]
 }
 
+nonisolated struct MoteurTTS: Codable, Identifiable {
+    let id: String
+    let nom: String
+    let disponible: Bool
+    let voix: [String]
+    let aide: String?
+}
+
+nonisolated struct MoteursTTSResponse: Codable {
+    let moteurs: [MoteurTTS]
+}
+
+nonisolated struct TTSGenerationResponse: Codable {
+    let jobId: String
+    let cheminSortie: String
+
+    enum CodingKeys: String, CodingKey {
+        case jobId = "job_id"
+        case cheminSortie = "chemin_sortie"
+    }
+}
+
+nonisolated struct EtatAudio: Codable {
+    let jobId: String
+    let cheminSortie: String
+    let moteur: String
+    let voix: String
+    let statut: String
+    let sectionsCompletees: Int
+    let totalSections: Int
+    let erreur: String?
+
+    enum CodingKeys: String, CodingKey {
+        case jobId = "job_id"
+        case cheminSortie = "chemin_sortie"
+        case moteur
+        case voix
+        case statut
+        case sectionsCompletees = "sections_completees"
+        case totalSections = "total_sections"
+        case erreur
+    }
+}
+
 nonisolated struct APIDetailErreur: Codable {
     let detail: String
 }
