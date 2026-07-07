@@ -46,6 +46,7 @@ Document de travail en attendant la mise en place d'un vrai tableau kanban
 | Annulation d'un job | Route `POST /api/job/{id}/annuler`, boutons web + macOS, reprise possible. |
 | Contrôle qualité anti-résumé | Ratio < 0.5 sur textes ≥ 200 car., 1 retry, avertissements dans l'état du job. |
 | Cache de chunks | `cache_traduction.py` (SHA-256), résultats suspects non mis en cache. |
+| Text-to-Speech local | Moteurs Piper (rapide) / Kokoro (qualité), dropdowns moteur+voix ; extrait à écouter et génération audio d'un `.md` complet via la file d'attente. `tts.py`, `tts_runner.py`, routes `/api/tts/*`. |
 | CI GitHub Actions | pytest + ruff à chaque push. |
 
 ---
