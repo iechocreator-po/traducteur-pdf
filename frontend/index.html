@@ -104,6 +104,24 @@
     </section>
 
     <section class="carte">
+      <h2>6. Lecture audio (optionnel)</h2>
+      <p class="aide">Text-to-Speech 100 % local — génère un fichier audio à partir d'un Markdown (traduit ou non). Le moteur et la voix se choisissent comme le modèle Ollama.</p>
+      <label for="tts-moteur">Moteur :</label>
+      <select id="tts-moteur"></select>
+      <label for="tts-voix">Voix :</label>
+      <select id="tts-voix"></select>
+      <p id="tts-aide" class="aide"></p>
+      <label for="tts-extrait">Extrait à écouter (test de la voix) :</label>
+      <textarea id="tts-extrait" rows="2" placeholder="Colle un court texte ici puis clique ▶ Écouter…"></textarea>
+      <div>
+        <button id="bouton-ecouter" class="bouton-secondaire">▶ Écouter l'extrait</button>
+        <button id="bouton-generer-audio" class="bouton-secondaire">🔊 Générer l'audio du fichier</button>
+        <button id="bouton-annuler-audio" class="bouton-danger" hidden>✕ Annuler</button>
+      </div>
+      <p id="tts-statut" class="aide"></p>
+    </section>
+
+    <section class="carte">
       <button id="bouton-analyser" class="bouton-secondaire">🔍 Analyser le document</button>
       <button id="bouton-convertir" class="bouton-secondaire">📄 Convertir en Markdown</button>
       <button id="bouton-traduire" class="bouton-principal">▶ Traduire</button>
@@ -151,6 +169,6 @@
 
   </main>
 
-  <script src="js/app.js?v=4"></script>
+  <script src="js/app.js?v=5"></script>
 </body>
 </html>

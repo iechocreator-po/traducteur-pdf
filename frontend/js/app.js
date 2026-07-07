@@ -225,6 +225,7 @@ async function reconnecter() {
       await chargerModeles();
       await chargerExtracteurs();
       await chargerGlossaire();
+      await chargerMoteursTts();
     }
   } finally {
     elBoutonReconnecter.disabled = false;
@@ -834,10 +835,179 @@ async function convertirEnMarkdown() {
 
 document.getElementById("bouton-convertir").addEventListener("click", convertirEnMarkdown);
 
+// ── Lecture audio (TTS) ──────────────────────────────────────────────────────
+
+const elTtsMoteur       = document.getElementById("tts-moteur");
+const elTtsVoix         = document.getElementById("tts-voix");
+const elTtsAide         = document.getElementById("tts-aide");
+const elTtsExtrait      = document.getElementById("tts-extrait");
+const elTtsStatut       = document.getElementById("tts-statut");
+const elBoutonEcouter   = document.getElementById("bouton-ecouter");
+const elBoutonGenererAudio = document.getElementById("bouton-generer-audio");
+const elBoutonAnnulerAudio = document.getElementById("bouton-annuler-audio");
+
+let ttsMoteurs = [];          // [{id, nom, disponible, voix[], aide}]
+let audioEnLecture = null;    // objet Audio de l'extrait en cours
+let jobAudio = null;          // { jobId, cheminSortie }
+let intervalAudioPolling = null;
+
+async function chargerMoteursTts() {
+  try {
+    const rep = await fetch(`${API_BASE}/tts/moteurs`);
+    const data = await rep.json();
+    ttsMoteurs = data.moteurs;
+    elTtsMoteur.innerHTML = "";
+    for (const m of ttsMoteurs) {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.textContent = m.disponible ? m.nom : `${m.nom} (indisponible)`;
+      opt.disabled = !m.disponible;
+      elTtsMoteur.appendChild(opt);
+    }
+    // Sélectionne le premier moteur disponible
+    const premierDispo = ttsMoteurs.find(m => m.disponible);
+    if (premierDispo) elTtsMoteur.value = premierDispo.id;
+    mettreAJourVoixTts();
+  } catch {
+    elTtsMoteur.innerHTML = '<option value="">Erreur de chargement</option>';
+  }
+}
+
+function mettreAJourVoixTts() {
+  const moteur = ttsMoteurs.find(m => m.id === elTtsMoteur.value);
+  elTtsVoix.innerHTML = "";
+  if (!moteur) return;
+  for (const v of moteur.voix) {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    elTtsVoix.appendChild(opt);
+  }
+  elTtsAide.textContent = moteur.aide || "";
+  const pret = moteur.disponible && moteur.voix.length > 0;
+  elBoutonEcouter.disabled = !pret;
+  elBoutonGenererAudio.disabled = !pret;
+}
+
+elTtsMoteur.addEventListener("change", mettreAJourVoixTts);
+
+elBoutonEcouter.addEventListener("click", async () => {
+  const texte = elTtsExtrait.value.trim();
+  if (!texte) { alert("Colle un court texte à écouter d'abord."); return; }
+  if (audioEnLecture) { audioEnLecture.pause(); audioEnLecture = null; }
+  elBoutonEcouter.disabled = true;
+  elBoutonEcouter.textContent = "⏳ Synthèse…";
+  try {
+    const rep = await fetch(`${API_BASE}/tts/extrait`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texte, moteur: elTtsMoteur.value, voix: elTtsVoix.value }),
+    });
+    if (!rep.ok) {
+      const data = await rep.json();
+      alert(`Erreur : ${data.detail}`);
+      return;
+    }
+    const blob = await rep.blob();
+    audioEnLecture = new Audio(URL.createObjectURL(blob));
+    audioEnLecture.play();
+  } catch (e) {
+    alert(`Impossible de générer l'extrait : ${e}`);
+  } finally {
+    elBoutonEcouter.disabled = false;
+    elBoutonEcouter.textContent = "▶ Écouter l'extrait";
+  }
+});
+
+elBoutonGenererAudio.addEventListener("click", async () => {
+  const chemin = cheminSource();
+  if (!chemin) { alert("Indique d'abord un fichier dans la section 1."); return; }
+  if (!chemin.toLowerCase().endsWith(".md")) {
+    alert("La génération audio attend un fichier Markdown (.md). Convertis d'abord le PDF, puis indique le .md.");
+    return;
+  }
+  try {
+    const rep = await fetch(`${API_BASE}/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chemin_md: chemin, moteur: elTtsMoteur.value, voix: elTtsVoix.value }),
+    });
+    const data = await rep.json();
+    if (!rep.ok) { elTtsStatut.textContent = `❌ ${data.detail}`; return; }
+    jobAudio = { jobId: data.job_id, cheminSource: chemin };
+    elBoutonAnnulerAudio.hidden = false;
+    demarrerAudioPolling();
+  } catch {
+    elTtsStatut.textContent = "❌ Génération impossible (backend hors ligne ?)";
+  }
+});
+
+elBoutonAnnulerAudio.addEventListener("click", async () => {
+  if (!jobAudio) return;
+  elBoutonAnnulerAudio.disabled = true;
+  try {
+    await fetch(`${API_BASE}/job/${jobAudio.jobId}/annuler`, { method: "POST" });
+  } catch { /* le polling détectera l'état */ }
+});
+
+function demarrerAudioPolling() {
+  if (intervalAudioPolling) return;
+  pollStatutAudio();
+  intervalAudioPolling = setInterval(pollStatutAudio, 2000);
+}
+
+function arreterAudioPolling() {
+  clearInterval(intervalAudioPolling);
+  intervalAudioPolling = null;
+}
+
+async function pollStatutAudio() {
+  if (!jobAudio) return;
+  try {
+    const rep = await fetch(`${API_BASE}/tts/statut?chemin_md=${encodeURIComponent(jobAudio.cheminSource)}`);
+    if (!rep.ok) return;
+    const etat = await rep.json();
+    if (!etat) return;
+    const pct = etat.total_sections > 0
+      ? Math.round((etat.sections_completees / etat.total_sections) * 100)
+      : 0;
+    switch (etat.statut) {
+      case "en_attente":
+        elTtsStatut.textContent = "⏳ En file d'attente…";
+        break;
+      case "en_cours":
+        elTtsStatut.textContent = `🔊 Génération audio — ${etat.sections_completees}/${etat.total_sections} sections (${pct}%)`;
+        break;
+      case "termine":
+        arreterAudioPolling();
+        elBoutonAnnulerAudio.hidden = true;
+        elBoutonAnnulerAudio.disabled = false;
+        elTtsStatut.textContent = `✅ Audio généré — ${etat.chemin_sortie}`;
+        jobAudio = null;
+        break;
+      case "annule":
+        arreterAudioPolling();
+        elBoutonAnnulerAudio.hidden = true;
+        elBoutonAnnulerAudio.disabled = false;
+        elTtsStatut.textContent = `✕ Génération annulée — ${etat.sections_completees}/${etat.total_sections} sections`;
+        jobAudio = null;
+        break;
+      case "erreur":
+        arreterAudioPolling();
+        elBoutonAnnulerAudio.hidden = true;
+        elBoutonAnnulerAudio.disabled = false;
+        elTtsStatut.textContent = `❌ Erreur : ${etat.erreur || "inconnue"}`;
+        jobAudio = null;
+        break;
+    }
+  } catch { /* on réessaie au prochain tick */ }
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 verifierStatut();
 chargerModeles();
 chargerExtracteurs();
 chargerGlossaire();
+chargerMoteursTts();
 rafraichirPlanifies();

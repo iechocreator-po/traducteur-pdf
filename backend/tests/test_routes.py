@@ -91,3 +91,36 @@ def test_schedule_batch_liste_vide_refusee():
         "executer_a": "2030-01-01T23:00:00",
     })
     assert reponse.status_code == 422
+
+
+def test_tts_moteurs_liste_les_moteurs():
+    reponse = client.get("/api/tts/moteurs")
+    assert reponse.status_code == 200
+    moteurs = reponse.json()["moteurs"]
+    ids = [m["id"] for m in moteurs]
+    assert "piper" in ids and "kokoro" in ids
+    for m in moteurs:
+        assert "disponible" in m and "voix" in m
+
+
+def test_tts_generation_refuse_un_non_markdown(tmp_path):
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    reponse = client.post("/api/tts", json={
+        "chemin_md": str(pdf), "moteur": "piper", "voix": "v",
+    })
+    assert reponse.status_code == 422
+
+
+def test_tts_generation_fichier_introuvable():
+    reponse = client.post("/api/tts", json={
+        "chemin_md": "/chemin/inexistant.md", "moteur": "piper", "voix": "v",
+    })
+    assert reponse.status_code == 404
+
+
+def test_tts_extrait_texte_vide_refuse():
+    reponse = client.post("/api/tts/extrait", json={
+        "texte": "   ", "moteur": "piper", "voix": "v",
+    })
+    assert reponse.status_code == 422

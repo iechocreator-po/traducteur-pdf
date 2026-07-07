@@ -5,7 +5,7 @@ métier — elle valide les entrées et délègue aux services/agents.
 
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, model_validator
 
 from app.config.feature_flags import charger_flags, EXTRACTEURS_PDF, EXTRACTEUR_PAR_DEFAUT
@@ -369,6 +369,65 @@ def modifier_glossaire(req: GlossaireRequest) -> dict:
     """Remplace le glossaire par la liste fournie (nettoyée et dédupliquée)."""
     from app.services.glossaire import sauvegarder_termes
     return {"termes": sauvegarder_termes(req.termes)}
+
+
+class TTSExtraitRequest(BaseModel):
+    texte: str
+    moteur: str
+    voix: str
+
+
+class TTSGenerationRequest(BaseModel):
+    chemin_md: str
+    moteur: str
+    voix: str
+
+
+@router.get("/tts/moteurs")
+def moteurs_tts() -> dict:
+    """Moteurs TTS locaux, leurs voix et leur disponibilité (dropdowns UI)."""
+    from app.services.tts import lister_moteurs
+    return {"moteurs": lister_moteurs()}
+
+
+@router.post("/tts/extrait")
+def ecouter_extrait(req: TTSExtraitRequest) -> Response:
+    """Synthétise un court extrait et renvoie le WAV (pour écoute directe)."""
+    if not req.texte.strip():
+        raise HTTPException(status_code=422, detail="Le texte est vide.")
+    from app.services.tts import synthetiser_extrait_wav
+    try:
+        wav = synthetiser_extrait_wav(req.texte, req.moteur, req.voix)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur de synthèse : {e}")
+    return Response(content=wav, media_type="audio/wav")
+
+
+@router.post("/tts")
+def generer_audio(req: TTSGenerationRequest) -> dict:
+    """Enfile la génération audio d'un fichier Markdown complet."""
+    if not os.path.exists(req.chemin_md):
+        raise HTTPException(status_code=404, detail="Fichier Markdown introuvable.")
+    if not req.chemin_md.lower().endswith(".md"):
+        raise HTTPException(
+            status_code=422,
+            detail="La génération audio attend un fichier .md (convertis d'abord le PDF).",
+        )
+    from app.services.tts_runner import demarrer_generation_audio
+    try:
+        etat = demarrer_generation_audio(req.chemin_md, req.moteur, req.voix)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"job_id": etat["job_id"], "chemin_sortie": etat["chemin_sortie"]}
+
+
+@router.get("/tts/statut")
+def statut_audio(chemin_md: str) -> dict | None:
+    """État du job audio le plus récent pour ce fichier source."""
+    from app.services.tts_runner import lire_etat
+    return lire_etat(chemin_md)
 
 
 @router.post("/analyser", response_model=ResultatAnalyse)

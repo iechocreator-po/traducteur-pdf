@@ -34,4 +34,5 @@ build/
 .claude/
 backend/scheduled_jobs.json
 backend/glossaire.json
+backend/tts_modeles/
 test_integre/

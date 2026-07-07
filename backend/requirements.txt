@@ -11,3 +11,8 @@ pytest-cov>=5.0.0
 reportlab>=4.2.0
 pymupdf4llm
 marker-pdf
+
+# Text-to-Speech local (moteurs optionnels — détectés dynamiquement)
+piper-tts
+kokoro-onnx
+soundfile
