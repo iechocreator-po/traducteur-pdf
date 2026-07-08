@@ -64,6 +64,26 @@ cd backend
 pytest tests/ -v
 ```
 
+## Design system
+
+L'interface (web **et** macOS) suit le design system partagé de `2000_DigitalProducts`,
+mais **vendoré** (copie locale) car le projet est indépendant et publié sur GitHub :
+
+- **Web** : `frontend/css/tokens.css` (copie de `design-system/tokens.css`) est chargé
+  avant `style.css`. Tout le CSS applicatif utilise les variables sémantiques
+  (`var(--accent)`, `var(--surface)`, `var(--text)`, `var(--border)`…) — **jamais de hex
+  en dur**, sinon invisible en mode sombre. Le mode clair/sombre est automatique
+  (suit le système, ou `data-theme` sur `<html>`).
+- **macOS** : `macos-app/Theme.swift` traduit les tokens en `Color` dynamiques
+  (clair/sombre) exposées via l'énumération `DS` (`DS.accent`, `DS.green`, `DS.red`,
+  `DS.amber`, rayons `DS.radius*`). L'accent est appliqué globalement par `.tint(DS.accent)`
+  sur la racine. Les surfaces natives (`GroupBox`, matériaux macOS) sont laissées telles
+  quelles — elles s'adaptent déjà. Pour une couleur de statut, utiliser `DS.*`, pas
+  `.green`/`.red`/`.orange` bruts.
+
+Pour resynchroniser après une évolution du design system : recopier `tokens.css` et
+réaligner les valeurs de `Theme.swift`.
+
 ## Roadmap
 
 Voir [docs/features-roadmap.md](docs/features-roadmap.md) pour la liste des fonctionnalités

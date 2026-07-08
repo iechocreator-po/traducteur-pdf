@@ -3,7 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <title>Traducteur PDF</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/style.css">
+  <script>
+    // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
+    // 'auto' (ou absent) = suit le système ; 'light'/'dark' forcent via [data-theme].
+    (function () {
+      var t = localStorage.getItem("theme");
+      if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
 </head>
 <body>
   <main class="conteneur">
@@ -23,6 +33,15 @@
         <span class="parametre-label">Ollama</span>
         <span id="statut-ollama" class="statut-badge"></span>
         <button id="bouton-reconnecter" class="bouton-mini" title="Re-vérifier les connexions backend et Ollama">🔄 Reconnecter</button>
+      </div>
+
+      <div class="parametre-ligne">
+        <span class="parametre-label">Thème</span>
+        <div class="theme-switch" id="theme-switch" role="group" aria-label="Choix du thème">
+          <button type="button" data-theme-choice="auto">Auto</button>
+          <button type="button" data-theme-choice="light">Clair</button>
+          <button type="button" data-theme-choice="dark">Sombre</button>
+        </div>
       </div>
     </section>
 
@@ -169,6 +188,6 @@
 
   </main>
 
-  <script src="js/app.js?v=5"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>

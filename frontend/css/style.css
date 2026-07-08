@@ -1,18 +1,19 @@
-:root {
-  --couleur-primaire: #2d6a4f;
-  --couleur-fond: #f7f7f5;
-  --couleur-texte: #1b1b1b;
-  --couleur-bordure: #ddd;
-}
+/* ============================================================================
+   TRADUCTEUR PDF — styles applicatifs
+   Construit sur le design system (tokens.css, chargé AVANT ce fichier). Toutes
+   les couleurs passent par les variables sémantiques → le mode clair/sombre est
+   géré automatiquement par tokens.css (suit le système ou [data-theme]).
+   Aucune couleur en dur ici (sauf le blanc du texte sur fond accentué).
+   ============================================================================ */
 
 * {
   box-sizing: border-box;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: var(--couleur-fond);
-  color: var(--couleur-texte);
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
   margin: 0;
   padding: 2rem 1rem;
 }
@@ -27,15 +28,16 @@ h1 {
 }
 
 .sous-titre {
-  color: #555;
+  color: var(--text-2);
   margin-top: 0;
   margin-bottom: 1.5rem;
 }
 
+/* ---- Cartes --------------------------------------------------------------- */
 .carte {
-  background: white;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
   padding: 1.2rem 1.4rem;
   margin-bottom: 1rem;
 }
@@ -43,24 +45,32 @@ h1 {
 .carte h2 {
   margin-top: 0;
   font-size: 1rem;
-  color: #444;
+  color: var(--text-2);
 }
 
 .aide {
   font-size: 0.85rem;
-  color: #777;
+  color: var(--text-3);
   margin-top: -0.4rem;
 }
 
+/* ---- Champs de formulaire ------------------------------------------------- */
 input[type="text"], input[type="datetime-local"], select, textarea {
   width: 100%;
   padding: 0.5rem;
   margin: 0.3rem 0 0.8rem 0;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
   font-size: 0.95rem;
   box-sizing: border-box;
   font-family: inherit;
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+}
+input[type="text"]:focus, input[type="datetime-local"]:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
 }
 
 label {
@@ -68,36 +78,43 @@ label {
   font-weight: 600;
 }
 
+/* ---- Boutons -------------------------------------------------------------- */
 button {
   padding: 0.6rem 1.2rem;
-  border-radius: 6px;
-  border: none;
+  border-radius: var(--ds-radius-sm);
+  border: 1px solid transparent;
   font-size: 0.95rem;
   cursor: pointer;
   margin-right: 0.5rem;
+  font-family: inherit;
 }
 
 .bouton-principal {
-  background: var(--couleur-primaire);
-  color: white;
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
+.bouton-principal:hover { filter: brightness(1.08); }
 
 .bouton-secondaire {
-  background: #eee;
-  color: var(--couleur-texte);
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
 }
+.bouton-secondaire:hover { filter: brightness(0.97); }
 
 .bouton-danger {
-  background: #fdecea;
-  color: #c0392b;
+  background: var(--red-bg);
+  color: var(--red);
 }
+.bouton-danger:hover { filter: brightness(0.97); }
 
 pre {
   white-space: pre-wrap;
   font-size: 0.85rem;
 }
 
-/* Tableau résultat d'analyse */
+/* ---- Tableau résultat d'analyse ------------------------------------------- */
 .tableau-analyse {
   width: 100%;
   border-collapse: collapse;
@@ -106,26 +123,26 @@ pre {
 .tableau-analyse th, .tableau-analyse td {
   text-align: left;
   padding: 0.35rem 0.5rem;
-  border-bottom: 1px solid var(--couleur-bordure);
+  border-bottom: 1px solid var(--border);
 }
 .tableau-analyse th {
-  color: #555;
+  color: var(--text-2);
   font-weight: 600;
   width: 40%;
 }
 
-/* Barre de progression */
+/* ---- Barre de progression ------------------------------------------------- */
 .barre-conteneur {
-  background: #e8e8e8;
-  border-radius: 6px;
+  background: var(--surface-2);
+  border-radius: var(--ds-radius-sm);
   height: 14px;
   overflow: hidden;
   margin: 0.6rem 0;
 }
 .barre-progression {
-  background: var(--couleur-primaire);
+  background: var(--accent);
   height: 100%;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-sm);
   transition: width 0.4s ease;
 }
 
@@ -133,7 +150,7 @@ pre {
   display: flex;
   justify-content: space-between;
   font-size: 0.9rem;
-  color: #444;
+  color: var(--text-2);
   margin-bottom: 0.2rem;
 }
 
@@ -141,7 +158,7 @@ pre {
   display: flex;
   justify-content: space-between;
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-3);
   margin-top: 0.4rem;
 }
 
@@ -149,32 +166,32 @@ pre {
   margin-top: 0.8rem;
 }
 
-/* Journal d'erreurs */
+/* ---- Journal d'erreurs ---------------------------------------------------- */
 #section-erreurs {
-  border-left: 4px solid #e67e22;
+  border-left: 4px solid var(--amber);
 }
 #section-erreurs h2 {
-  color: #e67e22;
+  color: var(--amber);
 }
 #contenu-erreurs {
   font-size: 0.82rem;
-  color: #555;
-  background: #fdf6ec;
+  color: var(--text-2);
+  background: var(--amber-bg);
   padding: 0.6rem;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
 }
 
 .erreur {
-  color: #c0392b;
+  color: var(--red);
 }
 
-/* Paramètres / feature toggles */
+/* ---- Paramètres / feature toggles ----------------------------------------- */
 .parametre-ligne {
   display: flex;
   align-items: center;
   gap: 0.8rem;
   padding: 0.45rem 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border);
 }
 .parametre-ligne:last-child {
   border-bottom: none;
@@ -182,34 +199,35 @@ pre {
 .parametre-label {
   flex: 1;
   font-weight: 500;
-  color: #333;
+  color: var(--text);
 }
 .statut-badge {
   font-size: 0.82rem;
   padding: 0.2rem 0.55rem;
-  border-radius: 12px;
-  background: #f0f0f0;
-  color: #555;
+  border-radius: var(--ds-radius-pill);
+  background: var(--surface-2);
+  color: var(--text-2);
 }
-.badge-ok    { background: #e8f5e9; color: #2e7d32; }
-.badge-erreur { background: #fdecea; color: #c62828; }
+.badge-ok    { background: var(--green-bg); color: var(--green); }
+.badge-erreur { background: var(--red-bg); color: var(--red); }
 
 .bouton-launcher {
   padding: 0.3rem 0.9rem;
   font-size: 0.82rem;
   font-weight: 600;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-sm);
   cursor: pointer;
-  background: #2ecc71;
+  background: var(--green);
   color: #fff;
-  transition: background 0.2s;
+  transition: filter 0.2s;
 }
-.bouton-launcher:hover:not(:disabled) { background: #27ae60; }
-.bouton-launcher:disabled { background: #bbb; cursor: default; }
-.bouton-launcher.launcher-stop { background: #e74c3c; }
-.bouton-launcher.launcher-stop:hover:not(:disabled) { background: #c0392b; }
+.bouton-launcher:hover:not(:disabled) { filter: brightness(1.08); }
+.bouton-launcher:disabled { background: var(--text-3); cursor: default; }
+.bouton-launcher.launcher-stop { background: var(--red); }
+.bouton-launcher.launcher-stop:hover:not(:disabled) { filter: brightness(1.08); }
 
+/* ---- Chapitres ------------------------------------------------------------ */
 .chapitres-barre {
   display: flex;
   align-items: center;
@@ -221,16 +239,17 @@ pre {
 .bouton-mini {
   padding: 0.2rem 0.7rem;
   font-size: 0.8rem;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
-  background: #f5f5f5;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
   cursor: pointer;
 }
-.bouton-mini:hover { background: #e8e8e8; }
+.bouton-mini:hover { filter: brightness(0.97); }
 
 .chapitres-compte {
   font-size: 0.82rem;
-  color: #666;
+  color: var(--text-3);
   margin-left: auto;
 }
 
@@ -240,10 +259,10 @@ pre {
   gap: 2px;
   max-height: 260px;
   overflow-y: auto;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
   padding: 0.4rem 0.6rem;
-  background: #fafafa;
+  background: var(--surface-2);
 }
 
 .chapitre-item {
@@ -253,9 +272,36 @@ pre {
   padding: 0.25rem 0.2rem;
   font-size: 0.875rem;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.chapitre-item:hover { background: #eef5f1; }
+.chapitre-item:hover { background: var(--accent-bg); }
+
+/* ---- Sélecteur de thème (Auto / Clair / Sombre) --------------------------- */
+.theme-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-pill);
+}
+.theme-switch button {
+  margin: 0;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.8rem;
+  border: none;
+  border-radius: var(--ds-radius-pill);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.theme-switch button:hover { color: var(--text); }
+.theme-switch button.is-active {
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}

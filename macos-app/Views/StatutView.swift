@@ -30,9 +30,9 @@ struct StatutView: View {
 
     private func couleur(_ ok: Bool?) -> Color {
         switch ok {
-        case true: return .green
-        case false: return .red
-        case nil: return .gray
+        case true: return DS.green
+        case false: return DS.red
+        case nil: return DS.text3
         }
     }
 

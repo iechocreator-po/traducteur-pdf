@@ -52,7 +52,7 @@ struct LectureAudioView: View {
                 if let aide = moteurActuel?.aide {
                     Text(aide)
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(DS.amber)
                 }
 
                 Text("Extrait à écouter (test de la voix) :")

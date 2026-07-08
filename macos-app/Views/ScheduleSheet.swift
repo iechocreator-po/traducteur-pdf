@@ -75,7 +75,7 @@ struct ScheduleSheet: View {
                     if !extras.isEmpty, chapitresSelectionnes?.isEmpty == false {
                         Text("⚠️ En mode multi-fichiers, la sélection de chapitres est ignorée : les documents sont traduits en entier.")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(DS.amber)
                     }
                 }
                 .padding(.top, 4)
@@ -83,7 +83,7 @@ struct ScheduleSheet: View {
 
             if let err = erreur {
                 Text(err)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(DS.red)
                     .font(.footnote)
             }
 

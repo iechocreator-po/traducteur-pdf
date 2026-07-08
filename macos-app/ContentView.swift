@@ -270,16 +270,28 @@ func formaterDureeDouble(_ secondes: Double) -> String {
 
 struct ContentView: View {
     @StateObject private var vm = AppViewModel()
+    @AppStorage("themeChoice") private var themeChoice: ThemeChoice = .auto
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("iTraducteur PDF")
-                        .font(.title2.bold())
-                    Text("Traduction locale via Ollama — aucune donnée ne quitte ton ordinateur.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("iTraducteur PDF")
+                            .font(.title2.bold())
+                        Text("Traduction locale via Ollama — aucune donnée ne quitte ton ordinateur.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Picker("Thème", selection: $themeChoice) {
+                        ForEach(ThemeChoice.allCases) { choix in
+                            Text(choix.libelle).tag(choix)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
                 }
 
                 StatutView(apiEnLigne: vm.apiEnLigne, ollamaOk: vm.ollamaOk)
@@ -374,6 +386,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 640, minHeight: 480)
         .task { vm.verifierStatut() }
+        .preferredColorScheme(themeChoice.colorScheme) // Auto (nil) / Clair / Sombre, mémorisé
     }
 }
 

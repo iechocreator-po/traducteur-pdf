@@ -1,0 +1,108 @@
+/* COPIE VENDORÉE du design system partagé (2000_DigitalProducts/design-system/tokens.css).
+   traducteur-pdf est un projet indépendant (publié sur GitHub) : on garde une copie locale
+   plutôt qu'une référence au dossier parent. Pour resynchroniser : recopier le fichier source. */
+
+/* ============================================================================
+   DESIGN SYSTEM — TOKENS
+   Source unique de vérité pour les couleurs, espacements et typographie de
+   tous les produits 2000_DigitalProducts.
+   ----------------------------------------------------------------------------
+   Deux niveaux :
+     1. PRIMITIVES  (--ds-*)  : la palette brute, stable dans les deux modes.
+                                 Rarement référencée directement.
+     2. SÉMANTIQUES (--bg, --accent, --text…) : le RÔLE de chaque couleur.
+                                 C'est ce que le code applicatif utilise.
+                                 Change de valeur entre mode clair et sombre.
+   Pour rethémer un produit, on ne touche QUE la couche sémantique.
+   ============================================================================ */
+
+:root {
+  /* ---- 1. PRIMITIVES : neutres chauds ------------------------------------ */
+  --ds-neutral-0:   #ffffff;
+  --ds-neutral-10:  #f2f1ec;
+  --ds-neutral-50:  #f6f5f1;
+  --ds-neutral-100: #f0efeb;
+  --ds-neutral-200: #e4e2da;
+  --ds-neutral-300: #b9b8b0;
+  --ds-neutral-400: #8a8880;
+  --ds-neutral-450: #85847d;
+  --ds-neutral-500: #5f5e5a;
+  --ds-neutral-600: #4a4945;
+  --ds-neutral-700: #2a2a28;
+  --ds-neutral-800: #1f1f1e;
+  --ds-neutral-900: #1a1a19;
+  --ds-neutral-950: #161615;
+
+  /* ---- 1. PRIMITIVES : couleurs ------------------------------------------ */
+  --ds-blue-100:  #e6f1fb;  --ds-blue-400:  #5b9be0;  --ds-blue-500:  #2a78d6;  --ds-blue-900:  #12304f;
+  --ds-green-100: #e4f4ea;  --ds-green-400: #3fbf7f;  --ds-green-500: #0f8a4c;  --ds-green-900: #10321f;
+  --ds-red-100:   #fceaea;  --ds-red-400:   #e57373;  --ds-red-500:   #cf3535;  --ds-red-900:   #3a1717;
+  --ds-amber-100: #faf0d8;  --ds-amber-400: #d9a94a;  --ds-amber-500: #9a6a08;  --ds-amber-900: #3a2d0e;
+
+  /* ---- Échelles non colorées (mode-stable) ------------------------------- */
+  --ds-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --ds-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ds-text-xs: 12px;  --ds-text-sm: 13px;  --ds-text-base: 15px;  --ds-text-lg: 17px;  --ds-text-xl: 21px;
+  --ds-space-1: 4px;  --ds-space-2: 8px;  --ds-space-3: 12px;  --ds-space-4: 16px;  --ds-space-5: 24px;  --ds-space-6: 32px;
+  --ds-radius-sm: 8px;  --ds-radius: 10px;  --ds-radius-lg: 12px;  --ds-radius-pill: 999px;
+
+  /* ---- 2. SÉMANTIQUES — mode clair (défaut) ------------------------------ */
+  --bg:         var(--ds-neutral-50);
+  --surface:    var(--ds-neutral-0);
+  --surface-2:  var(--ds-neutral-100);
+  --text:       var(--ds-neutral-900);
+  --text-2:     var(--ds-neutral-500);
+  --text-3:     var(--ds-neutral-400);
+  --border:     rgba(20, 20, 18, 0.12);
+  --accent:     var(--ds-blue-500);
+  --accent-bg:  var(--ds-blue-100);
+  --green:      var(--ds-green-500);
+  --green-bg:   var(--ds-green-100);
+  --red:        var(--ds-red-500);
+  --red-bg:     var(--ds-red-100);
+  --amber:      var(--ds-amber-500);
+  --amber-bg:   var(--ds-amber-100);
+  --radius:     var(--ds-radius);
+  --font-sans:  var(--ds-font-sans);
+  --font-mono:  var(--ds-font-mono);
+}
+
+/* ---- 2. SÉMANTIQUES — mode sombre --------------------------------------- */
+/* Priorité au choix explicite via [data-theme]. Sinon, on suit le système. */
+[data-theme="dark"] {
+  --bg:         var(--ds-neutral-950);
+  --surface:    var(--ds-neutral-800);
+  --surface-2:  var(--ds-neutral-700);
+  --text:       var(--ds-neutral-10);
+  --text-2:     var(--ds-neutral-300);
+  --text-3:     var(--ds-neutral-450);
+  --border:     rgba(255, 255, 255, 0.12);
+  --accent:     var(--ds-blue-400);
+  --accent-bg:  var(--ds-blue-900);
+  --green:      var(--ds-green-400);
+  --green-bg:   var(--ds-green-900);
+  --red:        var(--ds-red-400);
+  --red-bg:     var(--ds-red-900);
+  --amber:      var(--ds-amber-400);
+  --amber-bg:   var(--ds-amber-900);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg:         var(--ds-neutral-950);
+    --surface:    var(--ds-neutral-800);
+    --surface-2:  var(--ds-neutral-700);
+    --text:       var(--ds-neutral-10);
+    --text-2:     var(--ds-neutral-300);
+    --text-3:     var(--ds-neutral-450);
+    --border:     rgba(255, 255, 255, 0.12);
+    --accent:     var(--ds-blue-400);
+    --accent-bg:  var(--ds-blue-900);
+    --green:      var(--ds-green-400);
+    --green-bg:   var(--ds-green-900);
+    --red:        var(--ds-red-400);
+    --red-bg:     var(--ds-red-900);
+    --amber:      var(--ds-amber-400);
+    --amber-bg:   var(--ds-amber-900);
+  }
+}

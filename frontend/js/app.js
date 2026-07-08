@@ -1003,6 +1003,28 @@ async function pollStatutAudio() {
   } catch { /* on réessaie au prochain tick */ }
 }
 
+// ── Thème (Auto / Clair / Sombre) ───────────────────────────────────────────
+// 'auto' = suit le système (aucun data-theme) ; 'light'/'dark' = forcé via <html>.
+// Le choix est mémorisé dans localStorage et appliqué dès le <head> (anti-flash).
+
+function appliquerTheme(choix) {
+  if (choix === "light" || choix === "dark") {
+    document.documentElement.setAttribute("data-theme", choix);
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+    choix = "auto";
+  }
+  localStorage.setItem("theme", choix);
+  document.querySelectorAll("#theme-switch button").forEach((b) => {
+    b.classList.toggle("is-active", b.dataset.themeChoice === choix);
+  });
+}
+
+document.querySelectorAll("#theme-switch button").forEach((b) => {
+  b.addEventListener("click", () => appliquerTheme(b.dataset.themeChoice));
+});
+appliquerTheme(localStorage.getItem("theme") || "auto");
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 verifierStatut();

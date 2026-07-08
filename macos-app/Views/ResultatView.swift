@@ -64,7 +64,7 @@ struct ResultatView: View {
                 if let conf = confirmationPlanification {
                     Text(conf)
                         .font(.footnote)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(DS.green)
                 }
 
                 if case .vide = etat { } else {
@@ -98,7 +98,7 @@ struct ResultatView: View {
 
     private var couleurTexte: Color {
         switch etat {
-        case .erreur: return .red
+        case .erreur: return DS.red
         case .succes: return .primary
         default: return .secondary
         }

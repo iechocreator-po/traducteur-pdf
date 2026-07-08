@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		C3AEC60C2FF1C8AC00257B8D /* itraducteur_pdfApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3AEC60B2FF1C8AC00257B8D /* itraducteur_pdfApp.swift */; };
 		C3AEC60D2FF1C8AC00257B8D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3AEC60A2FF1C8AC00257B8D /* ContentView.swift */; };
+		C3F00D022FF1C8AC00257B8D /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3F00D012FF1C8AC00257B8D /* Theme.swift */; };
 		C3C9B5BB2FF1C302007507DA /* StatutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B92FF1C302007507DA /* StatutView.swift */; };
 		C3C9B5BC2FF1C302007507DA /* AppModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B22FF1C302007507DA /* AppModels.swift */; };
 		C3C9B5BD2FF1C302007507DA /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B42FF1C302007507DA /* APIService.swift */; };
@@ -45,6 +46,7 @@
 		C34AC17E2FF1BFD5005EE689 /* itraducteur-pdfUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "itraducteur-pdfUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C3AA11112FF1C302007507DA /* itraducteur-pdf.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "itraducteur-pdf.entitlements"; sourceTree = "<group>"; };
 		C3AEC60A2FF1C8AC00257B8D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		C3F00D012FF1C8AC00257B8D /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		C3AEC60B2FF1C8AC00257B8D /* itraducteur_pdfApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = itraducteur_pdfApp.swift; sourceTree = "<group>"; };
 		C3C9B5B22FF1C302007507DA /* AppModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModels.swift; sourceTree = "<group>"; };
 		C3C9B5B42FF1C302007507DA /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
@@ -101,6 +103,7 @@
 			isa = PBXGroup;
 			children = (
 				C3AEC60A2FF1C8AC00257B8D /* ContentView.swift */,
+				C3F00D012FF1C8AC00257B8D /* Theme.swift */,
 				C3AEC60B2FF1C8AC00257B8D /* itraducteur_pdfApp.swift */,
 				C3C9B5B32FF1C302007507DA /* Models */,
 				C3C9B5B62FF1C302007507DA /* Services */,
@@ -297,6 +300,7 @@
 			files = (
 				C3AEC60C2FF1C8AC00257B8D /* itraducteur_pdfApp.swift in Sources */,
 				C3AEC60D2FF1C8AC00257B8D /* ContentView.swift in Sources */,
+				C3F00D022FF1C8AC00257B8D /* Theme.swift in Sources */,
 				C3C9B5BB2FF1C302007507DA /* StatutView.swift in Sources */,
 				C3C9B5BC2FF1C302007507DA /* AppModels.swift in Sources */,
 				C3C9B5BD2FF1C302007507DA /* APIService.swift in Sources */,

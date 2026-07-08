@@ -48,14 +48,14 @@ struct ProgressionView: View {
                 if let erreurs = etatJob?.erreurs, !erreurs.isEmpty {
                     Divider()
                     Text("⚠ \(erreurs.last ?? "")")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(DS.amber)
                         .font(.caption)
                 }
 
                 if let avertissements = etatJob?.avertissements, !avertissements.isEmpty {
                     Divider()
                     Text("🔎 Qualité : \(avertissements.count) section(s) possiblement résumée(s)\n\(avertissements.last ?? "")")
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(DS.amber)
                         .font(.caption)
                 }
 

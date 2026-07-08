@@ -9,6 +9,7 @@ struct itraducteur_pdfApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .tint(DS.accent) // accent du design system, propagé à tous les contrôles
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
