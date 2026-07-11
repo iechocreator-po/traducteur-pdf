@@ -40,12 +40,18 @@ log d'intérêt.
 
 ## Rappels du mapping (validé le 11/7/2026)
 
-Adaptations backend nécessaires pour la Bibliothèque :
-- `GET /api/bibliotheque` : lister les documents traduits (scan des
-  `_traduit*.md` + états) — n'existe pas encore.
-- Route pour lire le **contenu** d'un chapitre (l'actuel `/api/chapitres`
-  filtre le contenu).
-- Ajouter le nb de chapitres à `ResultatAnalyse` (analyse à l'import).
+Adaptations backend pour la Bibliothèque — **livrées le 11/7/2026** :
+- ✅ `GET /api/bibliotheque` : registre `bibliotheque.json` (local, gitignoré)
+  alimenté par `translation_runner` au lancement de chaque traduction, statut
+  et progression lus depuis les `.state.json` (`services/bibliotheque.py`).
+- ✅ `POST /api/chapitres/contenu` : contenu Markdown d'un chapitre par index.
+- ✅ `nb_chapitres` dans `ResultatAnalyse` (signets PDF sinon titres Markdown).
+- ✅ `POST /api/interet` + `services/interet.py` (log local horodaté) et flags
+  `teaser_voix_personnalisees` / `teaser_export_pdf` à `True`.
+
+Note : les documents traduits **avant** la mise en place du registre
+n'apparaissent pas dans la Bibliothèque (pas de rétro-remplissage en v1) ;
+relancer une traduction les y inscrit.
 
 Points de vigilance :
 - La file de jobs reste **séquentielle** (un seul job Ollama) : l'UI du lot

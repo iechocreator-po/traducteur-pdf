@@ -117,3 +117,4 @@ class ResultatAnalyse(BaseModel):
     recommandation: str
     estimation_nb_chunks: int = 0
     estimation_temps_secondes: int = 0
+    nb_chapitres: int = 0

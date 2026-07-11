@@ -474,6 +474,16 @@ def demarrer_traduction(
     output_path = build_output_path(source_path, modele)
     existing = _trouver_etat_existant(source_path)
 
+    # Registre de la Bibliothèque — le statut réel reste lu depuis le .state.json
+    from app.services.bibliotheque import enregistrer_document
+    enregistrer_document(
+        chemin_source=source_path,
+        chemin_sortie=output_path,
+        modele=modele,
+        langue_source=langue_source.value,
+        langue_cible=langue_cible.value,
+    )
+
     if chapitres_selectionnes is not None:
         return _demarrer_traduction_chapitres(
             source_path, output_path, existing,

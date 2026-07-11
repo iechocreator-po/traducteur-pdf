@@ -134,6 +134,74 @@ def lister_chapitres(req: ChapitresRequest) -> dict:
     return {"chapitres": chapitres_publics, "source": "titres_markdown"}
 
 
+class ChapitreContenuRequest(BaseModel):
+    chemin_pdf: str | None = None
+    chemin_md: str | None = None
+    index: int
+    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+
+    @model_validator(mode="after")
+    def valider_source(self):
+        if not self.chemin_pdf and not self.chemin_md:
+            raise ValueError("chemin_pdf ou chemin_md est requis.")
+        return self
+
+
+@router.post("/chapitres/contenu")
+def contenu_chapitre(req: ChapitreContenuRequest) -> dict:
+    """Retourne le contenu Markdown d'un chapitre (lecture dans la Bibliothèque)."""
+    chemin = req.chemin_md or req.chemin_pdf
+    if not os.path.exists(chemin):
+        label = "Fichier Markdown" if req.chemin_md else "Fichier PDF"
+        raise HTTPException(status_code=404, detail=f"{label} introuvable.")
+
+    from app.services.pdf_extractor import chapitres_avec_contenu
+
+    try:
+        chapitres = chapitres_avec_contenu(chemin, req.extracteur_pdf)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'extraction : {e}")
+
+    chapitre = next((c for c in chapitres if c["index"] == req.index), None)
+    if chapitre is None:
+        raise HTTPException(status_code=404, detail=f"Chapitre {req.index} introuvable.")
+    return {
+        "index": chapitre["index"],
+        "titre": chapitre["titre"],
+        "niveau": chapitre.get("niveau", 1),
+        "contenu": chapitre.get("contenu", ""),
+    }
+
+
+@router.get("/bibliotheque")
+def bibliotheque() -> dict:
+    """Documents traduits connus du registre, avec statut et progression."""
+    from app.services.bibliotheque import lister_documents
+    return {"documents": lister_documents()}
+
+
+class InteretRequest(BaseModel):
+    fonctionnalite: str
+    email: str
+
+    @model_validator(mode="after")
+    def valider(self):
+        from app.services.interet import email_valide
+        if not self.fonctionnalite.strip():
+            raise ValueError("fonctionnalite est requise.")
+        if not email_valide(self.email):
+            raise ValueError("Adresse email invalide.")
+        return self
+
+
+@router.post("/interet")
+def manifester_interet(req: InteretRequest) -> dict:
+    """Trace l'intérêt d'un utilisateur pour une fonctionnalité en développement."""
+    from app.services.interet import enregistrer_interet
+    enregistrer_interet(req.fonctionnalite, req.email)
+    return {"statut": "enregistre"}
+
+
 @router.post("/check-resume", response_model=EtatJob | None)
 def check_resume(req: ResumeCheckRequest) -> EtatJob | None:
     from app.services.translation_runner import check_resume as _check

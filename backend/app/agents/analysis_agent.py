@@ -4,10 +4,12 @@ Partie déterministe : extraction texte, comptage pages, estimation chunks/duré
 Partie LLM : langue détectée + recommandation (appel direct Ollama, texte libre).
 """
 
+import re
+
 import requests
 
 from app.models.schemas import ResultatAnalyse
-from app.services.pdf_extractor import compter_pages, extraire_texte, decouper_en_chunks
+from app.services.pdf_extractor import compter_pages, extraire_texte, decouper_en_chunks, extraire_toc_pdf
 from app.services.translation_runner import SECONDES_PAR_CHUNK_ESTIME
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
@@ -113,6 +115,10 @@ def analyser_pdf(chemin_pdf: str, nb_pages: int = NB_PAGES_ANALYSE_DEFAUT) -> Re
             f"Document volumineux ({nb_chunks} sections) — la traduction peut prendre du temps."
         )
 
+    # Nb de chapitres : signets PDF si présents, sinon titres Markdown du texte extrait
+    toc = extraire_toc_pdf(chemin_pdf)
+    nb_chapitres = len(toc) if toc else len(re.findall(r"^#{1,6}\s+", texte_complet, re.MULTILINE))
+
     return ResultatAnalyse(
         nb_pages_analysees=min(nb_pages, nb_pages_total),
         texte_extractible=True,
@@ -121,4 +127,5 @@ def analyser_pdf(chemin_pdf: str, nb_pages: int = NB_PAGES_ANALYSE_DEFAUT) -> Re
         recommandation=recommandation,
         estimation_nb_chunks=nb_chunks,
         estimation_temps_secondes=estimation_temps,
+        nb_chapitres=nb_chapitres,
     )
