@@ -40,8 +40,14 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   **teasers** des fonctionnalités futures (voix personnalisées, export PDF — flags
   `teaser_*`, capture d'intérêt via `POST /api/interet`, log local).
 
-> ⚠️ L'app macOS (Swift) reflète encore l'**ancienne** interface formulaire : sa refonte
-> UX/UI vers le design Workflow est prévue, la parité sera traitée à ce moment-là.
+L'app macOS (Swift/SwiftUI, `macos-app/`) suit le **même design Workflow** : barre
+supérieure (navigation 3 modules, pastilles de statut, thème, mode avancé) dans
+`ContentView.swift` (+ `AppEnvironment` partagé), et un fichier par module dans
+`Views/` (`ImportModuleView` avec drag & drop natif + NSOpenPanel,
+`BibliothequeModuleView` avec lecteur AVAudioPlayer lisant le WAV du disque,
+`LaboratoireModuleView` avec teasers). Le choix moteur/voix TTS est partagé entre
+Laboratoire et Bibliothèque via `@AppStorage`. Le projet Xcode (format 16,
+groupes synchronisés) inclut automatiquement les fichiers posés dans `macos-app/`.
 
 ## Prérequis
 

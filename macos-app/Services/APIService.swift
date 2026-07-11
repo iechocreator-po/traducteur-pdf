@@ -220,6 +220,75 @@ actor APIService {
         return try decoder.decode(EtatJob.self, from: data)
     }
 
+    // MARK: - Bibliothèque & fiche d'étude (refonte Workflow)
+
+    func bibliotheque() async throws -> [DocumentBiblio] {
+        let rep: BibliothequeResponse = try await get("bibliotheque")
+        return rep.documents
+    }
+
+    func chapitreContenu(cheminMd: String, index: Int) async throws -> ChapitreContenu {
+        let data = try await postAny("chapitres/contenu", body: [
+            "chemin_md": cheminMd, "index": index,
+        ])
+        if let rep = try? decoder.decode(ChapitreContenu.self, from: data) {
+            return rep
+        }
+        if let err = try? decoder.decode(APIDetailErreur.self, from: data) {
+            throw NSError(domain: "APIService", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: err.detail])
+        }
+        throw NSError(domain: "APIService", code: 2,
+                      userInfo: [NSLocalizedDescriptionKey: "Réponse inattendue du backend."])
+    }
+
+    /// Enfile la génération points clés + questions d'un ou plusieurs chapitres.
+    func genererEtude(cheminMd: String, chapitres: [Int], modele: String,
+                      langueFiche: String, nbPoints: Int = 5, nbQuestions: Int = 3) async throws {
+        let data = try await postAny("etude", body: [
+            "chemin_md": cheminMd,
+            "chapitres_selectionnes": chapitres,
+            "modele_ollama": modele,
+            "langue_fiche": langueFiche,
+            "nb_points": nbPoints,
+            "nb_questions": nbQuestions,
+        ])
+        if let err = try? decoder.decode(APIDetailErreur.self, from: data) {
+            throw NSError(domain: "APIService", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: err.detail])
+        }
+    }
+
+    func etudeStatut(cheminSource: String) async throws -> EtatJobEtude? {
+        var components = URLComponents(url: base.appendingPathComponent("etude/statut"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "chemin_source", value: cheminSource)]
+        let (data, _) = try await URLSession.shared.data(from: components.url!)
+        if data.isEmpty || data == Data("null".utf8) { return nil }
+        return try decoder.decode(EtatJobEtude.self, from: data)
+    }
+
+    func featureFlags() async throws -> [String: Bool] {
+        let (data, _) = try await URLSession.shared.data(from: base.appendingPathComponent("feature-flags"))
+        return (try? decoder.decode([String: Bool].self, from: data)) ?? [:]
+    }
+
+    /// Capture d'intérêt pour une fonctionnalité en développement (teasers).
+    func manifesterInteret(fonctionnalite: String, email: String) async throws {
+        let data = try await postAny("interet", body: [
+            "fonctionnalite": fonctionnalite, "email": email,
+        ])
+        if let err = try? decoder.decode(APIDetailErreur.self, from: data) {
+            throw NSError(domain: "APIService", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: err.detail])
+        }
+    }
+
+    func pauseJob(jobId: String) async throws {
+        var req = URLRequest(url: base.appendingPathComponent("job/\(jobId)/pause"))
+        req.httpMethod = "POST"
+        _ = try await URLSession.shared.data(for: req)
+    }
+
     // MARK: - Helpers
 
     private func get<T: Decodable>(_ path: String) async throws -> T {

@@ -49,6 +49,7 @@ Document de travail en attendant la mise en place d'un vrai tableau kanban
 | Cache de chunks | `cache_traduction.py` (SHA-256), résultats suspects non mis en cache. |
 | Text-to-Speech local | Moteurs Piper (rapide) / Kokoro (qualité), dropdowns moteur+voix ; extrait à écouter et génération audio d'un `.md` complet via la file d'attente. `tts.py`, `tts_runner.py`, routes `/api/tts/*`. |
 | Refonte web « Workflow » (3 modules) | Design toledo_v2 : Nouveau document (lot multi-fichiers, analyse auto, mode avancé) / Bibliothèque (lecture par chapitre, barre audio, panneau IA points clés + quiz) / Laboratoire (config, outils, teasers voix personnalisées et export PDF avec capture d'intérêt `POST /api/interet`). |
+| Refonte macOS « Workflow » | Même design 3 modules en SwiftUI : drag & drop natif + NSOpenPanel multi-fichiers, Bibliothèque avec lecteur AVAudioPlayer (WAV lu du disque) et panneau IA, Laboratoire avec teasers (confirmationDialog + email). Moteur/voix TTS partagés via @AppStorage. |
 | CI GitHub Actions | pytest + ruff à chaque push. |
 
 ---

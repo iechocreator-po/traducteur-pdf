@@ -1,259 +1,75 @@
 import SwiftUI
-import Combine
 
-@MainActor
-final class AppViewModel: ObservableObject {
-    @Published var apiEnLigne: Bool? = nil
-    @Published var ollamaOk: Bool? = nil
-    @Published var modeles: [String] = []
-    @Published var modeleChoisi: String = ""
-    @Published var langueSource: Langue = .anglais
-    @Published var langueCible: Langue = .francais
-    @Published var modeSource: ModeSource = .pdf
-    @Published var cheminPdf: String = ""
-    @Published var cheminMd: String = ""
-    @Published var etat: EtatOperation = .vide
-    @Published var repriseInfo: String? = nil
-    @Published var extracteurs: [ExtracteurConfig] = []
-    @Published var extracteurChoisi: String = "pymupdf4llm"
-    @Published var derniereAnalyse: ResultatAnalyse? = nil
-    @Published var etatJob: EtatJob? = nil
-    @Published var afficherScheduleSheet: Bool = false
-    @Published var afficherJobsPlanifies: Bool = false
-    @Published var derniereConfirmationPlanification: String? = nil
-    @Published var chapitresDisponibles: [Chapitre] = []
-    @Published var chapitresSelectionnes: Set<Int> = []
-    @Published var chapitresSource: String = ""
+// ============================================================================
+// REFONTE « WORKFLOW » — 3 modules organisés par flux de travail
+// (design toledo_v2/handoff_iTraducteur, décisions dans
+//  docs/refonte-workflow-decisions.md) :
+//   • Nouveau document — lot multi-fichiers, analyse auto, lancement en lot
+//   • Bibliothèque     — lecture par chapitre, audio TTS, panneau IA
+//   • Laboratoire      — configuration technique, outils, teasers
+// ============================================================================
 
-    private var jobActuel: (jobId: String, cheminPdf: String)? = nil
-    private var pollingTimer: Timer? = nil
+/// Module actif de la barre de navigation.
+enum ModuleApp: String, CaseIterable, Identifiable {
+    case nouveauDocument, bibliotheque, laboratoire
 
-    var jobEnCours: Bool { jobActuel != nil }
+    var id: String { rawValue }
 
-    // MARK: - Init
-
-    func verifierStatut() {
-        Task {
-            do {
-                let health = try await APIService.shared.health()
-                apiEnLigne = true
-                ollamaOk = health.ollamaAccessible == "oui"
-            } catch {
-                apiEnLigne = false
-                ollamaOk = nil
-            }
-        }
-        Task {
-            do {
-                let rep = try await APIService.shared.modeles()
-                modeles = rep.modeles
-                if modeleChoisi.isEmpty, let premier = rep.modeles.first {
-                    modeleChoisi = premier
-                }
-            } catch {}
-        }
-        Task {
-            do {
-                let rep = try await APIService.shared.extracteurs()
-                extracteurs = rep.extracteurs
-                extracteurChoisi = rep.defaut
-            } catch {}
-        }
-    }
-
-    func identifierChapitres() {
-        let pdf = cheminPdf.trimmingCharacters(in: .whitespaces)
-        let md  = cheminMd.trimmingCharacters(in: .whitespaces)
-        let estMd = modeSource == .markdown
-        let chemin = estMd ? md : pdf
-        guard !chemin.isEmpty else { etat = .erreur("Indique un fichier d'abord."); return }
-        etat = .enCours("Identification des chapitres…")
-        Task {
-            do {
-                let resultat = try await APIService.shared.chapitres(
-                    cheminPdf: estMd ? nil : pdf,
-                    cheminMd: estMd ? md : nil,
-                    extracteur: extracteurChoisi
-                )
-                chapitresDisponibles = resultat.chapitres
-                chapitresSelectionnes = Set(resultat.chapitres.map(\.index))
-                chapitresSource = resultat.source == "signets_pdf"
-                    ? "📑 Table des matières officielle (signets PDF)"
-                    : "🔍 Titres détectés dans le Markdown"
-                etat = .vide
-            } catch {
-                etat = .erreur(error.localizedDescription)
-            }
-        }
-    }
-
-    func reinitialiserChapitres() {
-        chapitresDisponibles = []
-        chapitresSelectionnes = []
-        chapitresSource = ""
-    }
-
-    func checkResume() {
-        let pdf = cheminPdf.trimmingCharacters(in: .whitespaces)
-        let md  = cheminMd.trimmingCharacters(in: .whitespaces)
-        let actif = modeSource == .markdown ? md : pdf
-        reinitialiserChapitres()
-        guard !actif.isEmpty else { repriseInfo = nil; return }
-        Task {
-            let j = modeSource == .markdown
-                ? try? await APIService.shared.checkResume(cheminMd: md)
-                : try? await APIService.shared.checkResume(cheminPdf: pdf)
-            if let j, j.derniereSectionCompletee > 0, j.statut != "termine" {
-                repriseInfo = "section \(j.derniereSectionCompletee)/\(j.totalSections)"
-            } else {
-                repriseInfo = nil
-            }
-        }
-    }
-
-    // MARK: - Actions
-
-    func analyser() {
-        let chemin = cheminPdf.trimmingCharacters(in: .whitespaces)
-        guard modeSource == .pdf else { return }
-        guard !chemin.isEmpty else { etat = .erreur("Indique le chemin du PDF."); return }
-        etat = .enCours("Analyse en cours…")
-        Task {
-            do {
-                let res = try await APIService.shared.analyser(
-                    cheminPdf: chemin, modele: modeleChoisi,
-                    langueSource: langueSource, langueCible: langueCible)
-                derniereAnalyse = res
-                etat = .succes("""
-                    Pages analysées : \(res.nbPagesAnalysees)
-                    Texte extractible : \(res.texteExtractible ? "oui" : "non")
-                    Langue détectée : \(res.langueDetectee ?? "—")
-                    Sections estimées : \(res.estimationNbChunks)
-                    Durée estimée : \(formaterDuree(res.estimationTempsSecondes))
-                    Recommandation : \(res.recommandation)
-                    """)
-            } catch {
-                etat = .erreur(error.localizedDescription)
-            }
-        }
-    }
-
-    func convertir() {
-        let chemin = cheminPdf.trimmingCharacters(in: .whitespaces)
-        guard modeSource == .pdf else { return }
-        guard !chemin.isEmpty else { etat = .erreur("Indique le chemin du PDF."); return }
-        etat = .enCours("Conversion en cours…")
-        Task {
-            do {
-                let res = try await APIService.shared.convertir(cheminPdf: chemin, extracteur: extracteurChoisi)
-                etat = .succes("Conversion terminée — \(res.nbCaracteres.formatted()) caractères\nFichier : \(res.cheminSortie)")
-            } catch {
-                etat = .erreur(error.localizedDescription)
-            }
-        }
-    }
-
-    func traduire(resume: Bool = false) {
-        let pdf = cheminPdf.trimmingCharacters(in: .whitespaces)
-        let md  = cheminMd.trimmingCharacters(in: .whitespaces)
-        let estMd = modeSource == .markdown
-        let cheminActif = estMd ? md : pdf
-        guard !cheminActif.isEmpty else {
-            etat = .erreur(estMd ? "Indique le chemin du fichier Markdown." : "Indique le chemin du PDF.")
-            return
-        }
-
-        Task {
-            // Analyse préalable uniquement en mode PDF
-            if !estMd && derniereAnalyse == nil && !resume {
-                etat = .enCours("Analyse préalable…")
-                if let res = try? await APIService.shared.analyser(
-                    cheminPdf: pdf, modele: modeleChoisi,
-                    langueSource: langueSource, langueCible: langueCible) {
-                    derniereAnalyse = res
-                }
-            }
-
-            etat = .enCours(resume ? "Reprise en cours…" : "Traduction démarrée…")
-            do {
-                let chapitres = chapitresDisponibles.isEmpty || chapitresSelectionnes.isEmpty
-                    ? nil
-                    : Array(chapitresSelectionnes)
-                let jobId = try await APIService.shared.traduire(
-                    cheminPdf: estMd ? nil : pdf,
-                    cheminMd: estMd ? md : nil,
-                    modele: modeleChoisi,
-                    langueSource: langueSource, langueCible: langueCible,
-                    extracteur: extracteurChoisi, resume: resume,
-                    chapitresSelectionnes: chapitres)
-                jobActuel = (jobId: jobId, cheminPdf: cheminActif)
-                etatJob = nil
-                demarrerPolling()
-            } catch {
-                etat = .erreur(error.localizedDescription)
-            }
-        }
-    }
-
-    func annulerJob() {
-        guard let job = jobActuel else { return }
-        etat = .enCours("Annulation en cours…")
-        Task {
-            try? await APIService.shared.annulerJob(jobId: job.jobId)
-            // Le polling détecte le passage au statut "annule" et nettoie l'état
-        }
-    }
-
-    // MARK: - Polling
-
-    private func demarrerPolling() {
-        arreterPolling()
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                await self?.pollStatut()
-            }
-        }
-    }
-
-    private func arreterPolling() {
-        pollingTimer?.invalidate()
-        pollingTimer = nil
-    }
-
-    private func pollStatut() async {
-        guard let job = jobActuel else { return }
-        guard let j = try? await APIService.shared.statutJob(jobId: job.jobId, cheminPdf: job.cheminPdf) else { return }
-        etatJob = j
-
-        switch j.statut {
-        case "termine":
-            arreterPolling()
-            jobActuel = nil
-            etat = .succes("Traduction terminée\nFichier : \(j.cheminSortie)")
-            repriseInfo = nil
-        case "erreur":
-            arreterPolling()
-            jobActuel = nil
-            etat = .erreur(j.erreurs.first ?? "Erreur inconnue")
-        case "en_pause":
-            arreterPolling()
-            repriseInfo = "section \(j.derniereSectionCompletee)/\(j.totalSections)"
-        case "annule":
-            arreterPolling()
-            jobActuel = nil
-            etat = .succes("Traduction annulée — \(j.derniereSectionCompletee)/\(j.totalSections) section(s) traduites")
-            if j.derniereSectionCompletee > 0 {
-                repriseInfo = "section \(j.derniereSectionCompletee)/\(j.totalSections)"
-            }
-        case "en_attente":
-            etat = .enCours("En file d'attente…")
-        default:
-            break
+    var libelle: String {
+        switch self {
+        case .nouveauDocument: return "Nouveau document"
+        case .bibliotheque: return "Bibliothèque"
+        case .laboratoire: return "Laboratoire"
         }
     }
 }
 
-// MARK: - Helpers
+/// État partagé entre les modules : santé du backend, listes de configuration
+/// et réglages du lot (langues, extracteur, modèle). Aucune logique métier.
+@MainActor
+final class AppEnvironment: ObservableObject {
+    @Published var apiEnLigne: Bool? = nil
+    @Published var ollamaOk: Bool? = nil
+    @Published var modeles: [String] = []
+    @Published var modeleChoisi: String = ""
+    @Published var extracteurs: [ExtracteurConfig] = []
+    @Published var extracteurChoisi: String = "pymupdf4llm"
+    @Published var langueSource: Langue = .anglais
+    @Published var langueCible: Langue = .francais
+    @Published var flags: [String: Bool] = [:]
+
+    func rafraichir() async {
+        do {
+            let health = try await APIService.shared.health()
+            apiEnLigne = true
+            ollamaOk = health.ollamaAccessible == "oui"
+        } catch {
+            apiEnLigne = false
+            ollamaOk = nil
+        }
+        if let rep = try? await APIService.shared.modeles() {
+            modeles = rep.modeles
+            if modeleChoisi.isEmpty || !rep.modeles.contains(modeleChoisi) {
+                modeleChoisi = rep.modeles.first ?? ""
+            }
+        }
+        if let rep = try? await APIService.shared.extracteurs() {
+            extracteurs = rep.extracteurs
+            if !rep.extracteurs.contains(where: { $0.id == extracteurChoisi }) {
+                extracteurChoisi = rep.defaut
+            }
+        }
+        flags = (try? await APIService.shared.featureFlags()) ?? [:]
+    }
+
+    /// Vérifie que backend + Ollama répondent avant de lancer un job LLM.
+    func santeOk() async -> Bool {
+        await rafraichir()
+        return apiEnLigne == true && ollamaOk == true
+    }
+}
+
+// MARK: - Helpers partagés
 
 func formaterDuree(_ secondes: Int) -> String {
     let m = secondes / 60
@@ -262,212 +78,101 @@ func formaterDuree(_ secondes: Int) -> String {
 }
 
 func formaterDureeDouble(_ secondes: Double) -> String {
-    guard secondes >= 0 else { return "—" }
+    guard secondes >= 0, secondes.isFinite else { return "—" }
     return formaterDuree(Int(secondes))
+}
+
+func nomFichier(_ chemin: String) -> String {
+    (chemin as NSString).lastPathComponent
+}
+
+func estMarkdown(_ chemin: String) -> Bool {
+    let c = chemin.lowercased()
+    return c.hasSuffix(".md") || c.hasSuffix(".markdown")
 }
 
 // MARK: - ContentView
 
 struct ContentView: View {
-    @StateObject private var vm = AppViewModel()
+    @StateObject private var env = AppEnvironment()
     @AppStorage("themeChoice") private var themeChoice: ThemeChoice = .auto
+    @AppStorage("moduleActif") private var moduleActif: ModuleApp = .nouveauDocument
+    @AppStorage("modeAvance") private var modeAvance: Bool = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("iTraducteur PDF")
-                            .font(.title2.bold())
-                        Text("Traduction locale via Ollama — aucune donnée ne quitte ton ordinateur.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Picker("Thème", selection: $themeChoice) {
-                        ForEach(ThemeChoice.allCases) { choix in
-                            Text(choix.libelle).tag(choix)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                }
-
-                StatutView(apiEnLigne: vm.apiEnLigne, ollamaOk: vm.ollamaOk)
-
-                DocumentView(
-                    modeSource: $vm.modeSource,
-                    cheminPdf: $vm.cheminPdf,
-                    cheminMd: $vm.cheminMd,
-                    modeleChoisi: $vm.modeleChoisi,
-                    langueSource: $vm.langueSource,
-                    langueCible: $vm.langueCible,
-                    extracteurChoisi: $vm.extracteurChoisi,
-                    modeles: vm.modeles,
-                    extracteurs: vm.extracteurs,
-                    onCheminChange: vm.checkResume
-                )
-
-                ChapitresView(
-                    chapitres: vm.chapitresDisponibles,
-                    selectionnes: $vm.chapitresSelectionnes,
-                    source: vm.chapitresSource,
-                    onIdentifier: vm.identifierChapitres
-                )
-
-                GlossaireView()
-
-                LectureAudioView(
-                    cheminSource: vm.modeSource == .markdown ? vm.cheminMd : vm.cheminPdf
-                )
-
-                ResultatView(
-                    etat: vm.etat,
-                    repriseInfo: vm.repriseInfo,
-                    jobEnCours: vm.jobEnCours,
-                    modeSource: vm.modeSource,
-                    onAnalyser: vm.analyser,
-                    onConvertir: vm.convertir,
-                    onTraduire: { vm.traduire(resume: false) },
-                    onReprendre: { vm.traduire(resume: true) },
-                    onAnnuler: vm.annulerJob,
-                    onPlanifier: { vm.afficherScheduleSheet = true },
-                    onVoirJobsPlanifies: { vm.afficherJobsPlanifies = true },
-                    confirmationPlanification: vm.derniereConfirmationPlanification
-                )
-                .sheet(isPresented: $vm.afficherScheduleSheet) {
-                    let estMd = vm.modeSource == .markdown
-                    ScheduleSheet(
-                        cheminPdf: estMd ? nil : vm.cheminPdf.trimmingCharacters(in: .whitespaces),
-                        cheminMd: estMd ? vm.cheminMd.trimmingCharacters(in: .whitespaces) : nil,
-                        modele: vm.modeleChoisi,
-                        langueSource: vm.langueSource,
-                        langueCible: vm.langueCible,
-                        extracteur: vm.extracteurChoisi,
-                        chapitresSelectionnes: vm.chapitresDisponibles.isEmpty || vm.chapitresSelectionnes.isEmpty
-                            ? nil
-                            : Array(vm.chapitresSelectionnes),
-                        isPresented: $vm.afficherScheduleSheet
-                    ) { jobs in
-                        let fmt = DateFormatter()
-                        fmt.dateStyle = .medium
-                        fmt.timeStyle = .short
-                        let date = jobs.first.flatMap { $0.dateExecution.map { fmt.string(from: $0) } ?? $0.executer_a } ?? "—"
-                        if jobs.count > 1 {
-                            vm.derniereConfirmationPlanification =
-                                "\(jobs.count) fichiers planifiés à partir du \(date) — traduits l'un après l'autre"
-                        } else {
-                            let chapitresInfo: String
-                            if vm.chapitresDisponibles.isEmpty || vm.chapitresSelectionnes.isEmpty {
-                                chapitresInfo = "document complet"
-                            } else {
-                                let indices = vm.chapitresSelectionnes.sorted().map { String($0 + 1) }.joined(separator: ", ")
-                                chapitresInfo = "\(vm.chapitresSelectionnes.count) chapitre(s) : \(indices)"
-                            }
-                            vm.derniereConfirmationPlanification = "Planifiée le \(date) — \(chapitresInfo)"
-                        }
-                    }
-                }
-                .sheet(isPresented: $vm.afficherJobsPlanifies) {
-                    ScheduledJobsView()
-                }
-
-                if vm.jobEnCours || vm.etatJob != nil {
-                    ProgressionView(
-                        etatJob: vm.etatJob,
-                        estimationTotale: vm.derniereAnalyse.map { Double($0.estimationTempsSecondes) }
-                    )
-                }
-
-                Spacer()
+        VStack(spacing: 0) {
+            barreApp
+            Divider()
+            switch moduleActif {
+            case .nouveauDocument:
+                ImportModuleView(modeAvance: modeAvance)
+            case .bibliotheque:
+                BibliothequeModuleView()
+            case .laboratoire:
+                LaboratoireModuleView()
             }
-            .padding(20)
         }
-        .frame(minWidth: 640, minHeight: 480)
-        .task { vm.verifierStatut() }
-        .preferredColorScheme(themeChoice.colorScheme) // Auto (nil) / Clair / Sombre, mémorisé
+        .environmentObject(env)
+        .frame(minWidth: 860, minHeight: 560)
+        .task { await env.rafraichir() }
+        .preferredColorScheme(themeChoice.colorScheme)
     }
-}
 
-// MARK: - ChapitresView
+    private var barreApp: some View {
+        HStack(spacing: 16) {
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(DS.accent)
+                    .frame(width: 18, height: 18)
+                Text("iTraducteur")
+                    .font(.system(size: 15, weight: .heavy))
+            }
 
-struct ChapitresView: View {
-    let chapitres: [Chapitre]
-    @Binding var selectionnes: Set<Int>
-    var source: String = ""
-    let onIdentifier: () -> Void
-
-    var body: some View {
-        GroupBox("Chapitres (optionnel)") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Identifie les chapitres pour ne traduire que certaines sections. Sans sélection, tout le document est traduit.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Button("📋 Identifier les chapitres", action: onIdentifier)
-                    .buttonStyle(.bordered)
-
-                if !source.isEmpty {
-                    Text(source)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if !chapitres.isEmpty {
-                    HStack {
-                        Button("Tout sélectionner") {
-                            selectionnes = Set(chapitres.map(\.index))
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-
-                        Button("Tout désélectionner") {
-                            selectionnes = []
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-
-                        Spacer()
-                        Text("\(selectionnes.count) / \(chapitres.count) sélectionné(s)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(chapitres) { chap in
-                                Toggle(isOn: Binding(
-                                    get: { selectionnes.contains(chap.index) },
-                                    set: { isOn in
-                                        if isOn { selectionnes.insert(chap.index) }
-                                        else { selectionnes.remove(chap.index) }
-                                    }
-                                )) {
-                                    let pageInfo = chap.page.map { " (p.\($0))" } ?? ""
-                                    Text(String(repeating: "#", count: chap.niveau) + " " + chap.titre + pageInfo)
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .lineLimit(1)
-                                        .padding(.leading, CGFloat((chap.niveau - 1) * 10))
-                                }
-                                .toggleStyle(.checkbox)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .frame(maxHeight: 220)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                    )
+            HStack(spacing: 4) {
+                ForEach(ModuleApp.allCases) { module in
+                    Button(module.libelle) { moduleActif = module }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: DS.radiusSm)
+                                .fill(moduleActif == module ? DS.accent.opacity(0.14) : .clear)
+                        )
+                        .foregroundStyle(moduleActif == module ? DS.accent : .secondary)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 4)
-        }
-    }
-}
 
-#Preview {
-    ContentView()
+            Spacer()
+
+            HStack(spacing: 6) {
+                pastille(env.apiEnLigne).help(env.apiEnLigne == true ? "Backend en ligne" : "Backend hors ligne")
+                pastille(env.ollamaOk).help(env.ollamaOk == true ? "Ollama accessible" : "Ollama inaccessible")
+            }
+
+            Picker("Thème", selection: $themeChoice) {
+                ForEach(ThemeChoice.allCases) { choix in
+                    Text(choix.libelle).tag(choix)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+
+            Toggle("Mode avancé", isOn: $modeAvance)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 52)
+        .background(.bar)
+    }
+
+    private func pastille(_ ok: Bool?) -> some View {
+        Circle()
+            .fill(ok == true ? DS.green : ok == false ? DS.red : DS.text3)
+            .frame(width: 9, height: 9)
+    }
 }
