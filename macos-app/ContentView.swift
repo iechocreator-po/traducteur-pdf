@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // ============================================================================
 // REFONTE « WORKFLOW » — 3 modules organisés par flux de travail

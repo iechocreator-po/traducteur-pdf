@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import UniformTypeIdentifiers
 
 // ============================================================================
@@ -452,9 +453,9 @@ struct ImportModuleView: View {
                 case .pret, .probleme:
                     HStack(spacing: 16) {
                         if let q = fichier.qualite {
-                            Text("Qualité : ").font(.caption).foregroundStyle(.secondary)
-                            + Text(q).font(.caption.bold())
-                                .foregroundStyle(fichier.stage == .probleme ? DS.amber : DS.green)
+                            Text("Qualité : \(Text(q).bold().foregroundStyle(fichier.stage == .probleme ? DS.amber : DS.green))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         if let eta = fichier.etaSecondes {
                             Text("≈ \(formaterDuree(eta))").font(.caption).foregroundStyle(.secondary)
