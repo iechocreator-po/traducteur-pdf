@@ -16,6 +16,10 @@ FLAGS_PAR_DEFAUT = {
     "extraction_urls": True,
     "agents_ia": False,
     "planification_differee": False,
+    # Teasers (refonte Workflow) : fonctionnalités futures affichées dans le
+    # Laboratoire avec capture d'intérêt (POST /api/interet).
+    "teaser_voix_personnalisees": True,
+    "teaser_export_pdf": True,
 }
 
 EXTRACTEURS_PDF = [

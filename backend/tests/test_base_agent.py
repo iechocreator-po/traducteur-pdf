@@ -53,3 +53,31 @@ def test_analyse_detecte_couche_texte_corrompue(monkeypatch):
     assert resultat.texte_extractible is False
     assert any("corrompue" in a for a in resultat.avertissements)
     assert "Tesseract" in resultat.recommandation
+
+
+def test_analyse_compte_les_chapitres(monkeypatch):
+    from app.agents import analysis_agent
+
+    texte = "# Un\n\nParagraphe. " * 1 + "\n\n## Sous-section\n\nTexte.\n\n# Deux\n\nAutre texte."
+    monkeypatch.setattr(analysis_agent, "extraire_texte", lambda chemin, *a, **k: texte)
+    monkeypatch.setattr(analysis_agent, "compter_pages", lambda chemin: 3)
+    monkeypatch.setattr(analysis_agent, "extraire_toc_pdf", lambda chemin: None)
+    monkeypatch.setattr(analysis_agent, "_appel_llm", lambda prompt, modele="llama3.1": "LANGUE: français\nRECOMMANDATION: ok")
+
+    resultat = analysis_agent.analyser_pdf("/x/doc.pdf")
+    assert resultat.nb_chapitres == 3  # deux titres # et un ##
+
+
+def test_analyse_prefere_les_signets_pdf(monkeypatch):
+    from app.agents import analysis_agent
+
+    monkeypatch.setattr(analysis_agent, "extraire_texte", lambda chemin, *a, **k: "# Un\n\nTexte.")
+    monkeypatch.setattr(analysis_agent, "compter_pages", lambda chemin: 3)
+    monkeypatch.setattr(
+        analysis_agent, "extraire_toc_pdf",
+        lambda chemin: [{"index": i, "titre": f"C{i}", "niveau": 1, "page": i} for i in range(5)],
+    )
+    monkeypatch.setattr(analysis_agent, "_appel_llm", lambda prompt, modele="llama3.1": "LANGUE: français\nRECOMMANDATION: ok")
+
+    resultat = analysis_agent.analyser_pdf("/x/doc.pdf")
+    assert resultat.nb_chapitres == 5

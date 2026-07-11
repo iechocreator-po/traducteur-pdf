@@ -36,3 +36,5 @@ backend/scheduled_jobs.json
 backend/glossaire.json
 backend/tts_modeles/
 test_integre/
+backend/bibliotheque.json
+backend/interet_fonctionnalites.log

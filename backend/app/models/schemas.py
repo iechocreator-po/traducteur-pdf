@@ -67,6 +67,46 @@ class EtatJob(BaseModel):
     chapitres_traduits: list[int] = Field(default_factory=list)
 
 
+class QuestionEtude(BaseModel):
+    """Une question de compréhension et sa réponse attendue (corrigé)."""
+
+    question: str
+    reponse: str
+
+
+class FicheChapitre(BaseModel):
+    """Fiche d'étude d'un chapitre : points à retenir et questions de compréhension."""
+
+    index: int
+    titre: str
+    # Étape de traitement : en_attente → points → questions → termine (ou erreur)
+    etape: str = "en_attente"
+    points: list[str] = Field(default_factory=list)
+    questions: list[QuestionEtude] = Field(default_factory=list)
+
+
+class EtatJobEtude(BaseModel):
+    """État persistant d'un job de génération de fiche d'étude (suivi + reprise)."""
+
+    job_id: str
+    chemin_source: str
+    chemin_sortie: str
+    modele_ollama: str
+    langue_fiche: str
+    nb_points: int = 5
+    nb_questions: int = 3
+    statut: StatutJob
+    chapitres: list[FicheChapitre] = Field(default_factory=list)
+    # 2 étapes par chapitre (points puis questions) — granularité de la progression
+    etapes_completees: int = 0
+    total_etapes: int = 0
+    temps_debut: float | None = None
+    temps_ecoule_secondes: float = 0.0
+    estimation_temps_total_secondes: float | None = None
+    erreurs: list[str] = Field(default_factory=list)
+    journal: list[str] = Field(default_factory=list)
+
+
 class ResultatAnalyse(BaseModel):
     """Résultat de l'analyse préliminaire d'un PDF (avant traduction complète)."""
 
@@ -77,3 +117,4 @@ class ResultatAnalyse(BaseModel):
     recommandation: str
     estimation_nb_chunks: int = 0
     estimation_temps_secondes: int = 0
+    nb_chapitres: int = 0

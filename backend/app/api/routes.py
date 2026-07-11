@@ -6,10 +6,10 @@ métier — elle valide les entrées et délègue aux services/agents.
 import os
 
 from fastapi import APIRouter, HTTPException, Response
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.config.feature_flags import charger_flags, EXTRACTEURS_PDF, EXTRACTEUR_PAR_DEFAUT
-from app.models.schemas import DemandeTraduction, EtatJob, ResultatAnalyse
+from app.models.schemas import DemandeTraduction, EtatJob, EtatJobEtude, ResultatAnalyse
 from app.services.translator import lister_modeles_disponibles
 
 router = APIRouter()
@@ -132,6 +132,74 @@ def lister_chapitres(req: ChapitresRequest) -> dict:
         for c in chapitres
     ]
     return {"chapitres": chapitres_publics, "source": "titres_markdown"}
+
+
+class ChapitreContenuRequest(BaseModel):
+    chemin_pdf: str | None = None
+    chemin_md: str | None = None
+    index: int
+    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+
+    @model_validator(mode="after")
+    def valider_source(self):
+        if not self.chemin_pdf and not self.chemin_md:
+            raise ValueError("chemin_pdf ou chemin_md est requis.")
+        return self
+
+
+@router.post("/chapitres/contenu")
+def contenu_chapitre(req: ChapitreContenuRequest) -> dict:
+    """Retourne le contenu Markdown d'un chapitre (lecture dans la Bibliothèque)."""
+    chemin = req.chemin_md or req.chemin_pdf
+    if not os.path.exists(chemin):
+        label = "Fichier Markdown" if req.chemin_md else "Fichier PDF"
+        raise HTTPException(status_code=404, detail=f"{label} introuvable.")
+
+    from app.services.pdf_extractor import chapitres_avec_contenu
+
+    try:
+        chapitres = chapitres_avec_contenu(chemin, req.extracteur_pdf)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'extraction : {e}")
+
+    chapitre = next((c for c in chapitres if c["index"] == req.index), None)
+    if chapitre is None:
+        raise HTTPException(status_code=404, detail=f"Chapitre {req.index} introuvable.")
+    return {
+        "index": chapitre["index"],
+        "titre": chapitre["titre"],
+        "niveau": chapitre.get("niveau", 1),
+        "contenu": chapitre.get("contenu", ""),
+    }
+
+
+@router.get("/bibliotheque")
+def bibliotheque() -> dict:
+    """Documents traduits connus du registre, avec statut et progression."""
+    from app.services.bibliotheque import lister_documents
+    return {"documents": lister_documents()}
+
+
+class InteretRequest(BaseModel):
+    fonctionnalite: str
+    email: str
+
+    @model_validator(mode="after")
+    def valider(self):
+        from app.services.interet import email_valide
+        if not self.fonctionnalite.strip():
+            raise ValueError("fonctionnalite est requise.")
+        if not email_valide(self.email):
+            raise ValueError("Adresse email invalide.")
+        return self
+
+
+@router.post("/interet")
+def manifester_interet(req: InteretRequest) -> dict:
+    """Trace l'intérêt d'un utilisateur pour une fonctionnalité en développement."""
+    from app.services.interet import enregistrer_interet
+    enregistrer_interet(req.fonctionnalite, req.email)
+    return {"statut": "enregistre"}
 
 
 @router.post("/check-resume", response_model=EtatJob | None)
@@ -353,6 +421,61 @@ def annuler_job_planifie(job_id: str) -> dict:
     return {"statut": "annule"}
 
 
+class EtudeRequest(BaseModel):
+    chemin_pdf: str | None = None
+    chemin_md: str | None = None
+    chapitres_selectionnes: list[int]
+    modele_ollama: str = "llama3.1"
+    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    langue_fiche: str = "français"
+    nb_points: int = Field(default=5, ge=1, le=10)
+    nb_questions: int = Field(default=3, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def valider(self):
+        if not self.chemin_pdf and not self.chemin_md:
+            raise ValueError("chemin_pdf ou chemin_md est requis.")
+        if not self.chapitres_selectionnes:
+            raise ValueError("Au moins un chapitre doit être sélectionné.")
+        return self
+
+
+@router.post("/etude")
+def generer_fiche_etude(req: EtudeRequest) -> dict:
+    """
+    Enfile la génération d'une fiche d'étude (points à retenir + questions de
+    compréhension) pour les chapitres sélectionnés. Les chapitres déjà générés
+    avec les mêmes options sont conservés (reprise/ajout automatique).
+    """
+    chemin_source = req.chemin_md or req.chemin_pdf
+    if not os.path.exists(chemin_source):
+        label = "Fichier Markdown" if req.chemin_md else "Fichier PDF"
+        raise HTTPException(status_code=404, detail=f"{label} introuvable.")
+
+    from app.services.study_runner import demarrer_etude
+
+    try:
+        etat = demarrer_etude(
+            source_path=chemin_source,
+            chapitres_selectionnes=req.chapitres_selectionnes,
+            modele=req.modele_ollama,
+            langue_fiche=req.langue_fiche,
+            nb_points=req.nb_points,
+            nb_questions=req.nb_questions,
+            extracteur=req.extracteur_pdf,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"job_id": etat.job_id, "chemin_sortie": etat.chemin_sortie}
+
+
+@router.get("/etude/statut", response_model=EtatJobEtude | None)
+def statut_etude(chemin_source: str) -> EtatJobEtude | None:
+    """État du job de fiche d'étude le plus récent pour ce fichier source."""
+    from app.services.study_runner import lire_statut_etude
+    return lire_statut_etude(chemin_source)
+
+
 class GlossaireRequest(BaseModel):
     termes: list[str]
 
@@ -428,6 +551,20 @@ def statut_audio(chemin_md: str) -> dict | None:
     """État du job audio le plus récent pour ce fichier source."""
     from app.services.tts_runner import lire_etat
     return lire_etat(chemin_md)
+
+
+@router.get("/tts/audio")
+def telecharger_audio(chemin_wav: str):
+    """
+    Sert un fichier audio généré (lecture dans la barre audio de la Bibliothèque —
+    le navigateur ne peut pas lire un fichier disque par chemin).
+    """
+    from fastapi.responses import FileResponse
+    if not chemin_wav.lower().endswith(".wav"):
+        raise HTTPException(status_code=422, detail="Seuls les fichiers .wav générés sont servis.")
+    if not os.path.exists(chemin_wav):
+        raise HTTPException(status_code=404, detail="Fichier audio introuvable.")
+    return FileResponse(chemin_wav, media_type="audio/wav", filename=os.path.basename(chemin_wav))
 
 
 @router.post("/analyser", response_model=ResultatAnalyse)

@@ -264,40 +264,6 @@ def _lire_source_markdown(source_path: str, extracteur: str) -> str:
     return extraire_texte(source_path, extracteur)
 
 
-def _relier_toc_a_markdown(toc: list[dict], chapitres_md: list[dict]) -> list[dict]:
-    """
-    Relie les entrées de la TOC PDF (signets) aux chapitres Markdown.
-    Pour chaque signet, cherche le chapitre Markdown dont le titre correspond
-    (correspondance partielle insensible à la casse).
-    Les signets sans correspondance Markdown conservent un contenu vide.
-    """
-    import re as _re
-
-    def normaliser(titre: str) -> str:
-        return _re.sub(r"[^\w\s]", "", titre).lower().strip()
-
-    chapitres_relies = []
-    for entree in toc:
-        titre_toc = normaliser(entree["titre"])
-        meilleur = None
-        for chap_md in chapitres_md:
-            titre_md = normaliser(chap_md["titre"])
-            # Correspondance si le titre du signet est contenu dans le titre Markdown ou vice-versa
-            if titre_toc in titre_md or titre_md in titre_toc:
-                meilleur = chap_md
-                break
-        chapitres_relies.append({
-            "index": entree["index"],
-            "titre": entree["titre"],
-            "niveau": entree["niveau"],
-            "page": entree.get("page"),
-            "contenu": meilleur["contenu"] if meilleur else "",
-            "ligne_debut": meilleur["ligne_debut"] if meilleur else 0,
-            "ligne_fin": meilleur["ligne_fin"] if meilleur else 0,
-        })
-    return chapitres_relies
-
-
 def _mettre_a_jour_entete_chapitres(chemin_sortie: str, chapitres_traduits: list[int], state: EtatJob) -> None:
     """Met à jour la ligne d'en-tête du fichier de sortie pour refléter les chapitres traduits."""
     try:
@@ -413,17 +379,10 @@ def _demarrer_traduction_chapitres(
     estimation_temps_total: float | None,
 ) -> str:
     """Lance un job de traduction par chapitres (mode ajout). Retourne le job_id."""
-    from app.services.pdf_extractor import extraire_toc_pdf, identifier_chapitres as _identifier
+    from app.services.pdf_extractor import chapitres_avec_contenu
 
-    # Utilise les signets PDF si disponibles, sinon fallback Markdown
-    toc_pdf = extraire_toc_pdf(source_path) if source_path.lower().endswith(".pdf") else None
-    chapitres_md = _identifier(source_path, extracteur)
-
-    if toc_pdf:
-        # Relie chaque signet PDF à son contenu dans le Markdown via correspondance de titre
-        tous_chapitres = _relier_toc_a_markdown(toc_pdf, chapitres_md)
-    else:
-        tous_chapitres = chapitres_md
+    # Signets PDF reliés au Markdown si disponibles, sinon titres Markdown
+    tous_chapitres = chapitres_avec_contenu(source_path, extracteur)
     deja_traduits = set(existing.chapitres_traduits) if existing else set()
     sel_set = set(chapitres_selectionnes)
 
@@ -514,6 +473,16 @@ def demarrer_traduction(
     """Starts (or resumes) a translation job in a background thread. Returns job_id."""
     output_path = build_output_path(source_path, modele)
     existing = _trouver_etat_existant(source_path)
+
+    # Registre de la Bibliothèque — le statut réel reste lu depuis le .state.json
+    from app.services.bibliotheque import enregistrer_document
+    enregistrer_document(
+        chemin_source=source_path,
+        chemin_sortie=output_path,
+        modele=modele,
+        langue_source=langue_source.value,
+        langue_cible=langue_cible.value,
+    )
 
     if chapitres_selectionnes is not None:
         return _demarrer_traduction_chapitres(

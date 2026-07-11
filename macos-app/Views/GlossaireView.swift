@@ -67,7 +67,3 @@ struct GlossaireView: View {
         }
     }
 }
-
-#Preview {
-    GlossaireView()
-}

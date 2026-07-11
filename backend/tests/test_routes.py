@@ -124,3 +124,134 @@ def test_tts_extrait_texte_vide_refuse():
         "texte": "   ", "moteur": "piper", "voix": "v",
     })
     assert reponse.status_code == 422
+
+
+# ── Fiche d'étude ─────────────────────────────────────────────────────────────
+
+def test_etude_fichier_introuvable():
+    reponse = client.post("/api/etude", json={
+        "chemin_md": "/chemin/inexistant.md",
+        "chapitres_selectionnes": [0],
+    })
+    assert reponse.status_code == 404
+
+
+def test_etude_sans_chapitres_rejete(tmp_path):
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nContenu.")
+    reponse = client.post("/api/etude", json={
+        "chemin_md": str(source),
+        "chapitres_selectionnes": [],
+    })
+    assert reponse.status_code == 422
+
+
+def test_etude_nb_points_hors_bornes_rejete(tmp_path):
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nContenu.")
+    reponse = client.post("/api/etude", json={
+        "chemin_md": str(source),
+        "chapitres_selectionnes": [0],
+        "nb_points": 0,
+    })
+    assert reponse.status_code == 422
+
+
+def test_etude_chapitre_inconnu_rejete(tmp_path):
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nContenu.")
+    reponse = client.post("/api/etude", json={
+        "chemin_md": str(source),
+        "chapitres_selectionnes": [42],
+    })
+    assert reponse.status_code == 422
+
+
+def test_etude_statut_absent_retourne_null(tmp_path):
+    reponse = client.get("/api/etude/statut", params={"chemin_source": str(tmp_path / "rien.md")})
+    assert reponse.status_code == 200
+    assert reponse.json() is None
+
+
+# ── Bibliothèque / refonte Workflow ──────────────────────────────────────────
+
+def test_bibliotheque_vide(tmp_path, monkeypatch):
+    from app.services import bibliotheque
+    monkeypatch.setattr(bibliotheque, "_FICHIER_BIBLIO", str(tmp_path / "biblio.json"))
+    reponse = client.get("/api/bibliotheque")
+    assert reponse.status_code == 200
+    assert reponse.json() == {"documents": []}
+
+
+def test_contenu_chapitre(tmp_path):
+    source = tmp_path / "doc.md"
+    source.write_text("# Un\n\nContenu du chapitre un.\n\n# Deux\n\nContenu du chapitre deux.")
+    reponse = client.post("/api/chapitres/contenu", json={"chemin_md": str(source), "index": 1})
+    assert reponse.status_code == 200
+    data = reponse.json()
+    assert data["titre"] == "Deux"
+    assert "Contenu du chapitre deux." in data["contenu"]
+
+
+def test_contenu_chapitre_index_inconnu(tmp_path):
+    source = tmp_path / "doc.md"
+    source.write_text("# Un\n\nContenu.")
+    reponse = client.post("/api/chapitres/contenu", json={"chemin_md": str(source), "index": 9})
+    assert reponse.status_code == 404
+
+
+def test_contenu_chapitre_fichier_introuvable():
+    reponse = client.post("/api/chapitres/contenu", json={"chemin_md": "/inexistant.md", "index": 0})
+    assert reponse.status_code == 404
+
+
+def test_interet_enregistre(tmp_path, monkeypatch):
+    from app.services import interet
+    log = tmp_path / "interet.log"
+    monkeypatch.setattr(interet, "_FICHIER_LOG", str(log))
+    reponse = client.post("/api/interet", json={
+        "fonctionnalite": "clonage_voix", "email": "jp@example.com",
+    })
+    assert reponse.status_code == 200
+    assert reponse.json() == {"statut": "enregistre"}
+    assert "clonage_voix" in log.read_text()
+
+
+def test_interet_email_invalide():
+    reponse = client.post("/api/interet", json={
+        "fonctionnalite": "export_pdf", "email": "pas-un-email",
+    })
+    assert reponse.status_code == 422
+
+
+def test_interet_fonctionnalite_vide():
+    reponse = client.post("/api/interet", json={"fonctionnalite": "  ", "email": "jp@example.com"})
+    assert reponse.status_code == 422
+
+
+def test_flags_teaser_actives():
+    reponse = client.get("/api/feature-flags")
+    flags = reponse.json()
+    assert flags["teaser_voix_personnalisees"] is True
+    assert flags["teaser_export_pdf"] is True
+
+
+def test_tts_audio_sert_le_wav(tmp_path):
+    wav = tmp_path / "doc_audio.wav"
+    wav.write_bytes(b"RIFF----WAVE")
+    reponse = client.get("/api/tts/audio", params={"chemin_wav": str(wav)})
+    assert reponse.status_code == 200
+    assert reponse.headers["content-type"] == "audio/wav"
+    assert reponse.content.startswith(b"RIFF")
+
+
+def test_tts_audio_introuvable():
+    reponse = client.get("/api/tts/audio", params={"chemin_wav": "/inexistant.wav"})
+    assert reponse.status_code == 404
+
+
+def test_tts_audio_extension_invalide(tmp_path):
+    fichier = tmp_path / "notes.txt"
+    fichier.write_text("x")
+    reponse = client.get("/api/tts/audio", params={"chemin_wav": str(fichier)})
+    assert reponse.status_code == 422

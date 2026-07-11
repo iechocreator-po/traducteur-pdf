@@ -10,17 +10,14 @@
 		C3AEC60C2FF1C8AC00257B8D /* itraducteur_pdfApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3AEC60B2FF1C8AC00257B8D /* itraducteur_pdfApp.swift */; };
 		C3AEC60D2FF1C8AC00257B8D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3AEC60A2FF1C8AC00257B8D /* ContentView.swift */; };
 		C3F00D022FF1C8AC00257B8D /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3F00D012FF1C8AC00257B8D /* Theme.swift */; };
-		C3C9B5BB2FF1C302007507DA /* StatutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B92FF1C302007507DA /* StatutView.swift */; };
 		C3C9B5BC2FF1C302007507DA /* AppModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B22FF1C302007507DA /* AppModels.swift */; };
 		C3C9B5BD2FF1C302007507DA /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B42FF1C302007507DA /* APIService.swift */; };
 		C3C9B5BE2FF1C302007507DA /* BackendLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B52FF1C302007507DA /* BackendLauncher.swift */; };
-		C3C9B5BF2FF1C302007507DA /* DocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B72FF1C302007507DA /* DocumentView.swift */; };
-		C3C9B5C02FF1C302007507DA /* ResultatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5B82FF1C302007507DA /* ResultatView.swift */; };
-		C3C9B5C12FF1C302007507DA /* ProgressionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9B5C22FF1C302007507DA /* ProgressionView.swift */; };
 		C3EE385B2FF34B09003E6118 /* ScheduledJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */; };
-		C3EE385C2FF34B09003E6118 /* ScheduleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EE385A2FF34B09003E6118 /* ScheduleSheet.swift */; };
 		C3EE385E2FF34B09003E6118 /* GlossaireView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EE385D2FF34B09003E6118 /* GlossaireView.swift */; };
-		C3EE38602FF34B09003E6118 /* LectureAudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EE385F2FF34B09003E6118 /* LectureAudioView.swift */; };
+		C3AA100200000000000A0002 /* ImportModuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3AA100100000000000A0001 /* ImportModuleView.swift */; };
+		C3AA100400000000000A0004 /* BibliothequeModuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3AA100300000000000A0003 /* BibliothequeModuleView.swift */; };
+		C3AA100600000000000A0006 /* LaboratoireModuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3AA100500000000000A0005 /* LaboratoireModuleView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,14 +48,11 @@
 		C3C9B5B22FF1C302007507DA /* AppModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModels.swift; sourceTree = "<group>"; };
 		C3C9B5B42FF1C302007507DA /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
 		C3C9B5B52FF1C302007507DA /* BackendLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendLauncher.swift; sourceTree = "<group>"; };
-		C3C9B5B72FF1C302007507DA /* DocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentView.swift; sourceTree = "<group>"; };
-		C3C9B5B82FF1C302007507DA /* ResultatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultatView.swift; sourceTree = "<group>"; };
-		C3C9B5B92FF1C302007507DA /* StatutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatutView.swift; sourceTree = "<group>"; };
-		C3C9B5C22FF1C302007507DA /* ProgressionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressionView.swift; sourceTree = "<group>"; };
 		C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledJobsView.swift; sourceTree = "<group>"; };
-		C3EE385A2FF34B09003E6118 /* ScheduleSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleSheet.swift; sourceTree = "<group>"; };
 		C3EE385D2FF34B09003E6118 /* GlossaireView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlossaireView.swift; sourceTree = "<group>"; };
-		C3EE385F2FF34B09003E6118 /* LectureAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LectureAudioView.swift; sourceTree = "<group>"; };
+		C3AA100100000000000A0001 /* ImportModuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportModuleView.swift; sourceTree = "<group>"; };
+		C3AA100300000000000A0003 /* BibliothequeModuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BibliothequeModuleView.swift; sourceTree = "<group>"; };
+		C3AA100500000000000A0005 /* LaboratoireModuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaboratoireModuleView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -145,14 +139,11 @@
 		C3C9B5BA2FF1C302007507DA /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				C3C9B5B72FF1C302007507DA /* DocumentView.swift */,
+				C3AA100300000000000A0003 /* BibliothequeModuleView.swift */,
 				C3EE385D2FF34B09003E6118 /* GlossaireView.swift */,
-				C3EE385F2FF34B09003E6118 /* LectureAudioView.swift */,
-				C3C9B5C22FF1C302007507DA /* ProgressionView.swift */,
-				C3C9B5B82FF1C302007507DA /* ResultatView.swift */,
+				C3AA100100000000000A0001 /* ImportModuleView.swift */,
+				C3AA100500000000000A0005 /* LaboratoireModuleView.swift */,
 				C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */,
-				C3EE385A2FF34B09003E6118 /* ScheduleSheet.swift */,
-				C3C9B5B92FF1C302007507DA /* StatutView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -301,17 +292,14 @@
 				C3AEC60C2FF1C8AC00257B8D /* itraducteur_pdfApp.swift in Sources */,
 				C3AEC60D2FF1C8AC00257B8D /* ContentView.swift in Sources */,
 				C3F00D022FF1C8AC00257B8D /* Theme.swift in Sources */,
-				C3C9B5BB2FF1C302007507DA /* StatutView.swift in Sources */,
 				C3C9B5BC2FF1C302007507DA /* AppModels.swift in Sources */,
 				C3C9B5BD2FF1C302007507DA /* APIService.swift in Sources */,
 				C3C9B5BE2FF1C302007507DA /* BackendLauncher.swift in Sources */,
-				C3C9B5BF2FF1C302007507DA /* DocumentView.swift in Sources */,
-				C3C9B5C02FF1C302007507DA /* ResultatView.swift in Sources */,
 				C3EE385B2FF34B09003E6118 /* ScheduledJobsView.swift in Sources */,
-				C3EE385C2FF34B09003E6118 /* ScheduleSheet.swift in Sources */,
 				C3EE385E2FF34B09003E6118 /* GlossaireView.swift in Sources */,
-				C3EE38602FF34B09003E6118 /* LectureAudioView.swift in Sources */,
-				C3C9B5C12FF1C302007507DA /* ProgressionView.swift in Sources */,
+				C3AA100200000000000A0002 /* ImportModuleView.swift in Sources */,
+				C3AA100400000000000A0004 /* BibliothequeModuleView.swift in Sources */,
+				C3AA100600000000000A0006 /* LaboratoireModuleView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

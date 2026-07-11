@@ -22,6 +22,7 @@ Document de travail en attendant la mise en place d'un vrai tableau kanban
 | 6 | Indicateur Ollama vert/rouge dans l'UI | ✅ | Bouton 🔄 Reconnecter (retry auto 30 s), re-vérification backend/Ollama juste avant chaque lancement de traduction. |
 | 7 | Choix de fichier sans toggle PDF/Markdown | ✅ | Un seul champ — le type est détecté par l'extension, les options s'adaptent. |
 | 8 | Planification multi-fichiers avec liste et statuts | ✅ | `POST /api/schedule/batch`, section « 5. Planification » : tableau fichier / planifié pour / statut réel / retirer. |
+| 9 | Fiche d'étude par chapitres (points à retenir + questions) | ✅ | Onglet « Étude » : sélection de chapitres, N points à retenir + N questions de compréhension avec corrigé masqué (`<details>`), langue de la fiche configurable. Route `POST /api/etude`, `study_runner.py` + `etude.py`, sortie `_fiche_xx.md`, progression 2 étapes/chapitre, pause/annulation/reprise via la file d'attente. |
 
 ## Fonctionnalités proposées par Claude
 
@@ -47,6 +48,8 @@ Document de travail en attendant la mise en place d'un vrai tableau kanban
 | Contrôle qualité anti-résumé | Ratio < 0.5 sur textes ≥ 200 car., 1 retry, avertissements dans l'état du job. |
 | Cache de chunks | `cache_traduction.py` (SHA-256), résultats suspects non mis en cache. |
 | Text-to-Speech local | Moteurs Piper (rapide) / Kokoro (qualité), dropdowns moteur+voix ; extrait à écouter et génération audio d'un `.md` complet via la file d'attente. `tts.py`, `tts_runner.py`, routes `/api/tts/*`. |
+| Refonte web « Workflow » (3 modules) | Design toledo_v2 : Nouveau document (lot multi-fichiers, analyse auto, mode avancé) / Bibliothèque (lecture par chapitre, barre audio, panneau IA points clés + quiz) / Laboratoire (config, outils, teasers voix personnalisées et export PDF avec capture d'intérêt `POST /api/interet`). |
+| Refonte macOS « Workflow » | Même design 3 modules en SwiftUI : drag & drop natif + NSOpenPanel multi-fichiers, Bibliothèque avec lecteur AVAudioPlayer (WAV lu du disque) et panneau IA, Laboratoire avec teasers (confirmationDialog + email). Moteur/voix TTS partagés via @AppStorage. |
 | CI GitHub Actions | pytest + ruff à chaque push. |
 
 ---

@@ -237,6 +237,51 @@ def _lire_source(chemin: str, extracteur: str) -> str:
     return extraire_texte(chemin, extracteur)
 
 
+def relier_toc_a_markdown(toc: list[dict], chapitres_md: list[dict]) -> list[dict]:
+    """
+    Relie les entrées de la TOC PDF (signets) aux chapitres Markdown.
+    Pour chaque signet, cherche le chapitre Markdown dont le titre correspond
+    (correspondance partielle insensible à la casse).
+    Les signets sans correspondance Markdown conservent un contenu vide.
+    """
+    def normaliser(titre: str) -> str:
+        return re.sub(r"[^\w\s]", "", titre).lower().strip()
+
+    chapitres_relies = []
+    for entree in toc:
+        titre_toc = normaliser(entree["titre"])
+        meilleur = None
+        for chap_md in chapitres_md:
+            titre_md = normaliser(chap_md["titre"])
+            # Correspondance si le titre du signet est contenu dans le titre Markdown ou vice-versa
+            if titre_toc in titre_md or titre_md in titre_toc:
+                meilleur = chap_md
+                break
+        chapitres_relies.append({
+            "index": entree["index"],
+            "titre": entree["titre"],
+            "niveau": entree["niveau"],
+            "page": entree.get("page"),
+            "contenu": meilleur["contenu"] if meilleur else "",
+            "ligne_debut": meilleur["ligne_debut"] if meilleur else 0,
+            "ligne_fin": meilleur["ligne_fin"] if meilleur else 0,
+        })
+    return chapitres_relies
+
+
+def chapitres_avec_contenu(chemin: str, extracteur: str = "pymupdf4llm") -> list[dict]:
+    """
+    Retourne tous les chapitres d'un PDF ou Markdown avec leur contenu.
+    Priorité aux signets PDF (mêmes index que la route /chapitres), reliés au
+    Markdown par titre ; fallback sur les titres Markdown.
+    """
+    toc_pdf = extraire_toc_pdf(chemin) if chemin.lower().endswith(".pdf") else None
+    chapitres_md = identifier_chapitres(chemin, extracteur)
+    if toc_pdf:
+        return relier_toc_a_markdown(toc_pdf, chapitres_md)
+    return chapitres_md
+
+
 def _extraire_chapitres(texte: str) -> list[dict]:
     """
     Découpe le Markdown en chapitres selon les titres # à ######.

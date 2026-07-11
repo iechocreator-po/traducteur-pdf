@@ -97,6 +97,7 @@ nonisolated struct ResultatAnalyse: Codable {
     let recommandation: String
     let estimationNbChunks: Int
     let estimationTempsSecondes: Int
+    let nbChapitres: Int
 
     enum CodingKeys: String, CodingKey {
         case nbPagesAnalysees = "nb_pages_analysees"
@@ -106,6 +107,19 @@ nonisolated struct ResultatAnalyse: Codable {
         case recommandation
         case estimationNbChunks = "estimation_nb_chunks"
         case estimationTempsSecondes = "estimation_temps_secondes"
+        case nbChapitres = "nb_chapitres"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        nbPagesAnalysees = try c.decode(Int.self, forKey: .nbPagesAnalysees)
+        texteExtractible = try c.decode(Bool.self, forKey: .texteExtractible)
+        langueDetectee = try c.decodeIfPresent(String.self, forKey: .langueDetectee)
+        avertissements = try c.decode([String].self, forKey: .avertissements)
+        recommandation = try c.decode(String.self, forKey: .recommandation)
+        estimationNbChunks = try c.decode(Int.self, forKey: .estimationNbChunks)
+        estimationTempsSecondes = try c.decode(Int.self, forKey: .estimationTempsSecondes)
+        nbChapitres = (try? c.decode(Int.self, forKey: .nbChapitres)) ?? 0
     }
 }
 
@@ -214,6 +228,81 @@ nonisolated struct APIDetailErreur: Codable {
     let detail: String
 }
 
+// MARK: - Bibliothèque (refonte Workflow)
+
+nonisolated struct DocumentBiblio: Codable, Identifiable {
+    let cheminSource: String
+    let cheminSortie: String
+    let nom: String
+    let modele: String
+    let langueSource: String
+    let langueCible: String
+    let statut: String
+    let sectionsCompletees: Int
+    let totalSections: Int
+
+    var id: String { cheminSortie }
+    var estTermine: Bool { statut == "termine" }
+
+    enum CodingKeys: String, CodingKey {
+        case cheminSource = "chemin_source"
+        case cheminSortie = "chemin_sortie"
+        case nom, modele, statut
+        case langueSource = "langue_source"
+        case langueCible = "langue_cible"
+        case sectionsCompletees = "sections_completees"
+        case totalSections = "total_sections"
+    }
+}
+
+nonisolated struct BibliothequeResponse: Codable {
+    let documents: [DocumentBiblio]
+}
+
+nonisolated struct ChapitreContenu: Codable {
+    let index: Int
+    let titre: String
+    let niveau: Int
+    let contenu: String
+}
+
+// MARK: - Fiche d'étude (points clés + quiz)
+
+nonisolated struct QuestionEtude: Codable, Hashable {
+    let question: String
+    let reponse: String
+}
+
+nonisolated struct FicheChapitre: Codable, Identifiable {
+    let index: Int
+    let titre: String
+    let etape: String   // en_attente | points | questions | termine | erreur
+    let points: [String]
+    let questions: [QuestionEtude]
+
+    var id: Int { index }
+}
+
+nonisolated struct EtatJobEtude: Codable {
+    let jobId: String
+    let cheminSource: String
+    let cheminSortie: String
+    let statut: String
+    let chapitres: [FicheChapitre]
+    let etapesCompletees: Int
+    let totalEtapes: Int
+    let erreurs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case jobId = "job_id"
+        case cheminSource = "chemin_source"
+        case cheminSortie = "chemin_sortie"
+        case statut, chapitres, erreurs
+        case etapesCompletees = "etapes_completees"
+        case totalEtapes = "total_etapes"
+    }
+}
+
 nonisolated struct Chapitre: Codable, Identifiable {
     let index: Int
     let titre: String
@@ -226,12 +315,6 @@ nonisolated struct Chapitre: Codable, Identifiable {
 nonisolated struct ChapitresResponse: Codable {
     let chapitres: [Chapitre]
     let source: String  // "signets_pdf" | "titres_markdown"
-}
-
-enum ModeSource: String, CaseIterable, Identifiable {
-    case pdf = "PDF"
-    case markdown = "Markdown"
-    var id: String { rawValue }
 }
 
 enum Langue: String, CaseIterable, Identifiable {

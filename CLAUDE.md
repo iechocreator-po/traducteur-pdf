@@ -22,6 +22,33 @@ traducteur-pdf/
 Le frontend ne fait **que** des appels HTTP vers l'API locale — aucune logique métier
 n'existe côté interface. Ça permet de remplacer ou faire évoluer l'UI sans toucher au backend.
 
+L'interface web suit la **refonte « Workflow »** (design retenu dans
+`toledo_v2/handoff_iTraducteur/`, décisions dans `docs/refonte-workflow-decisions.md`) :
+une barre supérieure (thème, mode avancé, statuts) et **3 modules** organisés par flux
+de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module) :
+- **Nouveau document** (`module-import.js`) : lot multi-fichiers — ajout par chemin,
+  analyse auto (qualité / durée / chapitres), réglages du lot (langues ; extracteur et
+  modèle en mode avancé), lancement en lot (file séquentielle backend), planification.
+- **Bibliothèque** (`module-bibliotheque.js`) : documents traduits (`GET /api/bibliotheque`,
+  registre alimenté par `translation_runner`), lecture chapitre par chapitre
+  (`POST /api/chapitres/contenu`), barre audio TTS (`GET /api/tts/audio`), panneau IA
+  « points clés + quiz » servi par le backend Étude (`services/etude.py` +
+  `services/study_runner.py`, routes `POST /api/etude`, `GET /api/etude/statut`,
+  sortie `<base>_fiche_<xx>.md`, même file d'attente séquentielle que la traduction).
+- **Laboratoire** (`module-laboratoire.js`) : état système, glossaire, TTS (moteur/voix/
+  extrait), outils document (analyse, conversion, reprise, journal d'erreurs) et
+  **teasers** des fonctionnalités futures (voix personnalisées, export PDF — flags
+  `teaser_*`, capture d'intérêt via `POST /api/interet`, log local).
+
+L'app macOS (Swift/SwiftUI, `macos-app/`) suit le **même design Workflow** : barre
+supérieure (navigation 3 modules, pastilles de statut, thème, mode avancé) dans
+`ContentView.swift` (+ `AppEnvironment` partagé), et un fichier par module dans
+`Views/` (`ImportModuleView` avec drag & drop natif + NSOpenPanel,
+`BibliothequeModuleView` avec lecteur AVAudioPlayer lisant le WAV du disque,
+`LaboratoireModuleView` avec teasers). Le choix moteur/voix TTS est partagé entre
+Laboratoire et Bibliothèque via `@AppStorage`. Le projet Xcode (format 16,
+groupes synchronisés) inclut automatiquement les fichiers posés dans `macos-app/`.
+
 ## Prérequis
 
 - [Ollama](https://ollama.com) installé et lancé, avec au moins un modèle téléchargé
