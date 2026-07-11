@@ -234,3 +234,24 @@ def test_flags_teaser_actives():
     flags = reponse.json()
     assert flags["teaser_voix_personnalisees"] is True
     assert flags["teaser_export_pdf"] is True
+
+
+def test_tts_audio_sert_le_wav(tmp_path):
+    wav = tmp_path / "doc_audio.wav"
+    wav.write_bytes(b"RIFF----WAVE")
+    reponse = client.get("/api/tts/audio", params={"chemin_wav": str(wav)})
+    assert reponse.status_code == 200
+    assert reponse.headers["content-type"] == "audio/wav"
+    assert reponse.content.startswith(b"RIFF")
+
+
+def test_tts_audio_introuvable():
+    reponse = client.get("/api/tts/audio", params={"chemin_wav": "/inexistant.wav"})
+    assert reponse.status_code == 404
+
+
+def test_tts_audio_extension_invalide(tmp_path):
+    fichier = tmp_path / "notes.txt"
+    fichier.write_text("x")
+    reponse = client.get("/api/tts/audio", params={"chemin_wav": str(fichier)})
+    assert reponse.status_code == 422

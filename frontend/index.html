@@ -2,13 +2,12 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Traducteur PDF</title>
+  <title>iTraducteur</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/style.css">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
-    // 'auto' (ou absent) = suit le système ; 'light'/'dark' forcent via [data-theme].
     (function () {
       var t = localStorage.getItem("theme");
       if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
@@ -16,267 +15,251 @@
   </script>
 </head>
 <body>
-  <main class="conteneur">
-    <h1>Traducteur PDF</h1>
-    <p class="sous-titre">Traduction et étude locales via Ollama — aucune donnée ne quitte ton ordinateur.</p>
 
-    <section class="carte" id="section-parametres">
-      <h2>⚙ Paramètres</h2>
+  <!-- ── Barre supérieure ─────────────────────────────────────────────────── -->
+  <header class="barre-app">
+    <div class="logo"><span class="logo-pastille"></span>iTraducteur</div>
+    <nav class="modules-nav" role="tablist">
+      <button type="button" class="onglet-module" data-module="import" role="tab">Nouveau document</button>
+      <button type="button" class="onglet-module" data-module="bibliotheque" role="tab">Bibliothèque</button>
+      <button type="button" class="onglet-module" data-module="laboratoire" role="tab">Laboratoire</button>
+    </nav>
+    <div class="barre-espace"></div>
+    <div class="statuts-mini">
+      <span id="dot-api" class="dot" title="Backend FastAPI"></span>
+      <span id="dot-ollama" class="dot" title="Ollama"></span>
+    </div>
+    <div class="theme-switch" id="theme-switch" role="group" aria-label="Choix du thème">
+      <button type="button" data-theme-choice="auto">Auto</button>
+      <button type="button" data-theme-choice="light">☀</button>
+      <button type="button" data-theme-choice="dark">☾</button>
+    </div>
+    <div class="mode-avance">
+      <span>Mode avancé</span>
+      <button type="button" id="switch-avance" class="switch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
+    </div>
+  </header>
 
+  <!-- ══ Module A : Nouveau document ═══════════════════════════════════════ -->
+  <main id="module-import" class="module module-centre">
+
+    <section class="carte carte-dropzone" id="dropzone">
+      <div class="dropzone-icone"></div>
+      <div class="dropzone-titre">Ajoute tes documents</div>
+      <p class="aide">Chemin absolu d'un fichier .pdf ou .md — un fichier à la fois, ils s'accumulent dans le lot.</p>
+      <div class="ligne-ajout">
+        <input type="text" id="import-chemin" placeholder="/Users/.../document.pdf ou .md">
+        <button id="bouton-ajouter-lot" class="bouton-principal">＋ Ajouter</button>
+      </div>
+    </section>
+
+    <div id="zone-lot" hidden>
+      <div class="lot-entete">
+        <span id="lot-compte" class="lot-compte"></span>
+        <span id="lot-prets" class="aide"></span>
+      </div>
+
+      <section class="carte">
+        <div class="carte-sous-titre">Réglages du lot — appliqués à tous les fichiers</div>
+        <div class="reglages-langues">
+          <select id="langue-source" aria-label="Langue source">
+            <option value="anglais" selected>Depuis l'anglais</option>
+            <option value="francais">Depuis le français</option>
+            <option value="espagnol">Depuis l'espagnol</option>
+          </select>
+          <span class="fleche">→</span>
+          <select id="langue-cible" aria-label="Langue cible">
+            <option value="français" selected>Traduire vers le français</option>
+            <option value="anglais">Traduire vers l'anglais</option>
+            <option value="espagnol">Traduire vers l'espagnol</option>
+          </select>
+        </div>
+
+        <div class="zone-avance" data-avance hidden>
+          <div>
+            <label for="extracteur-pdf">Moteur de conversion</label>
+            <select id="extracteur-pdf"></select>
+          </div>
+          <div>
+            <label for="modele">Modèle IA (Ollama)</label>
+            <select id="modele"></select>
+          </div>
+        </div>
+
+        <div class="ligne-actions-lot">
+          <button id="bouton-lancer-lot" class="bouton-principal" disabled>Lancer la traduction</button>
+          <button id="bouton-pause-lot" class="bouton-secondaire" hidden>⏸ Pause</button>
+          <span class="flex-espace"></span>
+          <button id="bouton-planifier-toggle" class="bouton-lien">Planifier plus tard →</button>
+        </div>
+
+        <div id="zone-planifier" class="zone-planifier" hidden>
+          <label for="plan-heure">Exécuter à partir de :</label>
+          <input type="datetime-local" id="plan-heure">
+          <button id="bouton-planifier" class="bouton-secondaire">🕐 Planifier le lot</button>
+          <span id="plan-statut" class="aide"></span>
+        </div>
+      </section>
+
+      <div id="liste-lot" class="liste-lot"></div>
+    </div>
+
+    <section class="carte" id="zone-planifies" hidden>
+      <h2>Traductions planifiées</h2>
+      <table class="tableau-analyse">
+        <thead>
+          <tr><th>Fichier</th><th>Planifié pour</th><th>Statut</th><th></th></tr>
+        </thead>
+        <tbody id="tbody-planifies"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- ══ Module B : Bibliothèque ═══════════════════════════════════════════ -->
+  <main id="module-bibliotheque" class="module module-plein" hidden>
+    <div class="biblio-layout">
+
+      <aside class="biblio-sidebar">
+        <div class="sidebar-section">
+          <div class="sidebar-titre">Document</div>
+          <div id="biblio-docs"></div>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-titre">Chapitres</div>
+          <div id="biblio-chapitres"></div>
+        </div>
+      </aside>
+
+      <div class="biblio-lecture">
+        <div class="lecture-bandeau" id="lecture-bandeau" hidden>
+          <span class="badge-type" id="lecture-badge">MD</span>
+          <span id="lecture-doc-nom" class="lecture-doc-nom"></span>
+        </div>
+        <div class="lecture-corps">
+          <div id="lecture-vide" class="lecture-vide">
+            <p>Sélectionne un document dans la colonne de gauche.</p>
+            <p class="aide">Les documents apparaissent ici une fois traduits dans « Nouveau document ».</p>
+          </div>
+          <h2 id="lecture-titre" hidden></h2>
+          <div id="lecture-texte" class="lecture-texte"></div>
+        </div>
+        <div class="barre-audio" id="barre-audio" hidden>
+          <button id="audio-play" class="bouton-play" disabled>▸</button>
+          <div class="audio-progress-conteneur" id="audio-progress-conteneur">
+            <div id="audio-progress" class="audio-progress"></div>
+          </div>
+          <span id="audio-temps" class="audio-temps">—</span>
+          <button id="audio-generer" class="bouton-lien">🔊 Générer l'audio</button>
+          <a id="audio-telecharger" class="bouton-lien" hidden download>⬇ Sauvegarder l'audio</a>
+          <span id="audio-statut" class="aide"></span>
+          <audio id="audio-el" hidden></audio>
+        </div>
+      </div>
+
+      <aside class="biblio-ia">
+        <div class="sidebar-titre">Résumé &amp; Quiz</div>
+        <p class="aide">Générés par l'IA locale pour le chapitre affiché.</p>
+        <button id="ia-generer" class="bouton-ia" disabled>Générer les 5 points clés + quiz</button>
+        <p id="ia-statut" class="aide"></p>
+        <div id="ia-points-zone" hidden>
+          <div class="ia-zone-titre">Points clés</div>
+          <div id="ia-points-resultat" class="ia-points"></div>
+        </div>
+        <div id="ia-quiz-zone" hidden>
+          <div class="ia-zone-titre">Quiz</div>
+          <div id="ia-quiz-resultat" class="ia-quiz"></div>
+        </div>
+      </aside>
+
+    </div>
+  </main>
+
+  <!-- ══ Module C : Laboratoire ════════════════════════════════════════════ -->
+  <main id="module-laboratoire" class="module module-centre" hidden>
+    <div class="labo-entete">
+      <h1>Laboratoire</h1>
+      <p class="aide">Configuration technique — ces réglages s'appliquent en arrière-plan, sans encombrer le flux principal.</p>
+    </div>
+
+    <section class="carte">
+      <h2>État du système</h2>
       <div class="parametre-ligne">
         <span class="parametre-label">Backend FastAPI</span>
         <span id="statut-api" class="statut-badge">Vérification…</span>
         <button id="bouton-lancer-backend" class="bouton-launcher">Lancer</button>
       </div>
-
       <div class="parametre-ligne">
         <span class="parametre-label">Ollama</span>
         <span id="statut-ollama" class="statut-badge"></span>
         <button id="bouton-reconnecter" class="bouton-mini" title="Re-vérifier les connexions backend et Ollama">🔄 Reconnecter</button>
       </div>
-
-      <div class="parametre-ligne">
-        <span class="parametre-label">Thème</span>
-        <div class="theme-switch" id="theme-switch" role="group" aria-label="Choix du thème">
-          <button type="button" data-theme-choice="auto">Auto</button>
-          <button type="button" data-theme-choice="light">Clair</button>
-          <button type="button" data-theme-choice="dark">Sombre</button>
-        </div>
-      </div>
     </section>
 
     <section class="carte">
-      <h2>📄 Document</h2>
-      <p class="aide">Chemin complet du fichier PDF ou Markdown — le type est détecté automatiquement (ex: /Users/toi/Documents/chapitre1.pdf)</p>
-      <input type="text" id="chemin-fichier" placeholder="/Users/.../document.pdf ou .md">
-      <p id="type-detecte" class="aide"></p>
-
-      <label for="modele">Modèle Ollama :</label>
-      <select id="modele"></select>
-
-      <div id="zone-extracteur">
-        <label for="extracteur-pdf">Extracteur PDF :</label>
-        <select id="extracteur-pdf"></select>
-      </div>
-    </section>
-
-    <!-- ── Onglets ─────────────────────────────────────────────────────────── -->
-    <nav class="onglets" role="tablist">
-      <button type="button" class="onglet" data-onglet="traduction" role="tab">Traduction</button>
-      <button type="button" class="onglet" data-onglet="etude" role="tab">Étude</button>
-    </nav>
-
-    <!-- ══ Onglet Traduction ═════════════════════════════════════════════════ -->
-    <div id="onglet-traduction" class="contenu-onglet">
-
-    <section class="carte">
-      <h2>Langues</h2>
-      <label for="langue-source">Langue source :</label>
-      <select id="langue-source">
-        <option value="anglais">Anglais</option>
-        <option value="francais">Français</option>
-        <option value="espagnol">Espagnol</option>
-      </select>
-
-      <label for="langue-cible">Langue cible :</label>
-      <select id="langue-cible">
-        <option value="français" selected>Français</option>
-        <option value="anglais">Anglais</option>
-        <option value="espagnol">Espagnol</option>
-      </select>
-    </section>
-
-    <section class="carte">
-      <h2>Chapitres (optionnel)</h2>
-      <p class="aide">Identifie les chapitres pour ne traduire que certaines sections. Sans sélection, tout le document est traduit.</p>
-      <button id="bouton-identifier-chapitres" class="bouton-secondaire">📋 Identifier les chapitres</button>
-      <div id="zone-chapitres" hidden>
-        <p id="chapitres-source" class="aide"></p>
-        <div class="chapitres-barre">
-          <button id="chapitres-tout" class="bouton-mini">Tout sélectionner</button>
-          <button id="chapitres-aucun" class="bouton-mini">Tout désélectionner</button>
-          <span id="chapitres-compte" class="chapitres-compte"></span>
-        </div>
-        <div id="liste-chapitres" class="liste-chapitres"></div>
-      </div>
-    </section>
-
-    <section class="carte">
-      <h2>Glossaire (optionnel)</h2>
-      <p class="aide">Termes à ne jamais traduire (noms propres, acronymes, marques…) — un par ligne. Appliqué à toutes les traductions.</p>
-      <textarea id="glossaire-termes" rows="4" placeholder="Quatre-Chemins.org&#10;FastAPI"></textarea>
+      <h2>Glossaire</h2>
+      <p class="aide">Termes à ne jamais traduire — un par ligne, appliqué automatiquement à chaque traduction dès l'enregistrement.</p>
+      <textarea id="glossaire-termes" rows="4" placeholder="Un terme par ligne…"></textarea>
       <div>
-        <button id="bouton-sauver-glossaire" class="bouton-secondaire">💾 Enregistrer le glossaire</button>
+        <button id="bouton-sauver-glossaire" class="bouton-secondaire">💾 Enregistrer</button>
         <span id="glossaire-statut" class="aide"></span>
       </div>
     </section>
 
     <section class="carte">
-      <h2>Planification (optionnel)</h2>
-      <p class="aide">Planifie un ou plusieurs fichiers (un chemin par ligne). Ils se traduiront l'un après l'autre à partir de l'heure choisie, avec les options ci-dessus.</p>
-      <textarea id="plan-fichiers" rows="3" placeholder="/Users/.../doc1.pdf&#10;/Users/.../doc2.pdf"></textarea>
-      <label for="plan-heure">Exécuter à partir de :</label>
-      <input type="datetime-local" id="plan-heure">
-      <div>
-        <button id="bouton-planifier" class="bouton-secondaire">🕐 Planifier</button>
-        <span id="plan-statut" class="aide"></span>
+      <h2>Lecture audio (TTS local)</h2>
+      <p class="aide">Le moteur et la voix choisis ici sont utilisés par la barre audio de la Bibliothèque.</p>
+      <div class="grille-2">
+        <div>
+          <label for="tts-moteur">Moteur :</label>
+          <select id="tts-moteur"></select>
+        </div>
+        <div>
+          <label for="tts-voix">Voix :</label>
+          <select id="tts-voix"></select>
+        </div>
       </div>
-      <div id="zone-planifies" hidden>
-        <table class="tableau-analyse">
-          <thead>
-            <tr><th>Fichier</th><th>Planifié pour</th><th>Statut</th><th></th></tr>
-          </thead>
-          <tbody id="tbody-planifies"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="carte">
-      <h2>Lecture audio (optionnel)</h2>
-      <p class="aide">Text-to-Speech 100 % local — génère un fichier audio à partir d'un Markdown (traduit ou non). Le moteur et la voix se choisissent comme le modèle Ollama.</p>
-      <label for="tts-moteur">Moteur :</label>
-      <select id="tts-moteur"></select>
-      <label for="tts-voix">Voix :</label>
-      <select id="tts-voix"></select>
       <p id="tts-aide" class="aide"></p>
       <label for="tts-extrait">Extrait à écouter (test de la voix) :</label>
       <textarea id="tts-extrait" rows="2" placeholder="Colle un court texte ici puis clique ▶ Écouter…"></textarea>
+      <button id="bouton-ecouter" class="bouton-secondaire">▶ Écouter l'extrait</button>
+    </section>
+
+    <section class="carte">
+      <h2>Outils document</h2>
+      <p class="aide">Analyse, conversion Markdown et reprise d'un job interrompu — pour un fichier donné.</p>
+      <input type="text" id="outil-chemin" placeholder="/Users/.../document.pdf ou .md">
       <div>
-        <button id="bouton-ecouter" class="bouton-secondaire">▶ Écouter l'extrait</button>
-        <button id="bouton-generer-audio" class="bouton-secondaire">🔊 Générer l'audio du fichier</button>
-        <button id="bouton-annuler-audio" class="bouton-danger" hidden>✕ Annuler</button>
+        <button id="bouton-analyser" class="bouton-secondaire">🔍 Analyser</button>
+        <button id="bouton-convertir" class="bouton-secondaire">📄 Convertir en Markdown</button>
+        <button id="bouton-verifier-reprise" class="bouton-secondaire">⏯ Vérifier la reprise</button>
+        <button id="bouton-reprendre" class="bouton-principal" hidden>⏯ Reprendre (<span id="reprise-progression"></span>)</button>
       </div>
-      <p id="tts-statut" class="aide"></p>
-    </section>
-
-    <section class="carte">
-      <button id="bouton-analyser" class="bouton-secondaire">🔍 Analyser le document</button>
-      <button id="bouton-convertir" class="bouton-secondaire">📄 Convertir en Markdown</button>
-      <button id="bouton-traduire" class="bouton-principal">▶ Traduire</button>
-      <button id="bouton-reprendre" class="bouton-principal" hidden>⏯ Reprendre (<span id="reprise-progression"></span>)</button>
-    </section>
-
-    <!-- Résultat de conversion -->
-    <section class="carte" id="resultat-conversion" hidden>
-      <h2>Conversion en Markdown</h2>
-      <div id="contenu-conversion"></div>
-    </section>
-
-    <!-- Résultat d'analyse -->
-    <section class="carte" id="resultat-analyse" hidden>
-      <h2>Résultat de l'analyse</h2>
-      <div id="contenu-analyse"></div>
-    </section>
-
-    <!-- Progression de la traduction -->
-    <section class="carte" id="section-progression" hidden>
-      <h2>Progression</h2>
-      <div class="progression-info">
-        <span id="progression-texte">0 / 0 sections</span>
-        <span id="progression-temps"></span>
-      </div>
-      <div class="barre-conteneur">
-        <div class="barre-progression" id="barre-progression" style="width:0%"></div>
-      </div>
-      <div class="progression-timing">
-        <span>Temps écoulé : <strong id="temps-ecoule">0:00</strong></span>
-        <span>Temps restant estimé : <strong id="temps-restant">—</strong></span>
-      </div>
-      <div class="boutons-controle">
-        <button id="bouton-pause" class="bouton-secondaire">⏸ Pause</button>
-        <button id="bouton-continuer" class="bouton-principal" hidden>▶ Continuer</button>
-        <button id="bouton-annuler" class="bouton-danger">✕ Annuler</button>
+      <div id="outil-resultat" class="outil-resultat"></div>
+      <div id="section-erreurs" hidden>
+        <div class="carte-sous-titre">⚠ Journal d'erreurs</div>
+        <pre id="contenu-erreurs"></pre>
       </div>
     </section>
 
-    <!-- Journal d'erreurs -->
-    <section class="carte" id="section-erreurs" hidden>
-      <h2>⚠ Journal d'erreurs</h2>
-      <pre id="contenu-erreurs"></pre>
+    <section class="carte carte-teaser" id="carte-voix" hidden>
+      <h2>Voix personnalisées</h2>
+      <p class="aide">Voix clonées disponibles pour la lecture audio.</p>
+      <p class="teaser-vide">Aucune voix personnalisée pour l'instant.</p>
+      <button id="bouton-creer-voix" class="bouton-lien accent">＋ Créer une voix</button>
+      <span id="voix-statut" class="aide"></span>
     </section>
 
-    </div><!-- /onglet-traduction -->
-
-    <!-- ══ Onglet Étude ══════════════════════════════════════════════════════ -->
-    <div id="onglet-etude" class="contenu-onglet" hidden>
-
-    <section class="carte">
-      <h2>Chapitres à étudier</h2>
-      <p class="aide">Identifie les chapitres du document puis sélectionne ceux à inclure dans la fiche d'étude.</p>
-      <button id="bouton-identifier-chapitres-etude" class="bouton-secondaire">📋 Identifier les chapitres</button>
-      <div id="zone-chapitres-etude" hidden>
-        <p id="chapitres-source-etude" class="aide"></p>
-        <div class="chapitres-barre">
-          <button id="chapitres-tout-etude" class="bouton-mini">Tout sélectionner</button>
-          <button id="chapitres-aucun-etude" class="bouton-mini">Tout désélectionner</button>
-          <span id="chapitres-compte-etude" class="chapitres-compte"></span>
-        </div>
-        <div id="liste-chapitres-etude" class="liste-chapitres"></div>
-      </div>
+    <section class="carte carte-teaser" id="carte-export" hidden>
+      <h2>Export PDF</h2>
+      <p class="aide">Exporter un document traduit en PDF mis en page.</p>
+      <button id="bouton-export-pdf" class="bouton-lien accent">📄 Exporter en PDF</button>
+      <span id="export-statut" class="aide"></span>
     </section>
-
-    <section class="carte">
-      <h2>Options de la fiche</h2>
-      <div class="options-fiche">
-        <div>
-          <label for="etude-nb-points">Points à retenir / chapitre :</label>
-          <input type="number" id="etude-nb-points" min="1" max="10" value="5">
-        </div>
-        <div>
-          <label for="etude-nb-questions">Questions / chapitre :</label>
-          <input type="number" id="etude-nb-questions" min="1" max="10" value="3">
-        </div>
-      </div>
-      <label for="etude-langue">Langue de la fiche :</label>
-      <select id="etude-langue">
-        <option value="français" selected>Français</option>
-        <option value="anglais">Anglais</option>
-        <option value="espagnol">Espagnol</option>
-      </select>
-    </section>
-
-    <section class="carte">
-      <button id="bouton-generer-fiche" class="bouton-principal">📚 Générer la fiche d'étude</button>
-    </section>
-
-    <!-- Progression de la fiche -->
-    <section class="carte" id="section-progression-etude" hidden>
-      <h2>Progression</h2>
-      <div class="progression-info">
-        <span id="etude-progression-texte">0 / 0 étapes</span>
-      </div>
-      <div class="barre-conteneur">
-        <div class="barre-progression" id="etude-barre-progression" style="width:0%"></div>
-      </div>
-      <div class="progression-timing">
-        <span>Temps écoulé : <strong id="etude-temps-ecoule">0:00</strong></span>
-        <span>Temps restant estimé : <strong id="etude-temps-restant">—</strong></span>
-      </div>
-      <div id="etude-liste-progression" class="etude-liste-progression"></div>
-      <div class="boutons-controle">
-        <button id="bouton-pause-etude" class="bouton-secondaire">⏸ Pause</button>
-        <button id="bouton-continuer-etude" class="bouton-principal" hidden>▶ Continuer</button>
-        <button id="bouton-annuler-etude" class="bouton-danger">✕ Annuler</button>
-      </div>
-    </section>
-
-    <!-- Fiche générée -->
-    <section class="carte" id="resultat-etude" hidden>
-      <h2>Fiche d'étude</h2>
-      <p id="etude-fichier-sortie" class="aide"></p>
-      <div id="contenu-fiche" class="fiche-resultat"></div>
-    </section>
-
-    <!-- Erreurs étude -->
-    <section class="carte" id="section-erreurs-etude" hidden>
-      <h2>⚠ Journal d'erreurs</h2>
-      <pre id="contenu-erreurs-etude"></pre>
-    </section>
-
-    </div><!-- /onglet-etude -->
-
   </main>
 
-  <script src="js/app.js?v=7"></script>
+  <script src="js/commun.js?v=1"></script>
+  <script src="js/module-import.js?v=1"></script>
+  <script src="js/module-bibliotheque.js?v=1"></script>
+  <script src="js/module-laboratoire.js?v=1"></script>
 </body>
 </html>

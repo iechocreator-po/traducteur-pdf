@@ -553,6 +553,20 @@ def statut_audio(chemin_md: str) -> dict | None:
     return lire_etat(chemin_md)
 
 
+@router.get("/tts/audio")
+def telecharger_audio(chemin_wav: str):
+    """
+    Sert un fichier audio généré (lecture dans la barre audio de la Bibliothèque —
+    le navigateur ne peut pas lire un fichier disque par chemin).
+    """
+    from fastapi.responses import FileResponse
+    if not chemin_wav.lower().endswith(".wav"):
+        raise HTTPException(status_code=422, detail="Seuls les fichiers .wav générés sont servis.")
+    if not os.path.exists(chemin_wav):
+        raise HTTPException(status_code=404, detail="Fichier audio introuvable.")
+    return FileResponse(chemin_wav, media_type="audio/wav", filename=os.path.basename(chemin_wav))
+
+
 @router.post("/analyser", response_model=ResultatAnalyse)
 def analyser_document(demande: DemandeTraduction) -> ResultatAnalyse:
     """Lance l'analyse préliminaire d'un PDF."""

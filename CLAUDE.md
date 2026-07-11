@@ -22,19 +22,26 @@ traducteur-pdf/
 Le frontend ne fait **que** des appels HTTP vers l'API locale — aucune logique métier
 n'existe côté interface. Ça permet de remplacer ou faire évoluer l'UI sans toucher au backend.
 
-L'interface web est organisée en **onglets** (`.onglet` / `.contenu-onglet` dans
-`frontend/index.html`, bascule gérée dans `app.js`) au-dessus d'un en-tête partagé
-(fichier source + modèle Ollama) :
-- **Traduction** : traduction, chapitres, glossaire, planification, TTS, conversion.
-- **Étude** : génère une fiche de révision par chapitre (N points à retenir + N questions
-  de compréhension avec corrigé masqué). Backend : `services/etude.py` (appels LLM en JSON
-  validé Pydantic) + `services/study_runner.py` (orchestration, état `EtatJobEtude`,
-  progression à 2 étapes/chapitre), routes `POST /api/etude` et `GET /api/etude/statut`.
-  Sortie `<base>_fiche_<xx>.md`. Passe par la **même file d'attente séquentielle** que la
-  traduction et le TTS (un seul job LLM à la fois).
+L'interface web suit la **refonte « Workflow »** (design retenu dans
+`toledo_v2/handoff_iTraducteur/`, décisions dans `docs/refonte-workflow-decisions.md`) :
+une barre supérieure (thème, mode avancé, statuts) et **3 modules** organisés par flux
+de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module) :
+- **Nouveau document** (`module-import.js`) : lot multi-fichiers — ajout par chemin,
+  analyse auto (qualité / durée / chapitres), réglages du lot (langues ; extracteur et
+  modèle en mode avancé), lancement en lot (file séquentielle backend), planification.
+- **Bibliothèque** (`module-bibliotheque.js`) : documents traduits (`GET /api/bibliotheque`,
+  registre alimenté par `translation_runner`), lecture chapitre par chapitre
+  (`POST /api/chapitres/contenu`), barre audio TTS (`GET /api/tts/audio`), panneau IA
+  « points clés + quiz » servi par le backend Étude (`services/etude.py` +
+  `services/study_runner.py`, routes `POST /api/etude`, `GET /api/etude/statut`,
+  sortie `<base>_fiche_<xx>.md`, même file d'attente séquentielle que la traduction).
+- **Laboratoire** (`module-laboratoire.js`) : état système, glossaire, TTS (moteur/voix/
+  extrait), outils document (analyse, conversion, reprise, journal d'erreurs) et
+  **teasers** des fonctionnalités futures (voix personnalisées, export PDF — flags
+  `teaser_*`, capture d'intérêt via `POST /api/interet`, log local).
 
-> ⚠️ L'app macOS (Swift) n'a **pas** encore la parité de l'onglet Étude : une refonte
-> UX/UI de l'app native est prévue, la parité sera traitée à ce moment-là.
+> ⚠️ L'app macOS (Swift) reflète encore l'**ancienne** interface formulaire : sa refonte
+> UX/UI vers le design Workflow est prévue, la parité sera traitée à ce moment-là.
 
 ## Prérequis
 
