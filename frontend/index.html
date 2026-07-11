@@ -18,7 +18,7 @@
 <body>
   <main class="conteneur">
     <h1>Traducteur PDF</h1>
-    <p class="sous-titre">Traduction locale via Ollama — aucune donnée ne quitte ton ordinateur.</p>
+    <p class="sous-titre">Traduction et étude locales via Ollama — aucune donnée ne quitte ton ordinateur.</p>
 
     <section class="carte" id="section-parametres">
       <h2>⚙ Paramètres</h2>
@@ -46,17 +46,31 @@
     </section>
 
     <section class="carte">
-      <h2>1. Document à traduire</h2>
+      <h2>📄 Document</h2>
       <p class="aide">Chemin complet du fichier PDF ou Markdown — le type est détecté automatiquement (ex: /Users/toi/Documents/chapitre1.pdf)</p>
       <input type="text" id="chemin-fichier" placeholder="/Users/.../document.pdf ou .md">
       <p id="type-detecte" class="aide"></p>
-    </section>
 
-    <section class="carte">
-      <h2>2. Options</h2>
       <label for="modele">Modèle Ollama :</label>
       <select id="modele"></select>
 
+      <div id="zone-extracteur">
+        <label for="extracteur-pdf">Extracteur PDF :</label>
+        <select id="extracteur-pdf"></select>
+      </div>
+    </section>
+
+    <!-- ── Onglets ─────────────────────────────────────────────────────────── -->
+    <nav class="onglets" role="tablist">
+      <button type="button" class="onglet" data-onglet="traduction" role="tab">Traduction</button>
+      <button type="button" class="onglet" data-onglet="etude" role="tab">Étude</button>
+    </nav>
+
+    <!-- ══ Onglet Traduction ═════════════════════════════════════════════════ -->
+    <div id="onglet-traduction" class="contenu-onglet">
+
+    <section class="carte">
+      <h2>Langues</h2>
       <label for="langue-source">Langue source :</label>
       <select id="langue-source">
         <option value="anglais">Anglais</option>
@@ -70,15 +84,10 @@
         <option value="anglais">Anglais</option>
         <option value="espagnol">Espagnol</option>
       </select>
-
-      <div id="zone-extracteur">
-        <label for="extracteur-pdf">Extracteur PDF :</label>
-        <select id="extracteur-pdf"></select>
-      </div>
     </section>
 
     <section class="carte">
-      <h2>3. Chapitres (optionnel)</h2>
+      <h2>Chapitres (optionnel)</h2>
       <p class="aide">Identifie les chapitres pour ne traduire que certaines sections. Sans sélection, tout le document est traduit.</p>
       <button id="bouton-identifier-chapitres" class="bouton-secondaire">📋 Identifier les chapitres</button>
       <div id="zone-chapitres" hidden>
@@ -93,7 +102,7 @@
     </section>
 
     <section class="carte">
-      <h2>4. Glossaire (optionnel)</h2>
+      <h2>Glossaire (optionnel)</h2>
       <p class="aide">Termes à ne jamais traduire (noms propres, acronymes, marques…) — un par ligne. Appliqué à toutes les traductions.</p>
       <textarea id="glossaire-termes" rows="4" placeholder="Quatre-Chemins.org&#10;FastAPI"></textarea>
       <div>
@@ -103,7 +112,7 @@
     </section>
 
     <section class="carte">
-      <h2>5. Planification (optionnel)</h2>
+      <h2>Planification (optionnel)</h2>
       <p class="aide">Planifie un ou plusieurs fichiers (un chemin par ligne). Ils se traduiront l'un après l'autre à partir de l'heure choisie, avec les options ci-dessus.</p>
       <textarea id="plan-fichiers" rows="3" placeholder="/Users/.../doc1.pdf&#10;/Users/.../doc2.pdf"></textarea>
       <label for="plan-heure">Exécuter à partir de :</label>
@@ -123,7 +132,7 @@
     </section>
 
     <section class="carte">
-      <h2>6. Lecture audio (optionnel)</h2>
+      <h2>Lecture audio (optionnel)</h2>
       <p class="aide">Text-to-Speech 100 % local — génère un fichier audio à partir d'un Markdown (traduit ou non). Le moteur et la voix se choisissent comme le modèle Ollama.</p>
       <label for="tts-moteur">Moteur :</label>
       <select id="tts-moteur"></select>
@@ -186,8 +195,88 @@
       <pre id="contenu-erreurs"></pre>
     </section>
 
+    </div><!-- /onglet-traduction -->
+
+    <!-- ══ Onglet Étude ══════════════════════════════════════════════════════ -->
+    <div id="onglet-etude" class="contenu-onglet" hidden>
+
+    <section class="carte">
+      <h2>Chapitres à étudier</h2>
+      <p class="aide">Identifie les chapitres du document puis sélectionne ceux à inclure dans la fiche d'étude.</p>
+      <button id="bouton-identifier-chapitres-etude" class="bouton-secondaire">📋 Identifier les chapitres</button>
+      <div id="zone-chapitres-etude" hidden>
+        <p id="chapitres-source-etude" class="aide"></p>
+        <div class="chapitres-barre">
+          <button id="chapitres-tout-etude" class="bouton-mini">Tout sélectionner</button>
+          <button id="chapitres-aucun-etude" class="bouton-mini">Tout désélectionner</button>
+          <span id="chapitres-compte-etude" class="chapitres-compte"></span>
+        </div>
+        <div id="liste-chapitres-etude" class="liste-chapitres"></div>
+      </div>
+    </section>
+
+    <section class="carte">
+      <h2>Options de la fiche</h2>
+      <div class="options-fiche">
+        <div>
+          <label for="etude-nb-points">Points à retenir / chapitre :</label>
+          <input type="number" id="etude-nb-points" min="1" max="10" value="5">
+        </div>
+        <div>
+          <label for="etude-nb-questions">Questions / chapitre :</label>
+          <input type="number" id="etude-nb-questions" min="1" max="10" value="3">
+        </div>
+      </div>
+      <label for="etude-langue">Langue de la fiche :</label>
+      <select id="etude-langue">
+        <option value="français" selected>Français</option>
+        <option value="anglais">Anglais</option>
+        <option value="espagnol">Espagnol</option>
+      </select>
+    </section>
+
+    <section class="carte">
+      <button id="bouton-generer-fiche" class="bouton-principal">📚 Générer la fiche d'étude</button>
+    </section>
+
+    <!-- Progression de la fiche -->
+    <section class="carte" id="section-progression-etude" hidden>
+      <h2>Progression</h2>
+      <div class="progression-info">
+        <span id="etude-progression-texte">0 / 0 étapes</span>
+      </div>
+      <div class="barre-conteneur">
+        <div class="barre-progression" id="etude-barre-progression" style="width:0%"></div>
+      </div>
+      <div class="progression-timing">
+        <span>Temps écoulé : <strong id="etude-temps-ecoule">0:00</strong></span>
+        <span>Temps restant estimé : <strong id="etude-temps-restant">—</strong></span>
+      </div>
+      <div id="etude-liste-progression" class="etude-liste-progression"></div>
+      <div class="boutons-controle">
+        <button id="bouton-pause-etude" class="bouton-secondaire">⏸ Pause</button>
+        <button id="bouton-continuer-etude" class="bouton-principal" hidden>▶ Continuer</button>
+        <button id="bouton-annuler-etude" class="bouton-danger">✕ Annuler</button>
+      </div>
+    </section>
+
+    <!-- Fiche générée -->
+    <section class="carte" id="resultat-etude" hidden>
+      <h2>Fiche d'étude</h2>
+      <p id="etude-fichier-sortie" class="aide"></p>
+      <div id="contenu-fiche" class="fiche-resultat"></div>
+    </section>
+
+    <!-- Erreurs étude -->
+    <section class="carte" id="section-erreurs-etude" hidden>
+      <h2>⚠ Journal d'erreurs</h2>
+      <pre id="contenu-erreurs-etude"></pre>
+    </section>
+
+    </div><!-- /onglet-etude -->
+
   </main>
 
-  <script src="js/app.js?v=6"></script>
+  <script src="js/app.js?v=7"></script>
 </body>
 </html>

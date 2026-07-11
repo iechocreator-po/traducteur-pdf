@@ -6,10 +6,10 @@ métier — elle valide les entrées et délègue aux services/agents.
 import os
 
 from fastapi import APIRouter, HTTPException, Response
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.config.feature_flags import charger_flags, EXTRACTEURS_PDF, EXTRACTEUR_PAR_DEFAUT
-from app.models.schemas import DemandeTraduction, EtatJob, ResultatAnalyse
+from app.models.schemas import DemandeTraduction, EtatJob, EtatJobEtude, ResultatAnalyse
 from app.services.translator import lister_modeles_disponibles
 
 router = APIRouter()
@@ -351,6 +351,61 @@ def annuler_job_planifie(job_id: str) -> dict:
     if not ok:
         raise HTTPException(status_code=404, detail="Job introuvable ou déjà déclenché/annulé.")
     return {"statut": "annule"}
+
+
+class EtudeRequest(BaseModel):
+    chemin_pdf: str | None = None
+    chemin_md: str | None = None
+    chapitres_selectionnes: list[int]
+    modele_ollama: str = "llama3.1"
+    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    langue_fiche: str = "français"
+    nb_points: int = Field(default=5, ge=1, le=10)
+    nb_questions: int = Field(default=3, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def valider(self):
+        if not self.chemin_pdf and not self.chemin_md:
+            raise ValueError("chemin_pdf ou chemin_md est requis.")
+        if not self.chapitres_selectionnes:
+            raise ValueError("Au moins un chapitre doit être sélectionné.")
+        return self
+
+
+@router.post("/etude")
+def generer_fiche_etude(req: EtudeRequest) -> dict:
+    """
+    Enfile la génération d'une fiche d'étude (points à retenir + questions de
+    compréhension) pour les chapitres sélectionnés. Les chapitres déjà générés
+    avec les mêmes options sont conservés (reprise/ajout automatique).
+    """
+    chemin_source = req.chemin_md or req.chemin_pdf
+    if not os.path.exists(chemin_source):
+        label = "Fichier Markdown" if req.chemin_md else "Fichier PDF"
+        raise HTTPException(status_code=404, detail=f"{label} introuvable.")
+
+    from app.services.study_runner import demarrer_etude
+
+    try:
+        etat = demarrer_etude(
+            source_path=chemin_source,
+            chapitres_selectionnes=req.chapitres_selectionnes,
+            modele=req.modele_ollama,
+            langue_fiche=req.langue_fiche,
+            nb_points=req.nb_points,
+            nb_questions=req.nb_questions,
+            extracteur=req.extracteur_pdf,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"job_id": etat.job_id, "chemin_sortie": etat.chemin_sortie}
+
+
+@router.get("/etude/statut", response_model=EtatJobEtude | None)
+def statut_etude(chemin_source: str) -> EtatJobEtude | None:
+    """État du job de fiche d'étude le plus récent pour ce fichier source."""
+    from app.services.study_runner import lire_statut_etude
+    return lire_statut_etude(chemin_source)
 
 
 class GlossaireRequest(BaseModel):

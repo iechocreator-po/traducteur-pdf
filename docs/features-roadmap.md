@@ -22,6 +22,7 @@ Document de travail en attendant la mise en place d'un vrai tableau kanban
 | 6 | Indicateur Ollama vert/rouge dans l'UI | ✅ | Bouton 🔄 Reconnecter (retry auto 30 s), re-vérification backend/Ollama juste avant chaque lancement de traduction. |
 | 7 | Choix de fichier sans toggle PDF/Markdown | ✅ | Un seul champ — le type est détecté par l'extension, les options s'adaptent. |
 | 8 | Planification multi-fichiers avec liste et statuts | ✅ | `POST /api/schedule/batch`, section « 5. Planification » : tableau fichier / planifié pour / statut réel / retirer. |
+| 9 | Fiche d'étude par chapitres (points à retenir + questions) | ✅ | Onglet « Étude » : sélection de chapitres, N points à retenir + N questions de compréhension avec corrigé masqué (`<details>`), langue de la fiche configurable. Route `POST /api/etude`, `study_runner.py` + `etude.py`, sortie `_fiche_xx.md`, progression 2 étapes/chapitre, pause/annulation/reprise via la file d'attente. |
 
 ## Fonctionnalités proposées par Claude
 

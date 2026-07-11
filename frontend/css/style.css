@@ -279,6 +279,116 @@ pre {
 }
 .chapitre-item:hover { background: var(--accent-bg); }
 
+/* ---- Onglets (Traduction / Étude) ------------------------------------------ */
+.onglets {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.onglet {
+  margin: 0;
+  padding: 0.55rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.onglet:hover { color: var(--text); }
+.onglet.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ---- Fiche d'étude ---------------------------------------------------------- */
+.options-fiche {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1rem;
+}
+input[type="number"] {
+  width: 100%;
+  padding: 0.5rem;
+  margin: 0.3rem 0 0.8rem 0;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
+  font-size: 0.95rem;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+}
+input[type="number"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.etude-liste-progression {
+  margin-top: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
+  background: var(--surface-2);
+  padding: 0.3rem 0.6rem;
+}
+.etude-chapitre-ligne {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  font-size: 0.875rem;
+  border-bottom: 1px solid var(--border);
+}
+.etude-chapitre-ligne:last-child { border-bottom: none; }
+.etude-chapitre-titre {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.etude-chapitre-etape {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--text-3);
+}
+
+.fiche-resultat h3 {
+  margin: 1.1rem 0 0.4rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+.fiche-resultat h4 {
+  margin: 0.8rem 0 0.3rem;
+  font-size: 0.9rem;
+  color: var(--text-2);
+}
+.fiche-resultat ol {
+  margin: 0.3rem 0 0.8rem;
+  padding-left: 1.4rem;
+}
+.fiche-resultat li { margin-bottom: 0.3rem; }
+.fiche-question {
+  font-weight: 600;
+  margin: 0.7rem 0 0.2rem;
+}
+.fiche-resultat details {
+  margin: 0.2rem 0 0.6rem;
+  padding: 0.4rem 0.7rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
+}
+.fiche-resultat summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.fiche-resultat details p { margin: 0.5rem 0 0.2rem; }
+
 /* ---- Sélecteur de thème (Auto / Clair / Sombre) --------------------------- */
 .theme-switch {
   display: inline-flex;

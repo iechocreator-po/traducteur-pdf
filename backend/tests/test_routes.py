@@ -124,3 +124,50 @@ def test_tts_extrait_texte_vide_refuse():
         "texte": "   ", "moteur": "piper", "voix": "v",
     })
     assert reponse.status_code == 422
+
+
+# ── Fiche d'étude ─────────────────────────────────────────────────────────────
+
+def test_etude_fichier_introuvable():
+    reponse = client.post("/api/etude", json={
+        "chemin_md": "/chemin/inexistant.md",
+        "chapitres_selectionnes": [0],
+    })
+    assert reponse.status_code == 404
+
+
+def test_etude_sans_chapitres_rejete(tmp_path):
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nContenu.")
+    reponse = client.post("/api/etude", json={
+        "chemin_md": str(source),
+        "chapitres_selectionnes": [],
+    })
+    assert reponse.status_code == 422
+
+
+def test_etude_nb_points_hors_bornes_rejete(tmp_path):
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nContenu.")
+    reponse = client.post("/api/etude", json={
+        "chemin_md": str(source),
+        "chapitres_selectionnes": [0],
+        "nb_points": 0,
+    })
+    assert reponse.status_code == 422
+
+
+def test_etude_chapitre_inconnu_rejete(tmp_path):
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nContenu.")
+    reponse = client.post("/api/etude", json={
+        "chemin_md": str(source),
+        "chapitres_selectionnes": [42],
+    })
+    assert reponse.status_code == 422
+
+
+def test_etude_statut_absent_retourne_null(tmp_path):
+    reponse = client.get("/api/etude/statut", params={"chemin_source": str(tmp_path / "rien.md")})
+    assert reponse.status_code == 200
+    assert reponse.json() is None

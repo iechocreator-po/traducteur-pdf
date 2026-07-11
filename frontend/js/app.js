@@ -17,92 +17,111 @@ const elBoutonReprendre    = document.getElementById("bouton-reprendre");
 const elRepriseProgression = document.getElementById("reprise-progression");
 
 // ── Chapitres ─────────────────────────────────────────────────────────────────
+// Sélecteur réutilisable (onglets Traduction et Étude ont chacun le leur).
 
-let chapitresDisponibles = [];
-let chapitresSelectionnes = new Set();
+function creerSelecteurChapitres(ids) {
+  const etat = { disponibles: [], selectionnes: new Set() };
+  const elListe = document.getElementById(ids.liste);
+  const elZone = document.getElementById(ids.zone);
+  const elBouton = document.getElementById(ids.bouton);
 
-async function identifierChapitres() {
-  const chemin = cheminSource();
-  if (!chemin) { alert("Indique un fichier d'abord."); return; }
-
-  const btn = document.getElementById("bouton-identifier-chapitres");
-  btn.textContent = "⏳ Identification en cours…";
-  btn.disabled = true;
-
-  try {
-    const body = corpsSourcePourApi({ extracteur_pdf: elExtracteurPdf.value });
-    const rep = await fetch(`${API_BASE}/chapitres`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await rep.json();
-    if (!rep.ok) { alert(`Erreur : ${data.detail}`); return; }
-
-    chapitresDisponibles = data.chapitres;
-    chapitresSelectionnes = new Set(data.chapitres.map(c => c.index));
-    const sourceLabel = data.source === "signets_pdf"
-      ? "📑 Table des matières officielle (signets PDF)"
-      : "🔍 Titres détectés dans le Markdown";
-    document.getElementById("chapitres-source").textContent = sourceLabel;
-    afficherChapitres();
-    document.getElementById("zone-chapitres").hidden = false;
-  } catch (e) {
-    alert(`Erreur de connexion : ${e}`);
-  } finally {
-    btn.textContent = "📋 Identifier les chapitres";
-    btn.disabled = false;
+  function mettreAJourCompte() {
+    document.getElementById(ids.compte).textContent =
+      `${etat.selectionnes.size} / ${etat.disponibles.length} sélectionné(s)`;
   }
-}
 
-function afficherChapitres() {
-  const liste = document.getElementById("liste-chapitres");
-  liste.innerHTML = "";
-  for (const chap of chapitresDisponibles) {
-    const indent = (chap.niveau - 1) * 14;
-    const label = document.createElement("label");
-    label.className = "chapitre-item";
-    label.style.paddingLeft = `${indent + 4}px`;
+  function afficher() {
+    elListe.innerHTML = "";
+    for (const chap of etat.disponibles) {
+      const indent = (chap.niveau - 1) * 14;
+      const label = document.createElement("label");
+      label.className = "chapitre-item";
+      label.style.paddingLeft = `${indent + 4}px`;
 
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = chapitresSelectionnes.has(chap.index);
-    cb.addEventListener("change", () => {
-      if (cb.checked) chapitresSelectionnes.add(chap.index);
-      else chapitresSelectionnes.delete(chap.index);
-      mettreAJourCompteChapitres();
-    });
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = etat.selectionnes.has(chap.index);
+      cb.addEventListener("change", () => {
+        if (cb.checked) etat.selectionnes.add(chap.index);
+        else etat.selectionnes.delete(chap.index);
+        mettreAJourCompte();
+      });
 
-    const prefixe = "#".repeat(chap.niveau);
-    const pageInfo = chap.page ? ` (p.${chap.page})` : "";
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(` ${prefixe} ${chap.titre}${pageInfo}`));
-    liste.appendChild(label);
+      const prefixe = "#".repeat(chap.niveau);
+      const pageInfo = chap.page ? ` (p.${chap.page})` : "";
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(` ${prefixe} ${chap.titre}${pageInfo}`));
+      elListe.appendChild(label);
+    }
+    mettreAJourCompte();
   }
-  mettreAJourCompteChapitres();
+
+  async function identifier() {
+    const chemin = cheminSource();
+    if (!chemin) { alert("Indique un fichier d'abord."); return; }
+
+    elBouton.textContent = "⏳ Identification en cours…";
+    elBouton.disabled = true;
+
+    try {
+      const body = corpsSourcePourApi({ extracteur_pdf: elExtracteurPdf.value });
+      const rep = await fetch(`${API_BASE}/chapitres`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await rep.json();
+      if (!rep.ok) { alert(`Erreur : ${data.detail}`); return; }
+
+      etat.disponibles = data.chapitres;
+      etat.selectionnes = new Set(data.chapitres.map(c => c.index));
+      document.getElementById(ids.source).textContent = data.source === "signets_pdf"
+        ? "📑 Table des matières officielle (signets PDF)"
+        : "🔍 Titres détectés dans le Markdown";
+      afficher();
+      elZone.hidden = false;
+    } catch (e) {
+      alert(`Erreur de connexion : ${e}`);
+    } finally {
+      elBouton.textContent = "📋 Identifier les chapitres";
+      elBouton.disabled = false;
+    }
+  }
+
+  function reinitialiser() {
+    etat.disponibles = [];
+    etat.selectionnes = new Set();
+    elZone.hidden = true;
+    elListe.innerHTML = "";
+  }
+
+  elBouton.addEventListener("click", identifier);
+  document.getElementById(ids.tout).addEventListener("click", () => {
+    etat.selectionnes = new Set(etat.disponibles.map(c => c.index));
+    afficher();
+  });
+  document.getElementById(ids.aucun).addEventListener("click", () => {
+    etat.selectionnes = new Set();
+    afficher();
+  });
+
+  return { etat, reinitialiser };
 }
 
-function mettreAJourCompteChapitres() {
-  document.getElementById("chapitres-compte").textContent =
-    `${chapitresSelectionnes.size} / ${chapitresDisponibles.length} sélectionné(s)`;
-}
+const chapitresTraduction = creerSelecteurChapitres({
+  bouton: "bouton-identifier-chapitres", zone: "zone-chapitres", liste: "liste-chapitres",
+  source: "chapitres-source", compte: "chapitres-compte", tout: "chapitres-tout", aucun: "chapitres-aucun",
+});
+
+const chapitresEtude = creerSelecteurChapitres({
+  bouton: "bouton-identifier-chapitres-etude", zone: "zone-chapitres-etude", liste: "liste-chapitres-etude",
+  source: "chapitres-source-etude", compte: "chapitres-compte-etude", tout: "chapitres-tout-etude", aucun: "chapitres-aucun-etude",
+});
 
 function reinitialiserChapitres() {
-  chapitresDisponibles = [];
-  chapitresSelectionnes = new Set();
-  document.getElementById("zone-chapitres").hidden = true;
-  document.getElementById("liste-chapitres").innerHTML = "";
+  chapitresTraduction.reinitialiser();
+  chapitresEtude.reinitialiser();
 }
-
-document.getElementById("bouton-identifier-chapitres").addEventListener("click", identifierChapitres);
-document.getElementById("chapitres-tout").addEventListener("click", () => {
-  chapitresSelectionnes = new Set(chapitresDisponibles.map(c => c.index));
-  afficherChapitres();
-});
-document.getElementById("chapitres-aucun").addEventListener("click", () => {
-  chapitresSelectionnes = new Set();
-  afficherChapitres();
-});
 
 // ── Détection du type de fichier (PDF ou Markdown) ──────────────────────────
 // Plus de toggle : l'extension du chemin détermine le mode.
@@ -476,8 +495,8 @@ async function lancerTraduction(resume = false) {
 
   try {
     const chapitresBody =
-      chapitresDisponibles.length > 0 && chapitresSelectionnes.size > 0
-        ? { chapitres_selectionnes: [...chapitresSelectionnes] }
+      chapitresTraduction.etat.disponibles.length > 0 && chapitresTraduction.etat.selectionnes.size > 0
+        ? { chapitres_selectionnes: [...chapitresTraduction.etat.selectionnes] }
         : {};
 
     const body = corpsSourcePourApi({
@@ -1003,6 +1022,309 @@ async function pollStatutAudio() {
   } catch { /* on réessaie au prochain tick */ }
 }
 
+// ── Onglets (Traduction / Étude) ─────────────────────────────────────────────
+// L'onglet actif est mémorisé pour retrouver son contexte au rechargement.
+
+function activerOnglet(nom) {
+  document.getElementById("onglet-traduction").hidden = nom !== "traduction";
+  document.getElementById("onglet-etude").hidden = nom !== "etude";
+  document.querySelectorAll(".onglets .onglet").forEach((b) => {
+    b.classList.toggle("is-active", b.dataset.onglet === nom);
+    b.setAttribute("aria-selected", b.dataset.onglet === nom ? "true" : "false");
+  });
+  localStorage.setItem("onglet", nom);
+}
+
+document.querySelectorAll(".onglets .onglet").forEach((b) => {
+  b.addEventListener("click", () => activerOnglet(b.dataset.onglet));
+});
+activerOnglet(localStorage.getItem("onglet") === "etude" ? "etude" : "traduction");
+
+// ── Fiche d'étude ────────────────────────────────────────────────────────────
+
+const elSectionProgressionEtude = document.getElementById("section-progression-etude");
+const elEtudeProgressionTexte   = document.getElementById("etude-progression-texte");
+const elEtudeBarreProgression   = document.getElementById("etude-barre-progression");
+const elEtudeTempsEcoule        = document.getElementById("etude-temps-ecoule");
+const elEtudeTempsRestant       = document.getElementById("etude-temps-restant");
+const elEtudeListeProgression   = document.getElementById("etude-liste-progression");
+const elBoutonPauseEtude        = document.getElementById("bouton-pause-etude");
+const elBoutonContinuerEtude    = document.getElementById("bouton-continuer-etude");
+const elBoutonAnnulerEtude      = document.getElementById("bouton-annuler-etude");
+const elResultatEtude           = document.getElementById("resultat-etude");
+const elEtudeFichierSortie      = document.getElementById("etude-fichier-sortie");
+const elContenuFiche            = document.getElementById("contenu-fiche");
+const elSectionErreursEtude     = document.getElementById("section-erreurs-etude");
+const elContenuErreursEtude     = document.getElementById("contenu-erreurs-etude");
+
+let jobEtude = null;            // { job_id, chemin_source }
+let intervalEtudePolling = null;
+
+const ETIQUETTES_ETAPE = {
+  en_attente: ["⏳", "en attente"],
+  points:     ["📝", "points à retenir en cours…"],
+  questions:  ["❓", "questions en cours…"],
+  termine:    ["✅", "terminé"],
+  erreur:     ["❌", "erreur"],
+};
+
+async function lancerEtude() {
+  const chemin = cheminSource();
+  if (!chemin) { alert("Indique le chemin du fichier dans la section Document d'abord."); return; }
+  if (chapitresEtude.etat.selectionnes.size === 0) {
+    alert("Identifie puis sélectionne au moins un chapitre à étudier.");
+    return;
+  }
+
+  const sante = await verifierStatut();
+  if (!sante.backendEnLigne) {
+    alert("Le backend est hors ligne. Lance-le d'abord (bouton « Lancer »), puis réessaie.");
+    return;
+  }
+  if (!sante.ollamaOk) {
+    alert("Ollama est inaccessible. Vérifie qu'il est lancé, puis clique 🔄 Reconnecter et réessaie.");
+    return;
+  }
+
+  try {
+    const body = corpsSourcePourApi({
+      chapitres_selectionnes: [...chapitresEtude.etat.selectionnes],
+      modele_ollama: elModele.value,
+      extracteur_pdf: elExtracteurPdf.value,
+      langue_fiche: document.getElementById("etude-langue").value,
+      nb_points: parseInt(document.getElementById("etude-nb-points").value, 10) || 5,
+      nb_questions: parseInt(document.getElementById("etude-nb-questions").value, 10) || 3,
+    });
+    const rep = await fetch(`${API_BASE}/etude`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await rep.json();
+    if (!rep.ok) { alert(`Erreur : ${data.detail}`); return; }
+
+    jobEtude = { job_id: data.job_id, chemin_source: chemin };
+    elResultatEtude.hidden = true;
+    afficherProgressionEtude(true);
+    demarrerEtudePolling();
+  } catch (e) {
+    alert(`Erreur de connexion à l'API : ${e}`);
+  }
+}
+
+function afficherProgressionEtude(visible) {
+  elSectionProgressionEtude.hidden = !visible;
+  if (!visible) return;
+  elBoutonPauseEtude.hidden = false;
+  elBoutonPauseEtude.textContent = "⏸ Pause";
+  elBoutonContinuerEtude.hidden = true;
+  elBoutonAnnulerEtude.disabled = false;
+  elBoutonAnnulerEtude.textContent = "✕ Annuler";
+}
+
+function afficherListeProgressionEtude(etat) {
+  elEtudeListeProgression.innerHTML = "";
+  for (const chap of etat.chapitres) {
+    const [icone, texte] = ETIQUETTES_ETAPE[chap.etape] || ["•", chap.etape];
+    const ligne = document.createElement("div");
+    ligne.className = "etude-chapitre-ligne";
+
+    const spanTitre = document.createElement("span");
+    spanTitre.className = "etude-chapitre-titre";
+    spanTitre.textContent = `${icone} ${chap.titre}`;
+
+    const spanEtape = document.createElement("span");
+    spanEtape.className = "etude-chapitre-etape";
+    spanEtape.textContent = texte;
+
+    ligne.append(spanTitre, spanEtape);
+    elEtudeListeProgression.appendChild(ligne);
+  }
+}
+
+function afficherFiche(etat) {
+  elContenuFiche.innerHTML = "";
+  for (const chap of etat.chapitres) {
+    if (chap.points.length === 0 && chap.questions.length === 0) continue;
+
+    const h3 = document.createElement("h3");
+    h3.textContent = chap.titre;
+    elContenuFiche.appendChild(h3);
+
+    if (chap.points.length > 0) {
+      const h4 = document.createElement("h4");
+      h4.textContent = "Points à retenir";
+      const ol = document.createElement("ol");
+      for (const point of chap.points) {
+        const li = document.createElement("li");
+        li.textContent = point;
+        ol.appendChild(li);
+      }
+      elContenuFiche.append(h4, ol);
+    }
+
+    if (chap.questions.length > 0) {
+      const h4 = document.createElement("h4");
+      h4.textContent = "Questions de compréhension";
+      elContenuFiche.appendChild(h4);
+      chap.questions.forEach((q, i) => {
+        const p = document.createElement("p");
+        p.className = "fiche-question";
+        p.textContent = `Q${i + 1}. ${q.question}`;
+
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = "Voir la réponse";
+        const reponse = document.createElement("p");
+        reponse.textContent = q.reponse;
+        details.append(summary, reponse);
+
+        elContenuFiche.append(p, details);
+      });
+    }
+  }
+  elEtudeFichierSortie.innerHTML = "";
+  elEtudeFichierSortie.append("Fichier : ");
+  const code = document.createElement("code");
+  code.textContent = etat.chemin_sortie;
+  elEtudeFichierSortie.appendChild(code);
+  elResultatEtude.hidden = false;
+}
+
+function mettreAJourProgressionEtude(etat) {
+  const pct = etat.total_etapes > 0
+    ? Math.round((etat.etapes_completees / etat.total_etapes) * 100)
+    : 0;
+  elEtudeBarreProgression.style.width = `${pct}%`;
+  elEtudeProgressionTexte.textContent =
+    `${etat.etapes_completees} / ${etat.total_etapes} étapes (${pct}%)`;
+  if (etat.statut === "en_attente") {
+    elEtudeProgressionTexte.textContent = "⏳ En file d'attente — un autre job est en cours…";
+  }
+
+  elEtudeTempsEcoule.textContent = formaterDuree(etat.temps_ecoule_secondes);
+  const restant = etat.estimation_temps_total_secondes != null
+    ? Math.max(0, etat.estimation_temps_total_secondes - etat.temps_ecoule_secondes)
+    : null;
+  elEtudeTempsRestant.textContent = formaterDuree(restant);
+
+  afficherListeProgressionEtude(etat);
+
+  elSectionErreursEtude.hidden = !etat.erreurs || etat.erreurs.length === 0;
+  if (etat.erreurs && etat.erreurs.length > 0) {
+    elContenuErreursEtude.textContent = etat.erreurs.join("\n");
+  }
+
+  if (etat.statut === "termine") {
+    arreterEtudePolling();
+    afficherProgressionEtude(false);
+    afficherFiche(etat);
+    jobEtude = null;
+  } else if (etat.statut === "annule") {
+    arreterEtudePolling();
+    afficherProgressionEtude(false);
+    afficherFiche(etat);  // les chapitres déjà terminés restent consultables
+    jobEtude = null;
+  } else if (etat.statut === "en_pause") {
+    arreterEtudePolling();
+    elBoutonPauseEtude.hidden = true;
+    elBoutonContinuerEtude.hidden = false;
+  } else if (etat.statut === "erreur") {
+    arreterEtudePolling();
+    afficherProgressionEtude(false);
+    jobEtude = null;
+  }
+}
+
+async function pollStatutEtude() {
+  if (!jobEtude) return;
+  try {
+    const url = `${API_BASE}/etude/statut?chemin_source=${encodeURIComponent(jobEtude.chemin_source)}`;
+    const rep = await fetch(url);
+    if (!rep.ok) return;
+    const etat = await rep.json();
+    if (etat) mettreAJourProgressionEtude(etat);
+  } catch {
+    // Connexion perdue momentanément — on réessaie au prochain tick
+  }
+}
+
+function demarrerEtudePolling() {
+  if (intervalEtudePolling) return;
+  pollStatutEtude();
+  intervalEtudePolling = setInterval(pollStatutEtude, 2000);
+}
+
+function arreterEtudePolling() {
+  clearInterval(intervalEtudePolling);
+  intervalEtudePolling = null;
+}
+
+document.getElementById("bouton-generer-fiche").addEventListener("click", () => lancerEtude());
+
+elBoutonPauseEtude.addEventListener("click", async () => {
+  if (!jobEtude) return;
+  try {
+    await fetch(`${API_BASE}/job/${jobEtude.job_id}/pause`, { method: "POST" });
+    elBoutonPauseEtude.textContent = "⏸ Pause demandée…";
+    // L'état "en_pause" sera détecté par le prochain poll
+  } catch (e) {
+    alert(`Impossible de mettre en pause : ${e}`);
+  }
+});
+
+elBoutonContinuerEtude.addEventListener("click", () => {
+  // La reprise repasse par POST /etude : les chapitres terminés sont conservés
+  elBoutonContinuerEtude.hidden = true;
+  elBoutonPauseEtude.hidden = false;
+  elBoutonPauseEtude.textContent = "⏸ Pause";
+  lancerEtude();
+});
+
+elBoutonAnnulerEtude.addEventListener("click", async () => {
+  if (!jobEtude) return;
+  if (!confirm("Annuler la fiche d'étude en cours ?\nLes chapitres déjà terminés sont conservés.")) return;
+  elBoutonAnnulerEtude.disabled = true;
+  elBoutonAnnulerEtude.textContent = "✕ Annulation demandée…";
+  try {
+    const rep = await fetch(`${API_BASE}/job/${jobEtude.job_id}/annuler`, { method: "POST" });
+    if (!rep.ok) {
+      const data = await rep.json();
+      alert(`Impossible d'annuler : ${data.detail}`);
+      elBoutonAnnulerEtude.disabled = false;
+      elBoutonAnnulerEtude.textContent = "✕ Annuler";
+    }
+  } catch (e) {
+    alert(`Impossible d'annuler : ${e}`);
+    elBoutonAnnulerEtude.disabled = false;
+    elBoutonAnnulerEtude.textContent = "✕ Annuler";
+  }
+});
+
+// Au chargement ou au changement de fichier : réaffiche une fiche déjà générée
+async function chargerFicheExistante() {
+  const chemin = cheminSource();
+  if (!chemin) { elResultatEtude.hidden = true; return; }
+  try {
+    const rep = await fetch(`${API_BASE}/etude/statut?chemin_source=${encodeURIComponent(chemin)}`);
+    if (!rep.ok) return;
+    const etat = await rep.json();
+    if (!etat) { elResultatEtude.hidden = true; return; }
+    if (etat.statut === "en_cours" || etat.statut === "en_attente") {
+      // Un job tourne encore (ex: rechargement de la page) — on raccroche le suivi
+      jobEtude = { job_id: etat.job_id, chemin_source: chemin };
+      afficherProgressionEtude(true);
+      demarrerEtudePolling();
+    } else if (etat.chapitres.some(c => c.etape === "termine")) {
+      afficherFiche(etat);
+    }
+  } catch {
+    // Backend hors ligne — rien à afficher
+  }
+}
+
+elCheminFichier.addEventListener("blur", chargerFicheExistante);
+
 // ── Thème (Auto / Clair / Sombre) ───────────────────────────────────────────
 // 'auto' = suit le système (aucun data-theme) ; 'light'/'dark' = forcé via <html>.
 // Le choix est mémorisé dans localStorage et appliqué dès le <head> (anti-flash).
@@ -1033,3 +1355,4 @@ chargerExtracteurs();
 chargerGlossaire();
 chargerMoteursTts();
 rafraichirPlanifies();
+chargerFicheExistante();

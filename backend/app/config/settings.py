@@ -21,6 +21,16 @@ CHUNK_TAILLE_MAX = 3000
 # Plus petit = appels Ollama plus courts = moins de risque de timeout.
 CHAPITRE_SOUS_CHUNK_TAILLE_MAX = 1500
 
+# ── Fiche d'étude ─────────────────────────────────────────────────────────────
+
+# Taille max (caractères) d'un chapitre envoyé tel quel au modèle pour générer
+# points et questions. Au-delà, le chapitre est d'abord condensé en notes
+# (le contexte par défaut d'Ollama est ~4096 tokens ≈ 16 000 caractères).
+ETUDE_CONTEXTE_MAX = 10000
+
+# Taille (caractères) des morceaux condensés un par un pour les longs chapitres.
+ETUDE_CONDENSE_CHUNK = 8000
+
 # ── Contrôle qualité ──────────────────────────────────────────────────────────
 
 # Ratio longueur traduit/source en dessous duquel une traduction est suspecte

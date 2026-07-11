@@ -22,6 +22,20 @@ traducteur-pdf/
 Le frontend ne fait **que** des appels HTTP vers l'API locale — aucune logique métier
 n'existe côté interface. Ça permet de remplacer ou faire évoluer l'UI sans toucher au backend.
 
+L'interface web est organisée en **onglets** (`.onglet` / `.contenu-onglet` dans
+`frontend/index.html`, bascule gérée dans `app.js`) au-dessus d'un en-tête partagé
+(fichier source + modèle Ollama) :
+- **Traduction** : traduction, chapitres, glossaire, planification, TTS, conversion.
+- **Étude** : génère une fiche de révision par chapitre (N points à retenir + N questions
+  de compréhension avec corrigé masqué). Backend : `services/etude.py` (appels LLM en JSON
+  validé Pydantic) + `services/study_runner.py` (orchestration, état `EtatJobEtude`,
+  progression à 2 étapes/chapitre), routes `POST /api/etude` et `GET /api/etude/statut`.
+  Sortie `<base>_fiche_<xx>.md`. Passe par la **même file d'attente séquentielle** que la
+  traduction et le TTS (un seul job LLM à la fois).
+
+> ⚠️ L'app macOS (Swift) n'a **pas** encore la parité de l'onglet Étude : une refonte
+> UX/UI de l'app native est prévue, la parité sera traitée à ce moment-là.
+
 ## Prérequis
 
 - [Ollama](https://ollama.com) installé et lancé, avec au moins un modèle téléchargé
