@@ -33,6 +33,7 @@ Document de travail en attendant la mise en place d'un vrai tableau kanban
 | C | Journal d'erreurs/avertissements par section | ✅ | `.errors.log` à côté de la sortie ; le job continue malgré les échecs de section. |
 | D | Glossaire de termes à ne pas traduire | ✅ | Section « 4. Glossaire » (un terme par ligne), injection dans le prompt, vérification post-traduction avec avertissement. |
 | E | Mode relecture comparative (côte à côte) | 🔲 | Affichage anglais/français en parallèle pour validation rapide. |
+| F | Nettoyer les artefacts VAD d'OpenVoice | 🔲 | `se_extractor` (clonage vocal) écrit ses segments dans `backend/processed/` (CWD du sous-processus) et ne les nettoie pas — ça s'accumule à chaque voix clonée. Faire écrire `openvoice_extract.py` dans un dossier temporaire supprimé après extraction (paramètre `target_dir` de `get_se`). Ignoré du repo pour l'instant (`.gitignore`). |
 
 ## Livré en plus (delta v2 → v4)
 
