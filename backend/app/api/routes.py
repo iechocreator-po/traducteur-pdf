@@ -614,8 +614,10 @@ async def capturer_voix(nom: str = Form(...), fichier: UploadFile = File(...)) -
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-    with open(voix_clonees.chemin_echantillon(entree["id"]), "wb") as f:
+    chemin_wav = voix_clonees.chemin_echantillon(entree["id"])
+    with open(chemin_wav, "wb") as f:
         f.write(contenu)
+    voix_clonees.mettre_a_jour_voix(entree["id"], chemin_echantillon=chemin_wav)
 
     demarrer_traitement(entree["id"])
     return {"id_voix": entree["id"], "nom": entree["nom"]}

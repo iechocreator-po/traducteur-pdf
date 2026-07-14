@@ -67,8 +67,11 @@ Le TTS local a un troisième moteur, `openvoice`, à côté de Piper et Kokoro :
   un **venv Python 3.10 dédié**, `backend/tts_modeles/openvoice/venv_openvoice/`
   (non versionné), invoqué en sous-processus par `voix_clonage_runner.py` (extraction
   d'embedding, `openvoice_extract.py`) et `tts.py` (synthèse,
-  `openvoice_synthesize.py`). Voir `backend/tts_modeles/openvoice/README.md` pour
-  l'installation du venv et le téléchargement des checkpoints.
+  `openvoice_synthesize.py`). Procédure d'installation et de configuration
+  complète (validée de bout en bout) :
+  [docs/installation-clonage-vocal.md](docs/installation-clonage-vocal.md)
+  (une copie est aussi déposée dans le `README.md` du dossier gitignoré
+  `backend/tts_modeles/openvoice/`).
 - **Détection de disponibilité** : `tts._openvoice_disponible()` suit le même patron que
   Kokoro (`disponible: false` + message d'`aide` tant que le venv dédié ou les checkpoints
   sont absents) — pas de feature flag dédié, `GET /tts/moteurs` fait foi.

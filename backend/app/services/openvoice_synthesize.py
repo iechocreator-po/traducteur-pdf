@@ -46,10 +46,10 @@ def main() -> int:
     converter.load_ckpt(os.path.join(chemin_converter, "checkpoint.pth"))
     voix_cible = torch.load(args.embedding, map_location=device)
 
-    # MeloTTS FR : voix de base multilocuteur, source_se = embedding par défaut du speaker FR
+    # MeloTTS FR : voix de base, source_se = embedding du locuteur FR fourni par OpenVoice V2
     base = MeloTTS(language="FR", device=device)
     speaker_id = base.hps.data.spk2id["FR"]
-    chemin_source_se = os.path.join(args.checkpoints, "base_speakers", "fr_se.pth")
+    chemin_source_se = os.path.join(args.checkpoints, "base_speakers", "ses", "fr.pth")
     voix_source = torch.load(chemin_source_se, map_location=device)
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
