@@ -385,6 +385,8 @@ pre { white-space: pre-wrap; font-size: 0.85rem; }
   grid-template-columns: 230px minmax(0, 1fr) 300px;
   height: calc(100vh - var(--hauteur-barre));
 }
+/* Mode non-avancé : la colonne Résumé & Quiz (aside masquée) est retirée. */
+html:not(.avance) .biblio-layout { grid-template-columns: 230px minmax(0, 1fr); }
 
 .biblio-sidebar {
   border-right: 1px solid var(--border);

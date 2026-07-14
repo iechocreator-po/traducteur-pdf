@@ -35,11 +35,34 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   « points clés + quiz » servi par le backend Étude (`services/etude.py` +
   `services/study_runner.py`, routes `POST /api/etude`, `GET /api/etude/statut`,
   sortie `<base>_fiche_<xx>.md`, même file d'attente séquentielle que la traduction).
+  La section « Résumé & Quiz » n'est visible **qu'en mode avancé** ; elle offre un
+  **export HTML autonome** (bouton `#ia-exporter`, `exporterFicheHtml()`) reprenant
+  infos document + structure des chapitres + résumé + quiz (réponses en `<details>`),
+  généré 100 % côté client depuis `docActif`/`chapitres`/`ficheParChapitre` — gated par
+  le flag `export_fiche_html`.
 - **Laboratoire** (`module-laboratoire.js`) : état système, glossaire, TTS (moteur/voix/
   extrait), **voix clonées** (capture micro → clonage, voir ci-dessous), outils document
   (analyse, conversion, reprise, journal d'erreurs) et **teasers** des fonctionnalités
   futures restantes (export PDF — flag `teaser_export_pdf`, capture d'intérêt via
-  `POST /api/interet`, log local).
+  `POST /api/interet`, log local). **Le module entier n'est visible qu'en mode avancé**
+  (onglet + contenu masqués sinon).
+
+### Mode avancé et feature flags
+
+- **Mode avancé** (`appliquerModeAvance` dans `commun.js`) : bascule `.hidden` sur tous
+  les `[data-avance]` et une classe `.avance` sur `<html>` (pour le reflow CSS de la
+  grille Bibliothèque). Éléments gated : réglages extracteur/modèle de l'Import, onglet +
+  contenu du **Laboratoire**, section **Résumé & Quiz** de la Bibliothèque. `activerModule`
+  redirige vers l'Import si on tente d'ouvrir le Laboratoire hors mode avancé. Le **bouton**
+  « mode avancé » lui-même est gated par le flag `mode_avance` (off → bouton masqué et
+  mode forcé désactivé).
+- **Feature flags** (`backend/app/config/feature_flags.py`, `GET /api/feature-flags`,
+  global `featureFlags` + événement `flags-charges` côté front). Ordre de priorité
+  (bas → haut) : `FLAGS_PAR_DEFAUT` → **`bilbao.features.json`** (racine du repo, artefact
+  géré par la console bilbao/feature-factory, à committer) → `feature_flags.json` local
+  → variables d'env `FEATURE_<NOM>`. **Contrat d'intégration Bilbao** : `charger_flags()`
+  lit et fusionne la clé `flags` de `bilbao.features.json` — c'est ce qui rend tous les
+  flags du produit pilotables depuis Bilbao (bilbao émet l'artefact, JP le committe).
 
 ### Clonage vocal (moteur `openvoice`)
 

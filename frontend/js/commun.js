@@ -51,6 +51,8 @@ async function apiGet(route) {
 // L'événement "module-affiche" permet à chaque module de se rafraîchir à l'affichage.
 
 function activerModule(nom) {
+  // Le Laboratoire n'existe qu'en mode avancé (restauration au démarrage incluse).
+  if (nom === "laboratoire" && localStorage.getItem("modeAvance") !== "1") nom = "import";
   for (const m of ["import", "bibliotheque", "laboratoire"]) {
     $(`module-${m}`).hidden = m !== nom;
   }
@@ -90,13 +92,24 @@ document.querySelectorAll("#theme-switch button").forEach((b) => {
 
 function appliquerModeAvance(actif) {
   document.querySelectorAll("[data-avance]").forEach((el) => { el.hidden = !actif; });
+  document.documentElement.classList.toggle("avance", actif);
   $("switch-avance").classList.toggle("is-on", actif);
   $("switch-avance").setAttribute("aria-checked", actif ? "true" : "false");
   localStorage.setItem("modeAvance", actif ? "1" : "0");
+  // Le Laboratoire n'est atteignable qu'en mode avancé : si on le quitte, revenir à l'import.
+  if (!actif && localStorage.getItem("module") === "laboratoire") activerModule("import");
 }
 
 $("switch-avance").addEventListener("click", () => {
   appliquerModeAvance(localStorage.getItem("modeAvance") !== "1");
+});
+
+// Le flag mode_avance (géré par bilbao) peut masquer entièrement le bouton :
+// dans ce cas le mode avancé est forcé off et tout le contenu avancé reste caché.
+document.addEventListener("flags-charges", () => {
+  const visible = featureFlags.mode_avance !== false;
+  document.querySelector(".mode-avance").hidden = !visible;
+  if (!visible) appliquerModeAvance(false);
 });
 
 // ── Santé backend / Ollama ───────────────────────────────────────────────────

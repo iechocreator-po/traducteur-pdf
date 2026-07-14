@@ -1,6 +1,14 @@
 """
-Feature flags simples, lus depuis un fichier JSON ou des variables d'environnement.
-Permet d'activer/désactiver des fonctionnalités en développement sans changer le code.
+Feature flags simples, lus depuis plusieurs sources fusionnées.
+
+Ordre de priorité (bas → haut) :
+1. FLAGS_PAR_DEFAUT (ci-dessous, codé en dur) ;
+2. bilbao.features.json à la RACINE du repo produit — artefact géré par la
+   console bilbao (feature-factory), committé dans le repo (voir la clé
+   "flags"). C'est le contrat d'intégration portfolio : bilbao émet ce fichier,
+   JP le committe, et le produit l'honore ici ;
+3. feature_flags.json (même dossier que ce module) — override local de dev ;
+4. variables d'environnement FEATURE_<NOM> — override ponctuel (CI, tests).
 """
 
 import json
@@ -9,6 +17,8 @@ import shutil
 from pathlib import Path
 
 CHEMIN_FLAGS_DEFAUT = Path(__file__).parent / "feature_flags.json"
+# Racine du repo produit : config → app → backend → traducteur-pdf/
+CHEMIN_FLAGS_BILBAO = Path(__file__).parents[3] / "bilbao.features.json"
 
 FLAGS_PAR_DEFAUT = {
     "pause_reprise": True,
@@ -16,6 +26,11 @@ FLAGS_PAR_DEFAUT = {
     "extraction_urls": True,
     "agents_ia": False,
     "planification_differee": False,
+    # Affichage du bouton « mode avancé » (barre supérieure). Off → le toggle
+    # disparaît et le contenu avancé (Laboratoire, Résumé & Quiz) reste masqué.
+    "mode_avance": True,
+    # Bouton d'export HTML de la fiche d'étude (Bibliothèque, section avancée).
+    "export_fiche_html": True,
     # Teasers (refonte Workflow) : fonctionnalités futures affichées dans le
     # Laboratoire avec capture d'intérêt (POST /api/interet).
     # Note : "voix personnalisées" n'est plus un teaser depuis l'ajout du
@@ -37,13 +52,31 @@ EXTRACTEURS_PDF = [
 EXTRACTEUR_PAR_DEFAUT = "pymupdf4llm"
 
 
+def _flags_bilbao() -> dict:
+    """
+    Flags gérés par bilbao (bilbao.features.json à la racine du repo). On ne lit
+    que la clé "flags" ({str: bool}) ; les métadonnées (genere_par, produit…)
+    sont ignorées. Fichier absent ou invalide → dict vide (jamais d'erreur).
+    """
+    if not CHEMIN_FLAGS_BILBAO.exists():
+        return {}
+    try:
+        with open(CHEMIN_FLAGS_BILBAO, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        flags = data.get("flags", {})
+        return flags if isinstance(flags, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def charger_flags() -> dict[str, bool]:
     """
-    Charge les feature flags depuis feature_flags.json si présent,
-    sinon retourne les valeurs par défaut. Les variables d'environnement
-    de la forme FEATURE_<NOM> écrasent les valeurs du fichier.
+    Fusionne les feature flags selon l'ordre de priorité documenté en tête de
+    module : défauts < artefact bilbao < feature_flags.json local < env FEATURE_*.
     """
     flags = dict(FLAGS_PAR_DEFAUT)
+
+    flags.update(_flags_bilbao())
 
     if CHEMIN_FLAGS_DEFAUT.exists():
         with open(CHEMIN_FLAGS_DEFAUT, "r", encoding="utf-8") as f:

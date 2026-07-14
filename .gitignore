@@ -38,3 +38,5 @@ backend/tts_modeles/
 test_integre/
 backend/bibliotheque.json
 backend/interet_fonctionnalites.log
+# Artefacts runtime OpenVoice (segments VAD de se_extractor)
+backend/processed/

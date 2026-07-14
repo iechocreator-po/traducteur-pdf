@@ -22,7 +22,7 @@
     <nav class="modules-nav" role="tablist">
       <button type="button" class="onglet-module" data-module="import" role="tab">Nouveau document</button>
       <button type="button" class="onglet-module" data-module="bibliotheque" role="tab">Bibliothèque</button>
-      <button type="button" class="onglet-module" data-module="laboratoire" role="tab">Laboratoire</button>
+      <button type="button" class="onglet-module" data-module="laboratoire" role="tab" data-avance hidden>Laboratoire</button>
     </nav>
     <div class="barre-espace"></div>
     <div class="statuts-mini">
@@ -156,10 +156,11 @@
         </div>
       </div>
 
-      <aside class="biblio-ia">
+      <aside class="biblio-ia" data-avance hidden>
         <div class="sidebar-titre">Résumé &amp; Quiz</div>
         <p class="aide">Générés par l'IA locale pour le chapitre affiché.</p>
         <button id="ia-generer" class="bouton-ia" disabled>Générer les 5 points clés + quiz</button>
+        <button id="ia-exporter" class="bouton-secondaire" hidden>⬇ Exporter la fiche (HTML)…</button>
         <p id="ia-statut" class="aide"></p>
         <div id="ia-points-zone" hidden>
           <div class="ia-zone-titre">Points clés</div>
