@@ -69,7 +69,9 @@ def _executer_generation(etat: dict, sections: list[str]) -> None:
                 _sauvegarder_etat(etat)
                 return
 
-            echantillons, frequence = synthetiser(section, etat["moteur"], etat["voix"])
+            echantillons, frequence = synthetiser(
+                section, etat["moteur"], etat["voix"], etat.get("langue", "français")
+            )
 
             if wav is None:
                 wav = wave.open(etat["chemin_sortie"], "wb")
@@ -95,11 +97,12 @@ def _executer_generation(etat: dict, sections: list[str]) -> None:
         supprimer_job_registre(etat["job_id"])
 
 
-def demarrer_generation_audio(chemin_md: str, moteur: str, voix: str) -> dict:
+def demarrer_generation_audio(chemin_md: str, moteur: str, voix: str, langue: str = "français") -> dict:
     """
     Enfile la génération audio d'un fichier Markdown. Retourne l'état initial
     (job_id + chemin de sortie). La file d'attente unique garantit qu'elle ne
-    tournera pas en même temps qu'une traduction.
+    tournera pas en même temps qu'une traduction. `langue` : langue de synthèse
+    (moteur openvoice) — devrait suivre la langue du document traduit.
     """
     with open(chemin_md, "r", encoding="utf-8") as f:
         texte = nettoyer_markdown_pour_lecture(f.read())
@@ -114,6 +117,7 @@ def demarrer_generation_audio(chemin_md: str, moteur: str, voix: str) -> dict:
         "chemin_sortie": chemin_sortie_audio(chemin_md, moteur, voix),
         "moteur": moteur,
         "voix": voix,
+        "langue": langue,
         "statut": "en_attente",
         "sections_completees": 0,
         "total_sections": len(sections),

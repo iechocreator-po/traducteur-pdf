@@ -498,12 +498,14 @@ class TTSExtraitRequest(BaseModel):
     texte: str
     moteur: str
     voix: str
+    langue: str = "français"
 
 
 class TTSGenerationRequest(BaseModel):
     chemin_md: str
     moteur: str
     voix: str
+    langue: str = "français"
 
 
 @router.get("/tts/moteurs")
@@ -520,7 +522,7 @@ def ecouter_extrait(req: TTSExtraitRequest) -> Response:
         raise HTTPException(status_code=422, detail="Le texte est vide.")
     from app.services.tts import synthetiser_extrait_wav
     try:
-        wav = synthetiser_extrait_wav(req.texte, req.moteur, req.voix)
+        wav = synthetiser_extrait_wav(req.texte, req.moteur, req.voix, req.langue)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -540,7 +542,7 @@ def generer_audio(req: TTSGenerationRequest) -> dict:
         )
     from app.services.tts_runner import demarrer_generation_audio
     try:
-        etat = demarrer_generation_audio(req.chemin_md, req.moteur, req.voix)
+        etat = demarrer_generation_audio(req.chemin_md, req.moteur, req.voix, req.langue)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return {"job_id": etat["job_id"], "chemin_sortie": etat["chemin_sortie"]}

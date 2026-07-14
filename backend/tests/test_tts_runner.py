@@ -23,7 +23,7 @@ def _attendre_statut(chemin_md, statuts, timeout=5.0):
 def test_generation_audio_complete(tmp_path, monkeypatch):
     monkeypatch.setattr(
         tts_runner, "synthetiser",
-        lambda texte, moteur, voix: (np.zeros(1000, dtype=np.int16), 22050),
+        lambda texte, moteur, voix, langue="français": (np.zeros(1000, dtype=np.int16), 22050),
     )
     source = tmp_path / "livre.md"
     source.write_text("# Chapitre 1\n\n" + "Une phrase. " * 200)
@@ -43,7 +43,7 @@ def test_generation_audio_complete(tmp_path, monkeypatch):
 def test_generation_audio_annulation(tmp_path, monkeypatch):
     from app.services import job_manager
 
-    def synth_lente(texte, moteur, voix):
+    def synth_lente(texte, moteur, voix, langue="français"):
         time.sleep(0.1)
         return np.zeros(500, dtype=np.int16), 22050
 

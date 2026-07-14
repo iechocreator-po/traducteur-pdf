@@ -189,10 +189,11 @@ def _langue_kokoro(voix: str) -> str:
     return prefixes.get(voix[:1], "en-us")
 
 
-def _synthetiser_openvoice(texte: str, voix: str) -> tuple[np.ndarray, int]:
+def _synthetiser_openvoice(texte: str, voix: str, langue: str) -> tuple[np.ndarray, int]:
     """
     Synthétise avec une voix clonée : sous-processus dans le venv dédié
-    (MeloTTS pour la parole de base + conversion de timbre OpenVoice V2).
+    (MeloTTS pour la parole de base dans la langue du texte + conversion de
+    timbre OpenVoice V2). Le timbre cloné est indépendant de la langue.
     """
     entree = next(
         (v for v in voix_clonees.lister_voix() if v["nom"] == voix and v["statut"] == "termine"),
@@ -213,6 +214,7 @@ def _synthetiser_openvoice(texte: str, voix: str) -> tuple[np.ndarray, int]:
                 "--embedding", entree["chemin_embedding"],
                 "--checkpoints", DOSSIER_CHECKPOINTS,
                 "--sortie", chemin_tmp,
+                "--langue", langue,
             ],
             capture_output=True, text=True, timeout=300,
         )
@@ -229,13 +231,15 @@ def _synthetiser_openvoice(texte: str, voix: str) -> tuple[np.ndarray, int]:
             os.remove(chemin_tmp)
 
 
-def synthetiser(texte: str, moteur: str, voix: str) -> tuple[np.ndarray, int]:
+def synthetiser(texte: str, moteur: str, voix: str, langue: str = "français") -> tuple[np.ndarray, int]:
     """
     Synthétise un texte et retourne (échantillons int16, fréquence Hz).
     Le texte doit déjà être nettoyé (voir nettoyer_markdown_pour_lecture).
+    `langue` n'est utilisée que par le moteur openvoice (MeloTTS) ; Piper et
+    Kokoro déduisent la langue de la voix choisie.
     """
     if moteur == "openvoice":
-        return _synthetiser_openvoice(texte, voix)
+        return _synthetiser_openvoice(texte, voix, langue)
 
     if moteur == "piper":
         voix_piper = _obtenir_voix_piper(voix)
@@ -257,13 +261,13 @@ def synthetiser(texte: str, moteur: str, voix: str) -> tuple[np.ndarray, int]:
     raise ValueError(f"Moteur TTS inconnu : '{moteur}'")
 
 
-def synthetiser_extrait_wav(texte: str, moteur: str, voix: str) -> bytes:
+def synthetiser_extrait_wav(texte: str, moteur: str, voix: str, langue: str = "français") -> bytes:
     """Synthétise un court extrait et retourne le contenu d'un fichier WAV."""
     import io
     import wave
 
     texte = nettoyer_markdown_pour_lecture(texte)[:EXTRAIT_LONGUEUR_MAX]
-    echantillons, frequence = synthetiser(texte, moteur, voix)
+    echantillons, frequence = synthetiser(texte, moteur, voix, langue)
     tampon = io.BytesIO()
     with wave.open(tampon, "wb") as wav:
         wav.setnchannels(1)

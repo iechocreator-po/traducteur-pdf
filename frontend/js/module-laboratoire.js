@@ -67,6 +67,9 @@ function majVoixTts() {
     $("tts-voix").appendChild(opt);
   }
   $("tts-aide").textContent = moteur.aide || "";
+  // La langue de synthèse ne concerne que les voix clonées (MeloTTS) ; Piper et
+  // Kokoro déduisent la langue de la voix choisie.
+  $("tts-langue-ligne").hidden = moteur.id !== "openvoice";
   $("bouton-ecouter").disabled = !(moteur.disponible && moteur.voix.length > 0);
 }
 
@@ -83,7 +86,7 @@ $("bouton-ecouter").addEventListener("click", async () => {
     const rep = await fetch(`${API_BASE}/tts/extrait`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ texte, moteur: $("tts-moteur").value, voix: $("tts-voix").value }),
+      body: JSON.stringify({ texte, moteur: $("tts-moteur").value, voix: $("tts-voix").value, langue: $("tts-langue").value }),
     });
     if (!rep.ok) {
       const data = await rep.json();

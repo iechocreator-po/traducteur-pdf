@@ -70,7 +70,7 @@ def test_synthetiser_moteur_inconnu_leve_une_erreur():
 
 def test_synthetiser_extrait_wav_produit_un_entete_riff(monkeypatch):
     faux_audio = (np.zeros(8000, dtype=np.int16), 22050)
-    monkeypatch.setattr(tts, "synthetiser", lambda t, m, v: faux_audio)
+    monkeypatch.setattr(tts, "synthetiser", lambda t, m, v, lang="français": faux_audio)
     wav = tts.synthetiser_extrait_wav("# Bonjour\n\ntexte", "piper", "fr_FR-siwis-medium")
     assert wav[:4] == b"RIFF"
     assert wav[8:12] == b"WAVE"
@@ -79,7 +79,7 @@ def test_synthetiser_extrait_wav_produit_un_entete_riff(monkeypatch):
 def test_synthetiser_extrait_tronque_les_textes_longs(monkeypatch):
     recu = {}
 
-    def faux_synth(texte, moteur, voix):
+    def faux_synth(texte, moteur, voix, langue="français"):
         recu["len"] = len(texte)
         return np.zeros(10, dtype=np.int16), 22050
 
@@ -140,6 +140,7 @@ def test_synthetiser_openvoice_appelle_le_sous_processus(monkeypatch, tmp_path):
     chemin_wav_attendu = {}
 
     def faux_run(cmd, **kwargs):
+        chemin_wav_attendu["cmd"] = cmd
         chemin_sortie = cmd[cmd.index("--sortie") + 1]
         chemin_wav_attendu["chemin"] = chemin_sortie
         with wave.open(chemin_sortie, "wb") as wav:
@@ -154,7 +155,10 @@ def test_synthetiser_openvoice_appelle_le_sous_processus(monkeypatch, tmp_path):
         return FauxResultat()
 
     monkeypatch.setattr(tts.subprocess, "run", faux_run)
-    echantillons, frequence = tts.synthetiser("bonjour", "openvoice", "Ma voix")
+    echantillons, frequence = tts.synthetiser("bonjour", "openvoice", "Ma voix", "anglais")
     assert frequence == 22050
     assert len(echantillons) == 100
+    # La langue demandée est transmise au sous-processus de synthèse
+    cmd = chemin_wav_attendu["cmd"]
+    assert cmd[cmd.index("--langue") + 1] == "anglais"
     assert not os.path.exists(chemin_wav_attendu["chemin"])  # nettoyé après lecture

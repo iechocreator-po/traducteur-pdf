@@ -75,6 +75,15 @@ Le TTS local a un troisième moteur, `openvoice`, à côté de Piper et Kokoro :
 - **Détection de disponibilité** : `tts._openvoice_disponible()` suit le même patron que
   Kokoro (`disponible: false` + message d'`aide` tant que le venv dédié ou les checkpoints
   sont absents) — pas de feature flag dédié, `GET /tts/moteurs` fait foi.
+- **Langue de synthèse (FR/EN/ES)** : le timbre cloné est indépendant de la langue
+  (OpenVoice V2 est cross-lingual) ; c'est MeloTTS qui porte la langue. Le paramètre
+  `langue` traverse `synthetiser()` → `openvoice_synthesize.py`, qui mappe vers le bon
+  locuteur MeloTTS + source SE (`ses/{fr,en-us,es}.pth`). La **Bibliothèque** passe
+  automatiquement `langue_cible` du document ; le **Laboratoire** affiche un sélecteur de
+  langue quand une voix clonée est choisie (`#tts-langue-ligne`). Piper/Kokoro ignorent
+  ce paramètre (langue déduite de la voix).
+- **Capture** : un **texte de lecture fixe** phonétiquement riche (« La bise et le
+  soleil ») est affiché à l'enregistrement pour obtenir un échantillon clair et varié.
 - **v1 web uniquement** — l'app macOS n'a pas encore ce module (parité différée, comme
   pour d'autres fonctionnalités du projet).
 

@@ -221,6 +221,8 @@
         chemin_md: docActif.chemin_sortie,
         moteur: $("tts-moteur").value,
         voix: $("tts-voix").value,
+        // Voix clonée : la langue de synthèse suit la langue cible du document.
+        langue: docActif.langue_cible || "français",
       });
       $("audio-generer").hidden = true;
       demarrerPollAudio();

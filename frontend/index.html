@@ -219,6 +219,15 @@
         </div>
       </div>
       <p id="tts-aide" class="aide"></p>
+      <div id="tts-langue-ligne" hidden>
+        <label for="tts-langue">Langue de lecture (voix clonée) :</label>
+        <select id="tts-langue">
+          <option value="français">Français</option>
+          <option value="anglais">Anglais</option>
+          <option value="espagnol">Espagnol</option>
+        </select>
+        <p class="aide">Doit correspondre à la langue du texte lu — le timbre cloné, lui, s'adapte à toutes les langues.</p>
+      </div>
       <label for="tts-extrait">Extrait à écouter (test de la voix) :</label>
       <textarea id="tts-extrait" rows="2" placeholder="Colle un court texte ici puis clique ▶ Écouter…"></textarea>
       <button id="bouton-ecouter" class="bouton-secondaire">▶ Écouter l'extrait</button>
@@ -252,6 +261,10 @@
       <button id="bouton-creer-voix" class="bouton-lien accent">＋ Créer une voix</button>
 
       <div id="zone-enregistrement" class="zone-enregistrement" hidden>
+        <p class="aide">Lis ce texte à voix haute, d'un ton naturel et posé (~30&nbsp;s). Il couvre l'essentiel des sons du français pour bien capturer ta voix :</p>
+        <blockquote id="texte-lecture" class="texte-lecture">
+          La bise et le soleil se disputaient, chacun assurant qu'il était le plus fort, quand ils virent un voyageur qui s'avançait, enveloppé dans son manteau. Ils tombèrent d'accord que celui qui arriverait le premier à faire ôter son manteau au voyageur serait regardé comme le plus fort. Alors, la bise se mit à souffler de toute sa force, mais plus elle soufflait, plus le voyageur serrait son manteau autour de lui ; et à la fin, la bise renonça à le lui faire ôter. Alors, le soleil commença à briller, et au bout d'un moment, le voyageur, réchauffé, ôta son manteau.
+        </blockquote>
         <div class="ligne-enregistrement">
           <span id="pastille-enregistrement" class="pastille-rec" hidden></span>
           <button id="bouton-demarrer-enr" class="bouton-secondaire">⏺ Démarrer l'enregistrement</button>

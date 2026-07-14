@@ -69,18 +69,28 @@ conda create -p ./venv_openvoice python=3.10 -y
 # 7) Pré-cache du modèle silero-vad (sinon torch.hub demande une confirmation
 #    interactive impossible en sous-processus)
 ./venv_openvoice/bin/python -c "import torch; torch.hub.load('snakers4/silero-vad','silero_vad',onnx=True,trust_repo=True)"
+
+# 8) Ressources nltk pour la synthèse ANGLAISE (g2p_en) — nltk 3.10 a renommé
+#    le tagger en *_eng
+./venv_openvoice/bin/python -c "import nltk; nltk.download('averaged_perceptron_tagger_eng'); nltk.download('cmudict')"
 ```
 
 ## Téléchargement des checkpoints
 
-Depuis le dépôt Hugging Face `myshell-ai/OpenVoiceV2`, dans `checkpoints/` :
+Depuis le dépôt Hugging Face `myshell-ai/OpenVoiceV2`, dans `checkpoints/`.
+On télécharge le converter + les embeddings de locuteur de base des trois
+langues supportées (français, anglais, espagnol) :
 
 ```bash
 ./venv_openvoice/bin/python - <<'PY'
 from huggingface_hub import hf_hub_download
 import shutil, os
 dest = os.path.abspath('checkpoints')
-for f in ['converter/config.json', 'converter/checkpoint.pth', 'base_speakers/ses/fr.pth']:
+fichiers = [
+    'converter/config.json', 'converter/checkpoint.pth',
+    'base_speakers/ses/fr.pth', 'base_speakers/ses/en-us.pth', 'base_speakers/ses/es.pth',
+]
+for f in fichiers:
     p = hf_hub_download('myshell-ai/OpenVoiceV2', f)
     t = os.path.join(dest, f); os.makedirs(os.path.dirname(t), exist_ok=True)
     shutil.copy(p, t)
@@ -98,9 +108,31 @@ backend/tts_modeles/openvoice/
 │   │   └── checkpoint.pth
 │   └── base_speakers/
 │       └── ses/
-│           └── fr.pth        # embedding du locuteur FR de base (source de la conversion)
+│           ├── fr.pth        # locuteur FR de base
+│           ├── en-us.pth     # locuteur EN de base
+│           └── es.pth        # locuteur ES de base
 └── voix_utilisateur/         # voix clonées de l'utilisateur (registre.json + un dossier/voix)
 ```
+
+## Langue de synthèse
+
+Le timbre cloné est **indépendant de la langue** (OpenVoice V2 est
+cross-lingual). C'est la **synthèse** (MeloTTS) qui porte une langue : elle
+doit suivre la langue du texte lu. Mapping (dans `openvoice_synthesize.py`) :
+
+| Langue appli | MeloTTS | Locuteur | Source SE   |
+|--------------|---------|----------|-------------|
+| `français`   | `FR`    | `FR`     | `fr.pth`    |
+| `anglais`    | `EN`    | `EN-US`  | `en-us.pth` |
+| `espagnol`   | `ES`    | `ES`     | `es.pth`    |
+
+Côté app : dans la **Bibliothèque**, la langue suit automatiquement
+`langue_cible` du document traduit ; dans le **Laboratoire** (extrait de test),
+un sélecteur de langue apparaît quand une voix clonée est choisie.
+
+Pour capturer une voix, un **texte de lecture fixe** phonétiquement riche
+(« La bise et le soleil ») est affiché à l'enregistrement — un échantillon
+clair et varié améliore l'extraction du timbre.
 
 ## Vérification
 
