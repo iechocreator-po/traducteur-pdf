@@ -185,3 +185,14 @@ réaligner les valeurs de `Theme.swift`.
 
 Voir [docs/features-roadmap.md](docs/features-roadmap.md) pour la liste des fonctionnalités
 prévues et leur priorité.
+
+<!-- bilbao:managed:start -->
+## Géré par bilbao — ne pas éditer à la main
+_Bloc régénéré par le cockpit bilbao (2026-07-14). La prose hors marqueurs n'est jamais touchée._
+
+### Roadmap (issue des feedbacks)
+- [Livré] Voix TTS personnalisée (9 votes)
+
+### Feature flags actifs
+_Aucun feature flag actif._
+<!-- bilbao:managed:end -->
