@@ -21,3 +21,12 @@ def log_interet_isole(tmp_path, monkeypatch):
     """Même isolation pour le log d'intérêt des fonctionnalités."""
     from app.services import interet
     monkeypatch.setattr(interet, "_FICHIER_LOG", str(tmp_path / "interet_test.log"))
+
+
+@pytest.fixture(autouse=True)
+def registre_voix_clonees_isole(tmp_path, monkeypatch):
+    """Même isolation pour le registre des voix clonées (OpenVoice)."""
+    from app.services import voix_clonees
+    dossier = tmp_path / "voix_utilisateur_test"
+    monkeypatch.setattr(voix_clonees, "DOSSIER_VOIX_UTILISATEUR", str(dossier))
+    monkeypatch.setattr(voix_clonees, "CHEMIN_REGISTRE", str(dossier / "registre.json"))

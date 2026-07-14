@@ -36,9 +36,44 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   `services/study_runner.py`, routes `POST /api/etude`, `GET /api/etude/statut`,
   sortie `<base>_fiche_<xx>.md`, même file d'attente séquentielle que la traduction).
 - **Laboratoire** (`module-laboratoire.js`) : état système, glossaire, TTS (moteur/voix/
-  extrait), outils document (analyse, conversion, reprise, journal d'erreurs) et
-  **teasers** des fonctionnalités futures (voix personnalisées, export PDF — flags
-  `teaser_*`, capture d'intérêt via `POST /api/interet`, log local).
+  extrait), **voix clonées** (capture micro → clonage, voir ci-dessous), outils document
+  (analyse, conversion, reprise, journal d'erreurs) et **teasers** des fonctionnalités
+  futures restantes (export PDF — flag `teaser_export_pdf`, capture d'intérêt via
+  `POST /api/interet`, log local).
+
+### Clonage vocal (moteur `openvoice`)
+
+Le TTS local a un troisième moteur, `openvoice`, à côté de Piper et Kokoro : des voix
+**clonées par l'utilisateur** à partir d'un échantillon micro capturé dans le Laboratoire.
+
+- **Capture (frontend)** : `module-laboratoire.js` capture le micro via Web Audio API
+  (`AudioContext` + `ScriptProcessorNode`, PCM brut) et encode un WAV côté client
+  (`encoderWav`) — **pas** `MediaRecorder` (produirait du webm/opus, incompatible avec
+  la validation WAV stricte du backend). Envoi en `multipart/form-data` vers
+  `POST /api/voix-clonees/capturer`, puis polling de `GET /api/voix-clonees/statut`
+  jusqu'à ce que la voix soit prête (rafraîchit alors le `<select id="tts-voix">` partagé
+  avec la Bibliothèque — aucune logique supplémentaire nécessaire côté lecture audio).
+- **Registre** : `backend/app/services/voix_clonees.py` — CRUD sur
+  `tts_modeles/openvoice/voix_utilisateur/registre.json` (nom, statut, chemins de
+  l'échantillon et de l'embedding). Chaque voix a son dossier
+  `voix_utilisateur/<id>/` (`echantillon.wav` + `embedding.pth`).
+- **Traitement asynchrone** : `voix_clonage_runner.py`, même patron de job que
+  `tts_runner.py` (file d'attente unique du `job_manager`, statut persisté). Le traitement
+  réel tourne en **sous-processus**, jamais importé directement dans le process FastAPI.
+- **Pourquoi un venv séparé** : le moteur de clonage est **OpenVoice V2 + MeloTTS**
+  (voix de base multilingue + conversion de timbre), dont les dépendances connues
+  (`numpy==1.22.0`, `librosa==0.9.1`, `faster-whisper==0.9.0`…) visent Python 3.9/3.10 —
+  incompatibles avec le venv backend principal (Python 3.13). Elles tournent donc dans
+  un **venv Python 3.10 dédié**, `backend/tts_modeles/openvoice/venv_openvoice/`
+  (non versionné), invoqué en sous-processus par `voix_clonage_runner.py` (extraction
+  d'embedding, `openvoice_extract.py`) et `tts.py` (synthèse,
+  `openvoice_synthesize.py`). Voir `backend/tts_modeles/openvoice/README.md` pour
+  l'installation du venv et le téléchargement des checkpoints.
+- **Détection de disponibilité** : `tts._openvoice_disponible()` suit le même patron que
+  Kokoro (`disponible: false` + message d'`aide` tant que le venv dédié ou les checkpoints
+  sont absents) — pas de feature flag dédié, `GET /tts/moteurs` fait foi.
+- **v1 web uniquement** — l'app macOS n'a pas encore ce module (parité différée, comme
+  pour d'autres fonctionnalités du projet).
 
 L'app macOS (Swift/SwiftUI, `macos-app/`) suit le **même design Workflow** : barre
 supérieure (navigation 3 modules, pastilles de statut, thème, mode avancé) dans

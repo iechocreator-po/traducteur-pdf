@@ -604,6 +604,38 @@ pre { white-space: pre-wrap; font-size: 0.85rem; }
 .carte-teaser { border-style: dashed; }
 .teaser-vide { font-size: 0.85rem; color: var(--text-3); }
 
+/* ── Voix clonées (Laboratoire) ────────────────────────────────────────────── */
+.liste-voix-clonees { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.6rem; }
+.ligne-voix-clonee {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+.ligne-voix-clonee .voix-nom { font-weight: 600; }
+.ligne-voix-clonee .aide { margin: 0; flex: 1; }
+
+.zone-enregistrement { margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--border); }
+.ligne-enregistrement { display: flex; align-items: center; gap: 0.6rem; }
+
+.pastille-rec {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: clignoter-rec 1s infinite;
+}
+@keyframes clignoter-rec {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+#enr-relecture { display: block; margin-top: 0.6rem; width: 100%; }
+#enr-validation { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; }
+#enr-nom { flex: 1; }
+
 /* ── Sélecteur de thème ────────────────────────────────────────────────────── */
 .theme-switch {
   display: inline-flex;

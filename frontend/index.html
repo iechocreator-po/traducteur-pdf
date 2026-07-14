@@ -241,12 +241,33 @@
       </div>
     </section>
 
-    <section class="carte carte-teaser" id="carte-voix" hidden>
-      <h2>Voix personnalisées</h2>
-      <p class="aide">Voix clonées disponibles pour la lecture audio.</p>
-      <p class="teaser-vide">Aucune voix personnalisée pour l'instant.</p>
+    <section class="carte" id="carte-voix">
+      <h2>Voix clonées</h2>
+      <p class="aide">Capture ta voix au micro pour créer une voix TTS personnalisée, sélectionnable dans « Lecture audio » ci-dessus.</p>
+
+      <div id="liste-voix-clonees" class="liste-voix-clonees">
+        <p class="teaser-vide" id="voix-clonees-vide">Aucune voix clonée pour l'instant.</p>
+      </div>
+
       <button id="bouton-creer-voix" class="bouton-lien accent">＋ Créer une voix</button>
-      <span id="voix-statut" class="aide"></span>
+
+      <div id="zone-enregistrement" class="zone-enregistrement" hidden>
+        <div class="ligne-enregistrement">
+          <span id="pastille-enregistrement" class="pastille-rec" hidden></span>
+          <button id="bouton-demarrer-enr" class="bouton-secondaire">⏺ Démarrer l'enregistrement</button>
+          <button id="bouton-arreter-enr" class="bouton-secondaire" hidden>⏹ Arrêter</button>
+          <span id="enr-minuteur" class="aide"></span>
+        </div>
+        <audio id="enr-relecture" hidden controls></audio>
+        <div id="enr-validation" hidden>
+          <input type="text" id="enr-nom" placeholder="Nom de la voix (ex. Ma voix)">
+          <button id="bouton-valider-voix" class="bouton-principal">✅ Valider</button>
+          <button id="bouton-recommencer-voix" class="bouton-lien">↺ Recommencer</button>
+          <button id="bouton-annuler-voix" class="bouton-lien">Annuler</button>
+        </div>
+      </div>
+
+      <p id="voix-statut" class="aide"></p>
     </section>
 
     <section class="carte carte-teaser" id="carte-export" hidden>

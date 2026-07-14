@@ -5,7 +5,7 @@ métier — elle valide les entrées et délègue aux services/agents.
 
 import os
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field, model_validator
 
 from app.config.feature_flags import charger_flags, EXTRACTEURS_PDF, EXTRACTEUR_PAR_DEFAUT
@@ -565,6 +565,92 @@ def telecharger_audio(chemin_wav: str):
     if not os.path.exists(chemin_wav):
         raise HTTPException(status_code=404, detail="Fichier audio introuvable.")
     return FileResponse(chemin_wav, media_type="audio/wav", filename=os.path.basename(chemin_wav))
+
+
+# ── Voix clonées (capture micro → clonage OpenVoice) ─────────────────────────
+
+DUREE_MIN_ECHANTILLON_SECONDES = 3.0
+TAILLE_MAX_ECHANTILLON_OCTETS = 30 * 1024 * 1024  # 30 Mo
+
+
+class VoixClonageRenommerRequest(BaseModel):
+    nom: str
+
+
+@router.post("/voix-clonees/capturer")
+async def capturer_voix(nom: str = Form(...), fichier: UploadFile = File(...)) -> dict:
+    """
+    Reçoit un échantillon vocal capturé au micro (WAV), le sauvegarde et
+    démarre l'extraction de l'embedding de locuteur en tâche asynchrone.
+    """
+    import wave
+    import io
+
+    from app.services import voix_clonees
+    from app.services.voix_clonage_runner import demarrer_traitement
+
+    contenu = await fichier.read()
+    if not contenu:
+        raise HTTPException(status_code=422, detail="Échantillon vide.")
+    if len(contenu) > TAILLE_MAX_ECHANTILLON_OCTETS:
+        raise HTTPException(status_code=422, detail="Échantillon trop volumineux (max 30 Mo).")
+
+    try:
+        with wave.open(io.BytesIO(contenu), "rb") as wav:
+            duree = wav.getnframes() / wav.getframerate()
+    except (wave.Error, EOFError):
+        raise HTTPException(status_code=422, detail="Fichier audio invalide (WAV attendu).")
+
+    if duree < DUREE_MIN_ECHANTILLON_SECONDES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Échantillon trop court ({duree:.1f}s) — au moins "
+                   f"{DUREE_MIN_ECHANTILLON_SECONDES:.0f}s sont nécessaires "
+                   "(20-30s recommandées pour un meilleur résultat).",
+        )
+
+    try:
+        entree = voix_clonees.creer_voix(nom)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    with open(voix_clonees.chemin_echantillon(entree["id"]), "wb") as f:
+        f.write(contenu)
+
+    demarrer_traitement(entree["id"])
+    return {"id_voix": entree["id"], "nom": entree["nom"]}
+
+
+@router.get("/voix-clonees")
+def lister_voix_clonees() -> dict:
+    from app.services import voix_clonees
+    return {"voix": voix_clonees.lister_voix()}
+
+
+@router.get("/voix-clonees/statut")
+def statut_voix_clonee(id_voix: str) -> dict | None:
+    from app.services.voix_clonage_runner import lire_statut
+    return lire_statut(id_voix)
+
+
+@router.patch("/voix-clonees/{id_voix}")
+def renommer_voix_clonee(id_voix: str, req: VoixClonageRenommerRequest) -> dict:
+    from app.services import voix_clonees
+    try:
+        entree = voix_clonees.renommer_voix(id_voix, req.nom)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if entree is None:
+        raise HTTPException(status_code=404, detail="Voix clonée introuvable.")
+    return entree
+
+
+@router.delete("/voix-clonees/{id_voix}")
+def supprimer_voix_clonee(id_voix: str) -> dict:
+    from app.services import voix_clonees
+    if not voix_clonees.supprimer_voix(id_voix):
+        raise HTTPException(status_code=404, detail="Voix clonée introuvable.")
+    return {"supprime": True}
 
 
 @router.post("/analyser", response_model=ResultatAnalyse)

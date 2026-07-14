@@ -139,7 +139,7 @@ async function verifierStatut() {
 async function reconnecter() {
   const { backendEnLigne } = await verifierStatut();
   if (backendEnLigne) {
-    await Promise.all([chargerModeles(), chargerExtracteurs(), chargerGlossaire(), chargerMoteursTts(), chargerFlags()]);
+    await Promise.all([chargerModeles(), chargerExtracteurs(), chargerGlossaire(), chargerMoteursTts(), chargerVoixClonees(), chargerFlags()]);
     document.dispatchEvent(new CustomEvent("backend-connecte"));
   }
 }
@@ -206,7 +206,8 @@ async function chargerFlags() {
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
-// chargerGlossaire / chargerMoteursTts sont définis dans module-laboratoire.js
+// chargerGlossaire / chargerMoteursTts / chargerVoixClonees sont définis dans
+// module-laboratoire.js
 // (chargés avant l'appel différé ci-dessous).
 
 window.addEventListener("DOMContentLoaded", () => {

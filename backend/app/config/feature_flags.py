@@ -18,7 +18,9 @@ FLAGS_PAR_DEFAUT = {
     "planification_differee": False,
     # Teasers (refonte Workflow) : fonctionnalités futures affichées dans le
     # Laboratoire avec capture d'intérêt (POST /api/interet).
-    "teaser_voix_personnalisees": True,
+    # Note : "voix personnalisées" n'est plus un teaser depuis l'ajout du
+    # clonage vocal réel (moteur "openvoice") — sa carte est désormais pilotée
+    # par la disponibilité du moteur (GET /tts/moteurs), pas par un flag.
     "teaser_export_pdf": True,
 }
 

@@ -4,7 +4,10 @@ La synthèse réelle (Piper/Kokoro) est simulée pour que les tests soient rapid
 et n'exigent pas les modèles téléchargés.
 """
 
+import os
+
 import numpy as np
+import pytest
 
 from app.services import tts
 
@@ -83,3 +86,75 @@ def test_synthetiser_extrait_tronque_les_textes_longs(monkeypatch):
     monkeypatch.setattr(tts, "synthetiser", faux_synth)
     tts.synthetiser_extrait_wav("a" * 5000, "piper", "v")
     assert recu["len"] <= tts.EXTRAIT_LONGUEUR_MAX
+
+
+# ── Moteur openvoice (voix clonées) ──────────────────────────────────────────
+
+def test_lister_moteurs_inclut_openvoice_non_installe(monkeypatch):
+    monkeypatch.setattr(tts, "_piper_importable", lambda: False)
+    monkeypatch.setattr(tts, "_kokoro_importable", lambda: False)
+    monkeypatch.setattr(tts, "_openvoice_disponible", lambda: False)
+    openvoice = next(m for m in tts.lister_moteurs() if m["id"] == "openvoice")
+    assert openvoice["disponible"] is False
+    assert "non installé" in openvoice["aide"]
+
+
+def test_lister_moteurs_openvoice_installe_sans_voix(monkeypatch):
+    monkeypatch.setattr(tts, "_piper_importable", lambda: False)
+    monkeypatch.setattr(tts, "_kokoro_importable", lambda: False)
+    monkeypatch.setattr(tts, "_openvoice_disponible", lambda: True)
+    monkeypatch.setattr(tts, "lister_voix_openvoice", lambda: [])
+    openvoice = next(m for m in tts.lister_moteurs() if m["id"] == "openvoice")
+    assert openvoice["disponible"] is False
+    assert "Aucune voix clonée" in openvoice["aide"]
+
+
+def test_lister_moteurs_openvoice_pret_avec_voix(monkeypatch):
+    monkeypatch.setattr(tts, "_piper_importable", lambda: False)
+    monkeypatch.setattr(tts, "_kokoro_importable", lambda: False)
+    monkeypatch.setattr(tts, "_openvoice_disponible", lambda: True)
+    monkeypatch.setattr(tts, "lister_voix_openvoice", lambda: ["Ma voix"])
+    openvoice = next(m for m in tts.lister_moteurs() if m["id"] == "openvoice")
+    assert openvoice["disponible"] is True
+    assert openvoice["voix"] == ["Ma voix"]
+    assert openvoice["aide"] is None
+
+
+def test_synthetiser_openvoice_voix_introuvable_leve_une_erreur(monkeypatch):
+    from app.services import voix_clonees
+    monkeypatch.setattr(voix_clonees, "lister_voix", lambda: [])
+    with pytest.raises(ValueError, match="introuvable"):
+        tts.synthetiser("bonjour", "openvoice", "Ma voix")
+
+
+def test_synthetiser_openvoice_appelle_le_sous_processus(monkeypatch, tmp_path):
+    import wave
+
+    from app.services import voix_clonees
+
+    monkeypatch.setattr(
+        voix_clonees, "lister_voix",
+        lambda: [{"nom": "Ma voix", "statut": "termine", "chemin_embedding": "embedding.pth"}],
+    )
+
+    chemin_wav_attendu = {}
+
+    def faux_run(cmd, **kwargs):
+        chemin_sortie = cmd[cmd.index("--sortie") + 1]
+        chemin_wav_attendu["chemin"] = chemin_sortie
+        with wave.open(chemin_sortie, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(22050)
+            wav.writeframes(np.zeros(100, dtype=np.int16).tobytes())
+
+        class FauxResultat:
+            returncode = 0
+            stderr = ""
+        return FauxResultat()
+
+    monkeypatch.setattr(tts.subprocess, "run", faux_run)
+    echantillons, frequence = tts.synthetiser("bonjour", "openvoice", "Ma voix")
+    assert frequence == 22050
+    assert len(echantillons) == 100
+    assert not os.path.exists(chemin_wav_attendu["chemin"])  # nettoyé après lecture

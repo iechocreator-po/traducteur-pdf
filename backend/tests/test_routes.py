@@ -232,7 +232,6 @@ def test_interet_fonctionnalite_vide():
 def test_flags_teaser_actives():
     reponse = client.get("/api/feature-flags")
     flags = reponse.json()
-    assert flags["teaser_voix_personnalisees"] is True
     assert flags["teaser_export_pdf"] is True
 
 
@@ -255,3 +254,77 @@ def test_tts_audio_extension_invalide(tmp_path):
     fichier.write_text("x")
     reponse = client.get("/api/tts/audio", params={"chemin_wav": str(fichier)})
     assert reponse.status_code == 422
+
+
+# ── Voix clonées ──────────────────────────────────────────────────────────────
+
+def _wav_bytes(duree_secondes=3.5, frequence=8000):
+    import io
+    import wave
+    tampon = io.BytesIO()
+    with wave.open(tampon, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(frequence)
+        wav.writeframes(b"\x00\x00" * int(frequence * duree_secondes))
+    return tampon.getvalue()
+
+
+def test_capturer_voix_puis_lister(monkeypatch):
+    from app.services import voix_clonage_runner
+    monkeypatch.setattr(voix_clonage_runner, "venv_openvoice_disponible", lambda: False)
+
+    reponse = client.post(
+        "/api/voix-clonees/capturer",
+        data={"nom": "Ma voix"},
+        files={"fichier": ("echantillon.wav", _wav_bytes(), "audio/wav")},
+    )
+    assert reponse.status_code == 200
+    id_voix = reponse.json()["id_voix"]
+
+    reponse = client.get("/api/voix-clonees")
+    voix = reponse.json()["voix"]
+    assert len(voix) == 1
+    assert voix[0]["id"] == id_voix
+    assert voix[0]["nom"] == "Ma voix"
+    # venv non disponible → le traitement démarré échoue immédiatement en erreur
+    assert voix[0]["statut"] == "erreur"
+
+
+def test_capturer_voix_echantillon_trop_court():
+    reponse = client.post(
+        "/api/voix-clonees/capturer",
+        data={"nom": "Ma voix"},
+        files={"fichier": ("echantillon.wav", _wav_bytes(duree_secondes=1.0), "audio/wav")},
+    )
+    assert reponse.status_code == 422
+
+
+def test_capturer_voix_fichier_invalide():
+    reponse = client.post(
+        "/api/voix-clonees/capturer",
+        data={"nom": "Ma voix"},
+        files={"fichier": ("echantillon.wav", b"pas un wav", "audio/wav")},
+    )
+    assert reponse.status_code == 422
+
+
+def test_supprimer_voix_clonee(monkeypatch):
+    from app.services import voix_clonage_runner
+    monkeypatch.setattr(voix_clonage_runner, "venv_openvoice_disponible", lambda: False)
+
+    reponse = client.post(
+        "/api/voix-clonees/capturer",
+        data={"nom": "Ma voix"},
+        files={"fichier": ("echantillon.wav", _wav_bytes(), "audio/wav")},
+    )
+    id_voix = reponse.json()["id_voix"]
+
+    reponse = client.delete(f"/api/voix-clonees/{id_voix}")
+    assert reponse.status_code == 200
+    assert client.get("/api/voix-clonees").json()["voix"] == []
+
+
+def test_supprimer_voix_clonee_introuvable():
+    reponse = client.delete("/api/voix-clonees/inconnu")
+    assert reponse.status_code == 404

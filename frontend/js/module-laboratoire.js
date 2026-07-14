@@ -234,6 +234,241 @@ $("bouton-reprendre").addEventListener("click", async () => {
   }
 });
 
+// ── Voix clonées : capture micro → clonage OpenVoice ─────────────────────────
+// (fonction chargerVoixClonees globale : appelée par reconnecter() dans commun.js)
+
+let contexteAudioEnr = null;
+let noeudSourceEnr = null;
+let noeudProcesseurEnr = null;
+let fluxMicroEnr = null;
+let morceauxPcmEnr = [];
+let blobEnregistre = null;
+let minuteurEnregistrement = null;
+
+// Encode des échantillons PCM float32 en WAV 16 bits mono — le backend valide
+// la durée avec le module wave (RIFF strict), et MediaRecorder ne produit que
+// du webm/ogg compressé selon les navigateurs : on capture le PCM brut via
+// Web Audio API et on encode le WAV nous-mêmes (aucune dépendance externe).
+function encoderWav(morceaux, frequence) {
+  const longueur = morceaux.reduce((n, m) => n + m.length, 0);
+  const pcm = new Int16Array(longueur);
+  let offset = 0;
+  for (const morceau of morceaux) {
+    for (let i = 0; i < morceau.length; i++) {
+      const s = Math.max(-1, Math.min(1, morceau[i]));
+      pcm[offset++] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+  }
+
+  const tampon = new ArrayBuffer(44 + pcm.length * 2);
+  const vue = new DataView(tampon);
+  const ecrireChaine = (pos, str) => { for (let i = 0; i < str.length; i++) vue.setUint8(pos + i, str.charCodeAt(i)); };
+
+  ecrireChaine(0, "RIFF");
+  vue.setUint32(4, 36 + pcm.length * 2, true);
+  ecrireChaine(8, "WAVE");
+  ecrireChaine(12, "fmt ");
+  vue.setUint32(16, 16, true);
+  vue.setUint16(20, 1, true);         // PCM
+  vue.setUint16(22, 1, true);         // mono
+  vue.setUint32(24, frequence, true);
+  vue.setUint32(28, frequence * 2, true);
+  vue.setUint16(32, 2, true);
+  vue.setUint16(34, 16, true);
+  ecrireChaine(36, "data");
+  vue.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) vue.setInt16(44 + i * 2, pcm[i], true);
+
+  return new Blob([tampon], { type: "audio/wav" });
+}
+
+async function chargerVoixClonees() {
+  try {
+    const data = await apiGet("/voix-clonees");
+    const zone = $("liste-voix-clonees");
+    if (!data.voix.length) {
+      zone.innerHTML = '<p class="teaser-vide" id="voix-clonees-vide">Aucune voix clonée pour l\'instant.</p>';
+      return;
+    }
+    zone.innerHTML = "";
+    for (const v of data.voix) {
+      const ligne = document.createElement("div");
+      ligne.className = "ligne-voix-clonee";
+      const libelleStatut = {
+        en_attente: "⏳ En attente…",
+        en_cours: "⏳ Traitement en cours…",
+        termine: "✅ Prête",
+        erreur: `❌ ${v.erreur || "Échec du traitement"}`,
+      }[v.statut] || v.statut;
+      ligne.innerHTML = `
+        <span class="voix-nom">${v.nom}</span>
+        <span class="aide">${libelleStatut}</span>
+        <button class="bouton-lien" data-action="renommer" data-id="${v.id}">Renommer</button>
+        <button class="bouton-lien" data-action="supprimer" data-id="${v.id}">Supprimer</button>
+      `;
+      zone.appendChild(ligne);
+      if (v.statut === "en_attente" || v.statut === "en_cours") pollerStatutTraitement(v.id);
+    }
+  } catch { /* rechargé à la reconnexion */ }
+}
+
+$("liste-voix-clonees").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (btn.dataset.action === "renommer") {
+    const nom = prompt("Nouveau nom :");
+    if (nom == null || !nom.trim()) return;
+    try {
+      await fetch(`${API_BASE}/voix-clonees/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nom: nom.trim() }),
+      });
+      await chargerVoixClonees();
+      await chargerMoteursTts();
+    } catch (err) {
+      alert(`Impossible de renommer : ${err}`);
+    }
+  } else if (btn.dataset.action === "supprimer") {
+    if (!confirm("Supprimer cette voix clonée ?")) return;
+    try {
+      await fetch(`${API_BASE}/voix-clonees/${id}`, { method: "DELETE" });
+      await chargerVoixClonees();
+      await chargerMoteursTts();
+    } catch (err) {
+      alert(`Impossible de supprimer : ${err}`);
+    }
+  }
+});
+
+async function pollerStatutTraitement(idVoix) {
+  try {
+    const etat = await apiGet(`/voix-clonees/statut?id_voix=${idVoix}`);
+    if (!etat || etat.statut === "en_attente" || etat.statut === "en_cours") {
+      setTimeout(() => pollerStatutTraitement(idVoix), 3000);
+      return;
+    }
+    await chargerVoixClonees();
+    if (etat.statut === "termine") await chargerMoteursTts();
+  } catch {
+    setTimeout(() => pollerStatutTraitement(idVoix), 5000);
+  }
+}
+
+function reinitialiserZoneEnregistrement() {
+  $("zone-enregistrement").hidden = true;
+  $("bouton-demarrer-enr").hidden = false;
+  $("bouton-arreter-enr").hidden = true;
+  $("pastille-enregistrement").hidden = true;
+  $("enr-minuteur").textContent = "";
+  $("enr-relecture").hidden = true;
+  $("enr-relecture").src = "";
+  $("enr-validation").hidden = true;
+  $("enr-nom").value = "";
+  clearInterval(minuteurEnregistrement);
+  blobEnregistre = null;
+
+  if (contexteAudioEnr && contexteAudioEnr.state !== "closed") {
+    noeudSourceEnr?.disconnect();
+    noeudProcesseurEnr?.disconnect();
+    fluxMicroEnr?.getTracks().forEach((t) => t.stop());
+    contexteAudioEnr.close();
+  }
+}
+
+$("bouton-creer-voix").addEventListener("click", () => {
+  reinitialiserZoneEnregistrement();
+  $("zone-enregistrement").hidden = false;
+});
+
+$("bouton-demarrer-enr").addEventListener("click", async () => {
+  const elStatut = $("voix-statut");
+  elStatut.textContent = "";
+  try {
+    fluxMicroEnr = await navigator.mediaDevices.getUserMedia({ audio: true });
+    contexteAudioEnr = new (window.AudioContext || window.webkitAudioContext)();
+    noeudSourceEnr = contexteAudioEnr.createMediaStreamSource(fluxMicroEnr);
+    noeudProcesseurEnr = contexteAudioEnr.createScriptProcessor(4096, 1, 1);
+    morceauxPcmEnr = [];
+    noeudProcesseurEnr.onaudioprocess = (e) => {
+      morceauxPcmEnr.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    };
+    noeudSourceEnr.connect(noeudProcesseurEnr);
+    noeudProcesseurEnr.connect(contexteAudioEnr.destination);
+
+    $("bouton-demarrer-enr").hidden = true;
+    $("bouton-arreter-enr").hidden = false;
+    $("pastille-enregistrement").hidden = false;
+
+    let secondes = 0;
+    $("enr-minuteur").textContent = "0s";
+    minuteurEnregistrement = setInterval(() => {
+      secondes += 1;
+      $("enr-minuteur").textContent = `${secondes}s`;
+    }, 1000);
+  } catch (e) {
+    if (e.name === "NotAllowedError") {
+      elStatut.textContent = "❌ Permission micro refusée — autorise l'accès au micro dans ton navigateur.";
+    } else {
+      elStatut.textContent = `❌ Micro indisponible : ${e.message}`;
+    }
+  }
+});
+
+$("bouton-arreter-enr").addEventListener("click", () => {
+  clearInterval(minuteurEnregistrement);
+  $("bouton-arreter-enr").hidden = true;
+  $("pastille-enregistrement").hidden = true;
+
+  noeudSourceEnr?.disconnect();
+  noeudProcesseurEnr?.disconnect();
+  fluxMicroEnr?.getTracks().forEach((t) => t.stop());
+  const frequence = contexteAudioEnr ? contexteAudioEnr.sampleRate : 44100;
+  contexteAudioEnr?.close();
+
+  blobEnregistre = encoderWav(morceauxPcmEnr, frequence);
+  $("enr-relecture").src = URL.createObjectURL(blobEnregistre);
+  $("enr-relecture").hidden = false;
+  $("enr-validation").hidden = false;
+});
+
+$("bouton-recommencer-voix").addEventListener("click", () => {
+  reinitialiserZoneEnregistrement();
+  $("zone-enregistrement").hidden = false;
+});
+
+$("bouton-annuler-voix").addEventListener("click", () => {
+  reinitialiserZoneEnregistrement();
+});
+
+$("bouton-valider-voix").addEventListener("click", async () => {
+  const nom = $("enr-nom").value.trim();
+  const elStatut = $("voix-statut");
+  if (!nom) { alert("Donne un nom à cette voix."); return; }
+  if (!blobEnregistre) { elStatut.textContent = "❌ Aucun enregistrement à envoyer."; return; }
+
+  const btn = $("bouton-valider-voix");
+  btn.disabled = true;
+  btn.textContent = "⏳ Envoi…";
+  try {
+    const formulaire = new FormData();
+    formulaire.append("nom", nom);
+    formulaire.append("fichier", blobEnregistre, "echantillon.wav");
+    const rep = await fetch(`${API_BASE}/voix-clonees/capturer`, { method: "POST", body: formulaire });
+    const data = await rep.json();
+    if (!rep.ok) throw new Error(data.detail || `Erreur HTTP ${rep.status}`);
+    reinitialiserZoneEnregistrement();
+    elStatut.textContent = "✅ Échantillon envoyé — traitement en cours…";
+    await chargerVoixClonees();
+  } catch (e) {
+    elStatut.textContent = `❌ ${e.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✅ Valider";
+  }
+});
+
 // ── Teasers : fonctionnalités en développement (capture d'intérêt) ───────────
 
 async function capturerInteret(fonctionnalite, elStatut) {
@@ -253,10 +488,8 @@ async function capturerInteret(fonctionnalite, elStatut) {
   }
 }
 
-$("bouton-creer-voix").addEventListener("click", () => capturerInteret("voix_personnalisees", $("voix-statut")));
 $("bouton-export-pdf").addEventListener("click", () => capturerInteret("export_pdf", $("export-statut")));
 
 document.addEventListener("flags-charges", () => {
-  $("carte-voix").hidden = !featureFlags.teaser_voix_personnalisees;
   $("carte-export").hidden = !featureFlags.teaser_export_pdf;
 });
