@@ -12,28 +12,28 @@ Document de travail en attendant la mise en place d'un vrai tableau kanban
 
 ## Fonctionnalités proposées par Jean-Pierre
 
-| # | Fonctionnalité | Statut | Notes |
-|---|---|---|---|
-| 1 | Pause / reprise de traduction | ✅ | Fichier `.state.json` à côté de la sortie ; boutons Pause/Continuer/Reprendre (web + app macOS). |
-| 2 | Langues anglais / français / espagnol (entrée + sortie) | ✅ | Menus déroulants dans le frontend et l'app Swift. |
-| 3 | Programmation différée (traduction de nuit) | ✅ | `scheduler.py` + `scheduled_jobs.json`, vues Swift ScheduleSheet/ScheduledJobsView. |
-| 4 | Préservation des liens URL | ✅ | Annexe « Liens du document original » en fin de fichier traduit et de conversion (dédoublonnée, une seule fois au re-run). |
-| 5 | Analyse préliminaire des 5 premières pages | ✅ | Route `/api/analyser` : langue détectée, nb de chunks, durée estimée, avertissements, recommandation. |
-| 6 | Indicateur Ollama vert/rouge dans l'UI | ✅ | Bouton 🔄 Reconnecter (retry auto 30 s), re-vérification backend/Ollama juste avant chaque lancement de traduction. |
-| 7 | Choix de fichier sans toggle PDF/Markdown | ✅ | Un seul champ — le type est détecté par l'extension, les options s'adaptent. |
-| 8 | Planification multi-fichiers avec liste et statuts | ✅ | `POST /api/schedule/batch`, section « 5. Planification » : tableau fichier / planifié pour / statut réel / retirer. |
-| 9 | Fiche d'étude par chapitres (points à retenir + questions) | ✅ | Onglet « Étude » : sélection de chapitres, N points à retenir + N questions de compréhension avec corrigé masqué (`<details>`), langue de la fiche configurable. Route `POST /api/etude`, `study_runner.py` + `etude.py`, sortie `_fiche_xx.md`, progression 2 étapes/chapitre, pause/annulation/reprise via la file d'attente. |
+| # | ID | Fonctionnalité | Statut | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | 63 | Pause / reprise de traduction | ✅ | Fichier `.state.json` à côté de la sortie ; boutons Pause/Continuer/Reprendre (web + app macOS). |
+| 2 | 64 | Langues anglais / français / espagnol (entrée + sortie) | ✅ | Menus déroulants dans le frontend et l'app Swift. |
+| 3 | 65 | Programmation différée (traduction de nuit) | ✅ | `scheduler.py` + `scheduled_jobs.json`, vues Swift ScheduleSheet/ScheduledJobsView. |
+| 4 | 66 | Préservation des liens URL | ✅ | Annexe « Liens du document original » en fin de fichier traduit et de conversion (dédoublonnée, une seule fois au re-run). |
+| 5 | 67 | Analyse préliminaire des 5 premières pages | ✅ | Route `/api/analyser` : langue détectée, nb de chunks, durée estimée, avertissements, recommandation. |
+| 6 | 68 | Indicateur Ollama vert/rouge dans l'UI | ✅ | Bouton 🔄 Reconnecter (retry auto 30 s), re-vérification backend/Ollama juste avant chaque lancement de traduction. |
+| 7 | 69 | Choix de fichier sans toggle PDF/Markdown | ✅ | Un seul champ — le type est détecté par l'extension, les options s'adaptent. |
+| 8 | 70 | Planification multi-fichiers avec liste et statuts | ✅ | `POST /api/schedule/batch`, section « 5. Planification » : tableau fichier / planifié pour / statut réel / retirer. |
+| 9 | 71 | Fiche d'étude par chapitres (points à retenir + questions) | ✅ | Onglet « Étude » : sélection de chapitres, N points à retenir + N questions de compréhension avec corrigé masqué (`<details>`), langue de la fiche configurable. Route `POST /api/etude`, `study_runner.py` + `etude.py`, sortie `_fiche_xx.md`, progression 2 étapes/chapitre, pause/annulation/reprise via la file d'attente. |
 
 ## Fonctionnalités proposées par Claude
 
-| # | Fonctionnalité | Statut | Notes |
-|---|---|---|---|
-| A | Détection automatique de la langue source | ✅ | Faite pendant l'analyse préliminaire (`analysis_agent.py`). |
-| B | Estimation du temps total avant de lancer | ✅ | Affichée dans l'analyse + confirmation avant lancement ; temps restant pendant le job. |
-| C | Journal d'erreurs/avertissements par section | ✅ | `.errors.log` à côté de la sortie ; le job continue malgré les échecs de section. |
-| D | Glossaire de termes à ne pas traduire | ✅ | Section « 4. Glossaire » (un terme par ligne), injection dans le prompt, vérification post-traduction avec avertissement. |
-| E | Mode relecture comparative (côte à côte) | 🔲 | Affichage anglais/français en parallèle pour validation rapide. |
-| F | Nettoyer les artefacts VAD d'OpenVoice | 🔲 | `se_extractor` (clonage vocal) écrit ses segments dans `backend/processed/` (CWD du sous-processus) et ne les nettoie pas — ça s'accumule à chaque voix clonée. Faire écrire `openvoice_extract.py` dans un dossier temporaire supprimé après extraction (paramètre `target_dir` de `get_se`). Ignoré du repo pour l'instant (`.gitignore`). |
+| # | ID | Fonctionnalité | Statut | Notes |
+| --- | --- | --- | --- | --- |
+| A | 72 | Détection automatique de la langue source | ✅ | Faite pendant l'analyse préliminaire (`analysis_agent.py`). |
+| B | 73 | Estimation du temps total avant de lancer | ✅ | Affichée dans l'analyse + confirmation avant lancement ; temps restant pendant le job. |
+| C | 74 | Journal d'erreurs/avertissements par section | ✅ | `.errors.log` à côté de la sortie ; le job continue malgré les échecs de section. |
+| D | 75 | Glossaire de termes à ne pas traduire | ✅ | Section « 4. Glossaire » (un terme par ligne), injection dans le prompt, vérification post-traduction avec avertissement. |
+| E | 76 | Mode relecture comparative (côte à côte) | 🔲 | Affichage anglais/français en parallèle pour validation rapide. |
+| F | 77 | Nettoyer les artefacts VAD d'OpenVoice | 🔲 | `se_extractor` (clonage vocal) écrit ses segments dans `backend/processed/` (CWD du sous-processus) et ne les nettoie pas — ça s'accumule à chaque voix clonée. Faire écrire `openvoice_extract.py` dans un dossier temporaire supprimé après extraction (paramètre `target_dir` de `get_se`). Ignoré du repo pour l'instant (`.gitignore`). |
 
 ## Livré en plus (delta v2 → v4)
 
