@@ -385,14 +385,82 @@ pre { white-space: pre-wrap; font-size: 0.85rem; }
 }
 .tableau-analyse th { color: var(--text-2); font-weight: 600; width: 40%; }
 
+/* Sélecteur de chapitres à traduire (par fichier du lot) */
+.lot-chapitres {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.lot-chapitres-entete {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.lot-chapitres-liste {
+  margin-top: 0.4rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.lot-chap-ligne {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 4px;
+  font-size: 0.82rem;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.lot-chap-ligne:hover { color: var(--text); }
+.lot-chap-ligne input {
+  margin: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
 /* ── Module B : bibliothèque ───────────────────────────────────────────────── */
 .biblio-layout {
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr) 300px;
+  /* Mode non-avancé : sidebar + lecture (la colonne Résumé & Quiz est masquée). */
+  grid-template-columns: var(--biblio-w1, 230px) minmax(0, 1fr);
   height: calc(100vh - var(--hauteur-barre));
 }
-/* Mode non-avancé : la colonne Résumé & Quiz (aside masquée) est retirée. */
-html:not(.avance) .biblio-layout { grid-template-columns: 230px minmax(0, 1fr); }
+/* Mode avancé : sidebar | poignée | Résumé & Quiz (centre, redimensionnable) |
+   poignée | lecture du texte (droite, occupe l'espace restant). */
+html.avance .biblio-layout {
+  grid-template-columns: var(--biblio-w1, 230px) 7px var(--biblio-w2, 380px) 7px minmax(0, 1fr);
+}
+/* Texte masqué (bouton « Afficher le texte », flag biblio_toggle_contenu) :
+   le panneau Résumé & Quiz occupe alors toute la largeur restante — plus
+   besoin de la 2e poignée. */
+html.avance .biblio-layout.lecture-cachee {
+  grid-template-columns: var(--biblio-w1, 230px) 7px minmax(0, 1fr);
+}
+html.avance .biblio-layout.lecture-cachee .biblio-lecture,
+html.avance .biblio-layout.lecture-cachee #biblio-resizer-2 { display: none; }
+
+/* Poignées de redimensionnement entre les colonnes (mode avancé uniquement). */
+.biblio-resizer {
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+}
+.biblio-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+}
+.biblio-resizer:hover::after,
+.biblio-resizer.is-dragging::after {
+  width: 3px;
+  background: var(--accent);
+}
 
 .biblio-sidebar {
   border-right: 1px solid var(--border);
@@ -468,6 +536,12 @@ html:not(.avance) .chap-selection-barre { display: none; }
   flex-direction: column;
   min-width: 0;
   background: var(--bg);
+}
+/* En mode avancé la lecture devient le panneau de droite (auxiliaire) :
+   le centre (Résumé & Quiz) porte le fond principal. */
+html.avance .biblio-lecture {
+  border-left: 1px solid var(--border);
+  background: var(--surface);
 }
 .lecture-bandeau {
   display: flex;
@@ -553,11 +627,18 @@ html:not(.avance) .chap-selection-barre { display: none; }
 .barre-audio .bouton-lien { white-space: nowrap; margin: 0; text-decoration: none; }
 
 .biblio-ia {
-  border-left: 1px solid var(--border);
-  background: var(--surface);
-  padding: 1.1rem 1.2rem;
+  background: var(--bg);
+  padding: 1.1rem 1.6rem;
   overflow-y: auto;
 }
+.ia-conteneur { max-width: 680px; margin: 0 auto; }
+.ia-entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ia-entete .sidebar-titre { padding: 0; }
 .bouton-ia {
   width: 100%;
   margin: 0.7rem 0 0.3rem;
@@ -719,6 +800,12 @@ html:not(.avance) .chap-selection-barre { display: none; }
 
 /* ── Responsive minimal ────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
-  .biblio-layout { grid-template-columns: 200px minmax(0, 1fr); }
+  .biblio-layout,
+  html.avance .biblio-layout,
+  html.avance .biblio-layout.lecture-cachee { grid-template-columns: 200px minmax(0, 1fr); }
   .biblio-ia { display: none; }
+  /* Le panneau Résumé & Quiz étant masqué, la lecture reste toujours visible. */
+  html.avance .biblio-layout.lecture-cachee .biblio-lecture { display: flex; }
+  /* Colonnes fixes en dessous de 900px : rien à redimensionner. */
+  .biblio-resizer { display: none; }
 }

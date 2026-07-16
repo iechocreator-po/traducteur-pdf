@@ -31,6 +31,11 @@ FLAGS_PAR_DEFAUT = {
     "mode_avance": True,
     # Bouton d'export HTML de la fiche d'étude (Bibliothèque, section avancée).
     "export_fiche_html": True,
+    # Bibliothèque (mode avancé) : bouton « Afficher/Masquer le texte ». Le texte
+    # du chapitre est masqué par défaut — le panneau Résumé & Quiz occupe le
+    # centre. Off → texte toujours visible et bouton masqué (comportement
+    # historique).
+    "biblio_toggle_contenu": True,
     # Teasers (refonte Workflow) : fonctionnalités futures affichées dans le
     # Laboratoire avec capture d'intérêt (POST /api/interet).
     # Note : "voix personnalisées" n'est plus un teaser depuis l'ajout du

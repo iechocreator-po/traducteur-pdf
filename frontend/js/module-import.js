@@ -4,7 +4,8 @@
 
 (() => {
   // {id, chemin, type, stage: analyse|pret|probleme|lance|termine|erreur,
-  //  qualite, eta, chapitres, recommandation, jobId, statutJob, pct, sections}
+  //  qualite, eta, chapitres, recommandation, jobId, statutJob, pct, sections,
+  //  listeChapitres, chapitresCoches, chapitresOuverts, chapitresChargement}
   let lot = [];
   let pollTimer = null;
   let lotEnPause = false;
@@ -25,6 +26,8 @@
       stage: "analyse",
       qualite: null, eta: null, chapitres: null, recommandation: null,
       jobId: null, statutJob: null, pct: 0, sections: "",
+      listeChapitres: null, chapitresCoches: null,
+      chapitresOuverts: false, chapitresChargement: false,
     };
     lot.push(item);
     rendreLot();
@@ -70,6 +73,9 @@
         item.qualite = "Markdown";
         item.eta = null;
         item.chapitres = data.chapitres.length;
+        // La liste complète est déjà là : le sélecteur de chapitres n'aura pas
+        // à la re-demander (contrairement aux PDF, chargés à l'ouverture).
+        initSelectionChapitres(item, data.chapitres);
         item.stage = "pret";
       } else {
         const data = await apiPost("/analyser", {
@@ -94,11 +100,51 @@
     rendreLot();
   }
 
+  // ── Sélection fine des chapitres à traduire ─────────────────────────────────
+  // Tout coché (défaut) → traduction complète classique (cache et reprise
+  // intacts) : chapitres_selectionnes n'est envoyé au backend QUE pour une
+  // sélection partielle (mode « ajout » par chapitres). Pour un PDF, la liste
+  // n'est chargée qu'à l'ouverture du sélecteur — l'extraction peut être longue
+  // pour un PDF sans signets.
+
+  function initSelectionChapitres(item, chapitres) {
+    item.listeChapitres = chapitres;
+    item.chapitresCoches = new Set(chapitres.map(c => c.index));
+  }
+
+  function selectionPartielle(item) {
+    return item.listeChapitres != null
+      && item.chapitresCoches.size > 0
+      && item.chapitresCoches.size < item.listeChapitres.length;
+  }
+
+  // Un fichier dont tous les chapitres sont décochés est exclu du lancement.
+  function itemLancable(item) {
+    if (item.stage !== "pret") return false;
+    return item.listeChapitres == null || item.chapitresCoches.size > 0;
+  }
+
+  async function chargerChapitresItem(item) {
+    item.chapitresChargement = true;
+    rendreLot();
+    try {
+      const data = await apiPost("/chapitres", corpsSource(item.chemin, {
+        extracteur_pdf: $("extracteur-pdf").value,
+      }));
+      initSelectionChapitres(item, data.chapitres);
+    } catch (e) {
+      item.chapitresOuverts = false;
+      alert(`Impossible de lister les chapitres : ${e.message}`);
+    }
+    item.chapitresChargement = false;
+    rendreLot();
+  }
+
   // ── Lancement du lot ────────────────────────────────────────────────────────
 
   async function lancerLot() {
     if (!(await exigerSante())) return;
-    const prets = lot.filter(f => f.stage === "pret");
+    const prets = lot.filter(itemLancable);
     if (prets.length === 0) return;
 
     for (const item of prets) {
@@ -109,6 +155,9 @@
           modele_ollama: $("modele").value,
           extracteur_pdf: $("extracteur-pdf").value,
           estimation_temps_total: item.eta ?? null,
+          ...(selectionPartielle(item)
+            ? { chapitres_selectionnes: [...item.chapitresCoches].sort((a, b) => a - b) }
+            : {}),
         }));
         item.jobId = data.job_id;
         item.stage = "lance";
@@ -274,9 +323,88 @@
     erreur:   ["Erreur", "pill-erreur"],
   };
 
+  // Sélecteur dépliable « Chapitres à traduire » d'un fichier du lot.
+  function rendreSelecteurChapitres(item) {
+    const bloc = document.createElement("div");
+    bloc.className = "lot-chapitres";
+
+    const entete = document.createElement("div");
+    entete.className = "lot-chapitres-entete";
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "bouton-lien";
+    const resume = item.listeChapitres == null ? ""
+      : selectionPartielle(item) ? ` (${item.chapitresCoches.size}/${item.listeChapitres.length} sélectionnés)`
+      : item.chapitresCoches.size === 0 ? " (aucun)"
+      : " (tous)";
+    toggle.textContent = `${item.chapitresOuverts ? "▾" : "▸"} Chapitres à traduire${resume}`;
+    toggle.addEventListener("click", () => {
+      item.chapitresOuverts = !item.chapitresOuverts;
+      if (item.chapitresOuverts && item.listeChapitres == null && !item.chapitresChargement) {
+        chargerChapitresItem(item);
+      } else {
+        rendreLot();
+      }
+    });
+    entete.appendChild(toggle);
+
+    if (item.chapitresOuverts && item.listeChapitres != null) {
+      for (const [label, coche] of [["Tout", true], ["Aucun", false]]) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "bouton-lien";
+        btn.textContent = label;
+        btn.addEventListener("click", () => {
+          item.chapitresCoches = coche ? new Set(item.listeChapitres.map(c => c.index)) : new Set();
+          rendreLot();
+        });
+        entete.appendChild(btn);
+      }
+    }
+    bloc.appendChild(entete);
+
+    if (item.chapitresOuverts) {
+      if (item.chapitresChargement) {
+        const aide = document.createElement("p");
+        aide.className = "aide";
+        aide.textContent = "⏳ Chargement des chapitres…";
+        bloc.appendChild(aide);
+      } else if (item.listeChapitres != null) {
+        const liste = document.createElement("div");
+        liste.className = "lot-chapitres-liste";
+        for (const chap of item.listeChapitres) {
+          const ligne = document.createElement("label");
+          ligne.className = "lot-chap-ligne";
+          ligne.style.paddingLeft = `${4 + (Math.max(chap.niveau, 1) - 1) * 14}px`;
+          const check = document.createElement("input");
+          check.type = "checkbox";
+          check.checked = item.chapitresCoches.has(chap.index);
+          check.addEventListener("change", () => {
+            if (check.checked) item.chapitresCoches.add(chap.index);
+            else item.chapitresCoches.delete(chap.index);
+            rendreLot();
+          });
+          const titre = document.createElement("span");
+          titre.textContent = chap.titre;
+          ligne.append(check, titre);
+          liste.appendChild(ligne);
+        }
+        bloc.appendChild(liste);
+        if (item.chapitresCoches.size === 0) {
+          const alerte = document.createElement("p");
+          alerte.className = "aide erreur";
+          alerte.textContent = "⚠ Aucun chapitre coché — ce fichier ne sera pas traduit.";
+          bloc.appendChild(alerte);
+        }
+      }
+    }
+    return bloc;
+  }
+
   function rendreLot() {
     $("zone-lot").hidden = lot.length === 0;
-    const prets = lot.filter(f => f.stage === "pret").length;
+    const prets = lot.filter(itemLancable).length;
     const termines = lot.filter(f => f.stage === "termine").length;
     $("lot-compte").textContent = `${lot.length} fichier${lot.length > 1 ? "s" : ""} dans le lot`;
     $("lot-prets").textContent = termines === lot.length && lot.length > 0
@@ -348,6 +476,9 @@
           reco.className = "lot-info erreur";
           reco.textContent = `⚠ ${item.recommandation}`;
           ligne.appendChild(reco);
+        }
+        if (item.stage === "pret" && (item.chapitres ?? 0) > 0) {
+          ligne.appendChild(rendreSelecteurChapitres(item));
         }
       } else if (item.stage === "lance" || item.stage === "termine") {
         const barre = document.createElement("div");

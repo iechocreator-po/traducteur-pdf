@@ -11,8 +11,84 @@
   let ficheParChapitre = {}; // index → FicheChapitre (depuis /etude/statut)
   let pollFiche = null;
   let pollAudio = null;
+  let lectureVisible = false; // texte central masqué par défaut (flag biblio_toggle_contenu)
 
   const audio = $("audio-el");
+
+  // ── Affichage du texte (flag biblio_toggle_contenu) ────────────────────────
+  // En mode avancé, le panneau Résumé & Quiz occupe le centre et la colonne de
+  // lecture est masquée par défaut pour alléger l'écran ; le bouton la révèle.
+  // Flag off → comportement historique : texte toujours visible, bouton masqué.
+
+  function appliquerLectureVisible() {
+    const flagActif = featureFlags.biblio_toggle_contenu !== false;
+    const visible = flagActif ? lectureVisible : true;
+    $("biblio-toggle-lecture").hidden = !flagActif;
+    $("biblio-layout").classList.toggle("lecture-cachee", !visible);
+    $("biblio-toggle-lecture").textContent = visible ? "Masquer le texte" : "📖 Afficher le texte";
+  }
+
+  // Un clic explicite sur un titre de chapitre = intention de lire → on révèle
+  // la colonne (la sélection automatique du premier chapitre, elle, ne le fait pas).
+  function montrerLecture() {
+    if (lectureVisible) return;
+    lectureVisible = true;
+    appliquerLectureVisible();
+  }
+
+  $("biblio-toggle-lecture").addEventListener("click", () => {
+    lectureVisible = !lectureVisible;
+    appliquerLectureVisible();
+  });
+  document.addEventListener("flags-charges", appliquerLectureVisible);
+  appliquerLectureVisible();
+
+  // ── Poignées de redimensionnement (sidebar | Résumé & Quiz | lecture) ──────
+  // Largeur pilotée par une variable CSS sur <html>, mesurée sur l'élément à
+  // gauche de la poignée (glisser à droite l'agrandit). Persistée en
+  // localStorage ; double-clic remet la largeur par défaut.
+
+  function initResizer(handleId, varName, mesureElId, defaut, min, max) {
+    const poignee = $(handleId);
+    let enCours = false;
+    let departX = 0;
+    let largeurDepart = 0;
+
+    const racine = document.documentElement;
+    const sauvegarde = parseInt(localStorage.getItem(varName), 10);
+    if (!Number.isNaN(sauvegarde)) racine.style.setProperty(`--${varName}`, `${sauvegarde}px`);
+
+    poignee.addEventListener("mousedown", (e) => {
+      enCours = true;
+      departX = e.clientX;
+      largeurDepart = $(mesureElId).getBoundingClientRect().width;
+      poignee.classList.add("is-dragging");
+      document.body.style.cursor = "col-resize";
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!enCours) return;
+      const largeur = Math.min(max, Math.max(min, largeurDepart + (e.clientX - departX)));
+      racine.style.setProperty(`--${varName}`, `${largeur}px`);
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (!enCours) return;
+      enCours = false;
+      poignee.classList.remove("is-dragging");
+      document.body.style.cursor = "";
+      localStorage.setItem(varName, Math.round($(mesureElId).getBoundingClientRect().width));
+    });
+
+    poignee.addEventListener("dblclick", () => {
+      racine.style.removeProperty(`--${varName}`);
+      localStorage.removeItem(varName);
+    });
+  }
+
+  initResizer("biblio-resizer-1", "biblio-w1", "biblio-sidebar", 230, 180, 420);
+  initResizer("biblio-resizer-2", "biblio-w2", "biblio-ia", 380, 260, 720);
 
   // ── Documents (sidebar) ─────────────────────────────────────────────────────
 
@@ -198,7 +274,10 @@
       titre.style.paddingLeft = `${8 + (chap.niveau - 1) * 12}px`;
       titre.textContent = chap.titre;
       titre.title = chap.titre;
-      titre.addEventListener("click", () => selectionnerChapitre(chap));
+      titre.addEventListener("click", () => {
+        montrerLecture();
+        selectionnerChapitre(chap);
+      });
 
       ligne.append(check, titre);
       zone.appendChild(ligne);

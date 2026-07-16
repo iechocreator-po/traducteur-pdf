@@ -5,7 +5,7 @@
   <title>toledo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=3">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
     (function () {
@@ -122,9 +122,9 @@
 
   <!-- ══ Module B : Bibliothèque ═══════════════════════════════════════════ -->
   <main id="module-bibliotheque" class="module module-plein" hidden>
-    <div class="biblio-layout">
+    <div class="biblio-layout" id="biblio-layout">
 
-      <aside class="biblio-sidebar">
+      <aside class="biblio-sidebar" id="biblio-sidebar">
         <div class="sidebar-section">
           <div class="sidebar-titre">Document</div>
           <div id="biblio-docs"></div>
@@ -139,6 +139,26 @@
           <div id="biblio-chapitres"></div>
         </div>
       </aside>
+
+      <div class="biblio-resizer" id="biblio-resizer-1" data-avance hidden
+           role="separator" aria-orientation="vertical" title="Glisser pour redimensionner — double-clic pour réinitialiser"></div>
+
+      <aside class="biblio-ia" id="biblio-ia" data-avance hidden>
+        <div class="ia-conteneur">
+          <div class="ia-entete">
+            <div class="sidebar-titre">Résumé &amp; Quiz</div>
+            <button type="button" id="biblio-toggle-lecture" class="bouton-mini">📖 Afficher le texte</button>
+          </div>
+          <p class="aide">Coche des chapitres à gauche, puis génère leurs points clés + quiz par l'IA locale.</p>
+          <button id="ia-generer" class="bouton-ia" disabled>Générer les points clés + quiz</button>
+          <button id="ia-exporter" class="bouton-secondaire" hidden>⬇ Exporter la fiche (HTML)…</button>
+          <p id="ia-statut" class="aide"></p>
+          <div id="ia-resultats" class="ia-resultats"></div>
+        </div>
+      </aside>
+
+      <div class="biblio-resizer" id="biblio-resizer-2" data-avance hidden
+           role="separator" aria-orientation="vertical" title="Glisser pour redimensionner — double-clic pour réinitialiser"></div>
 
       <div class="biblio-lecture">
         <div class="lecture-bandeau" id="lecture-bandeau" hidden>
@@ -170,15 +190,6 @@
           <audio id="audio-el" hidden></audio>
         </div>
       </div>
-
-      <aside class="biblio-ia" data-avance hidden>
-        <div class="sidebar-titre">Résumé &amp; Quiz</div>
-        <p class="aide">Coche des chapitres à gauche, puis génère leurs points clés + quiz par l'IA locale.</p>
-        <button id="ia-generer" class="bouton-ia" disabled>Générer les points clés + quiz</button>
-        <button id="ia-exporter" class="bouton-secondaire" hidden>⬇ Exporter la fiche (HTML)…</button>
-        <p id="ia-statut" class="aide"></p>
-        <div id="ia-resultats" class="ia-resultats"></div>
-      </aside>
 
     </div>
   </main>
@@ -301,8 +312,8 @@
   </main>
 
   <script src="js/commun.js?v=3"></script>
-  <script src="js/module-import.js?v=3"></script>
-  <script src="js/module-bibliotheque.js?v=3"></script>
+  <script src="js/module-import.js?v=4"></script>
+  <script src="js/module-bibliotheque.js?v=5"></script>
   <script src="js/module-laboratoire.js?v=3"></script>
 </body>
 </html>
