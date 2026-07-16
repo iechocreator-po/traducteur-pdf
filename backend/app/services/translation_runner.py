@@ -614,7 +614,11 @@ def demarrer_traduction(
     chunks = decouper_en_chunks(texte, taille_max=CHUNK_TAILLE_MAX)
     nb_chunks = len(chunks)
 
-    reprenable = (StatutJob.EN_PAUSE, StatutJob.EN_COURS, StatutJob.ERREUR)
+    # ANNULE au même titre qu'EN_PAUSE : une annulation en vol laisse une sortie
+    # propre (aucun placeholder) jusqu'à derniere_section_completee, donc la
+    # reprise repart de là. Si l'annulation avait suivi des sections échouées,
+    # _doit_rejouer le détecte et bascule sur le rejeu à cache chaud.
+    reprenable = (StatutJob.EN_PAUSE, StatutJob.EN_COURS, StatutJob.ERREUR, StatutJob.ANNULE)
     if resume and existing and existing.statut in reprenable:
         state = existing
         if _doit_rejouer(state, output_path):

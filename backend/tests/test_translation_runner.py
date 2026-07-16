@@ -264,6 +264,45 @@ def test_reprise_apres_panne_recoud_sans_retraduire(tmp_path, monkeypatch):
     assert contenu.count("SECTION 0") == 1  # pas de doublon
 
 
+def test_reprise_apres_annulation_repart_de_la_section_stoppee(tmp_path, monkeypatch):
+    """Un job annulé en vol laisse une sortie propre : la reprise continue depuis
+    derniere_section_completee (comme une pause), sans retraduire ni tronquer."""
+    appels = []
+    lent = True
+
+    def traducteur(texte, modele, langue_source, langue_cible,
+                   termes_a_conserver=None, interruption=None):
+        appels.append(texte)
+        if lent:
+            time.sleep(0.15)  # laisse le temps d'annuler en vol
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+
+    source = _ecrire_source_md(tmp_path, "doc_annule_reprise.md", nb_sections=6)
+    job_id, sortie = _demarrer(source)
+    _attendre_statut(sortie, {StatutJob.EN_COURS})
+    assert demander_annulation(job_id) is True
+    etat = _attendre_statut(sortie, {StatutJob.ANNULE, StatutJob.TERMINE})
+    assert etat.statut == StatutJob.ANNULE
+    faites = etat.derniere_section_completee
+    assert 0 < faites < etat.total_sections
+    appels_avant = len(appels)
+
+    # Reprise : le reste part réellement, les sections déjà faites viennent du cache.
+    lent = False
+    sortie2 = _reprendre(source)
+    etat2 = _attendre_statut(sortie2, {StatutJob.TERMINE, StatutJob.ERREUR})
+
+    assert etat2.statut == StatutJob.TERMINE
+    # Aucun placeholder, sections dans l'ordre, une seule fois chacune.
+    contenu = open(sortie2, encoding="utf-8").read()
+    assert translation_runner.MARQUEUR_ECHEC not in contenu
+    assert contenu.count("SECTION 0") == 1
+    # On ne retraduit pas ce qui était déjà fait avant l'annulation (cache chaud).
+    assert len(appels) - appels_avant <= etat2.total_sections - faites
+
+
 def test_rejeu_a_cache_chaud_ne_retraduit_que_les_trous(tmp_path, monkeypatch):
     """Un job « erreur » avec des trous : la reprise rejoue depuis 0 mais
     l'immense majorité revient du cache — seuls les trous coûtent un appel."""

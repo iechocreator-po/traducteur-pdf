@@ -66,10 +66,14 @@
 
   // ── Sélection d'un document ─────────────────────────────────────────────────
 
+  // Statuts « interrompus mais reprenables » : sortie partielle sur le disque,
+  // état reprenable. La Bibliothèque est la console unique de reprise.
+  const STATUTS_REPRENABLES = new Set(["erreur", "annule"]);
+
   async function selectionnerDoc(doc) {
-    // Un document « erreur » est lisible : il peut être traduit à 98 % et ne
-    // manquer que quelques sections. On l'ouvre, avec un bandeau pour recoudre.
-    if (doc.statut !== "termine" && doc.statut !== "erreur") {
+    // Un document interrompu (erreur ou annulé) reste lisible : il peut être
+    // traduit à 98 %. On l'ouvre, avec un bandeau pour reprendre.
+    if (doc.statut !== "termine" && !STATUTS_REPRENABLES.has(doc.statut)) {
       alert("Ce document est encore en cours de traduction — il sera lisible une fois terminé.");
       return;
     }
@@ -108,17 +112,25 @@
     rafraichirAudio();
   }
 
-  // ── Bandeau « sections en échec » (job erreur) ──────────────────────────────
+  // ── Bandeau « traduction interrompue » (job erreur ou annulé) ───────────────
 
   function rendreBandeauEchec() {
     const bandeau = $("lecture-echec");
-    const enEchec = docActif && docActif.statut === "erreur";
-    bandeau.hidden = !enEchec;
-    if (!enEchec) return;
-    const n = docActif.nb_sections_echouees || 0;
-    $("lecture-echec-texte").textContent = n
-      ? `${n} section${n > 1 ? "s" : ""} n'${n > 1 ? "ont" : "a"} pas pu être traduite${n > 1 ? "s" : ""}.`
-      : "La traduction s'est interrompue avant la fin.";
+    const interrompu = docActif && STATUTS_REPRENABLES.has(docActif.statut);
+    bandeau.hidden = !interrompu;
+    if (!interrompu) return;
+    if (docActif.statut === "annule") {
+      const fait = docActif.sections_completees || 0;
+      const total = docActif.total_sections || 0;
+      $("lecture-echec-texte").textContent = total
+        ? `Traduction annulée à ${fait}/${total} sections.`
+        : "Traduction annulée avant la fin.";
+    } else {
+      const n = docActif.nb_sections_echouees || 0;
+      $("lecture-echec-texte").textContent = n
+        ? `${n} section${n > 1 ? "s" : ""} n'${n > 1 ? "ont" : "a"} pas pu être traduite${n > 1 ? "s" : ""}.`
+        : "La traduction s'est interrompue avant la fin.";
+    }
   }
 
   async function reprendreTraduction() {
