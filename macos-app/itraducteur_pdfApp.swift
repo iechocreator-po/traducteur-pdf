@@ -13,7 +13,7 @@ struct itraducteur_pdfApp: App {
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("À propos de iTraducteur PDF") {
+                Button("À propos de toledo") {
                     NSApp.orderFrontStandardAboutPanel(nil)
                 }
             }

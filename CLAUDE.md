@@ -26,15 +26,28 @@ L'interface web suit la **refonte « Workflow »** (design retenu dans
 `toledo_v2/handoff_iTraducteur/`, décisions dans `docs/refonte-workflow-decisions.md`) :
 une barre supérieure (thème, mode avancé, statuts) et **3 modules** organisés par flux
 de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module) :
-- **Nouveau document** (`module-import.js`) : lot multi-fichiers — ajout par chemin,
-  analyse auto (qualité / durée / chapitres), réglages du lot (langues ; extracteur et
-  modèle en mode avancé), lancement en lot (file séquentielle backend), planification.
+- **Nouveau document** (`module-import.js`) : lot multi-fichiers — **import par
+  navigateur** (bouton « Parcourir » + glisser-déposer, `televerser()` → `POST /api/upload`)
+  ou, en mode avancé, ajout par **chemin absolu** (flux historique conservé). Le navigateur
+  ne révélant jamais le chemin disque d'un fichier, l'upload envoie les octets ; le backend
+  les écrit dans `backend/uploads/<hash-contenu>/` (`services/uploads.py`) et retourne un
+  chemin absolu réinjecté tel quel dans le flux existant. Puis : analyse auto (qualité /
+  durée / chapitres), réglages du lot (langues ; extracteur et modèle en mode avancé),
+  lancement en lot (file séquentielle backend), planification.
 - **Bibliothèque** (`module-bibliotheque.js`) : documents traduits (`GET /api/bibliotheque`,
   registre alimenté par `translation_runner`), lecture chapitre par chapitre
   (`POST /api/chapitres/contenu`), barre audio TTS (`GET /api/tts/audio`), panneau IA
   « points clés + quiz » servi par le backend Étude (`services/etude.py` +
   `services/study_runner.py`, routes `POST /api/etude`, `GET /api/etude/statut`,
   sortie `<base>_fiche_<xx>.md`, même file d'attente séquentielle que la traduction).
+  Les chapitres portent des **cases à cocher** (`chapitresCoches`, mode avancé) : la
+  génération de fiche traite **toute la sélection** en un job, et l'export reprend les
+  chapitres cochés. Les options (modèle, langue) suivent le **document** (`docActif.modele`
+  / `docActif.langue_cible`) et non les menus de l'Import — sinon un changement de menu
+  ferait diverger les options et le backend Étude effacerait silencieusement les fiches
+  déjà générées (`study_runner.py`, comparaison `memes_options`). `ficheParChapitre` est
+  reconstruit depuis `etat.chapitres` à chaque poll (jamais accumulé). Un document au statut
+  `erreur` reste **lisible**, avec un bandeau « Reprendre » (`/translate` `resume=true`).
   La section « Résumé & Quiz » n'est visible **qu'en mode avancé** ; elle offre un
   **export HTML autonome** (bouton `#ia-exporter`, `exporterFicheHtml()`) reprenant
   infos document + structure des chapitres + résumé + quiz (réponses en `<details>`),
@@ -63,6 +76,63 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   → variables d'env `FEATURE_<NOM>`. **Contrat d'intégration Bilbao** : `charger_flags()`
   lit et fusionne la clé `flags` de `bilbao.features.json` — c'est ce qui rend tous les
   flags du produit pilotables depuis Bilbao (bilbao émet l'artefact, JP le committe).
+
+### Import par navigateur (`POST /api/upload`)
+
+L'API est **path-based** (chemins absolus), mais un navigateur ne révèle jamais le chemin
+disque d'un fichier choisi/déposé. `POST /api/upload` (`services/uploads.py`) reçoit donc
+les octets en `multipart`, les valide **par contenu** (`%PDF-` ou UTF-8 décodable — jamais
+par l'extension client), assainit le nom (`assainir_nom` : anti-évasion `../`, whitelist
+Unicode qui préserve les accents, troncature en octets) et écrit dans
+`backend/uploads/<sha256[:16]>/<nom>` — dossier **indexé sur le contenu** pour rester
+idempotent (ré-uploader le même fichier réutilise cache et reprise plutôt que de retraduire).
+La réponse rend un chemin absolu que le frontend réinjecte tel quel ; **l'extension du nom
+retourné est donc structurante** (`estMarkdown`, routage `/analyser` vs `/chapitres`).
+
+- **Garde de chemin centralisée** : `api/validation.py` (`valider_chemin_source` /
+  `resoudre_source`) remplace les 7 `os.path.exists` des routes — chemin absolu obligatoire,
+  extension dans l'allowlist `(.pdf, .md)`, `os.path.isfile` (404 sur un dossier au lieu d'un
+  500). **Pas** de whitelist `backend/uploads/` : les deux flux (upload **et** chemin absolu
+  du mode avancé) coexistent volontairement — c'est écrit dans la docstring pour prévenir un
+  « durcissement » qui casserait le flux historique.
+- **Modèle de menace** : app 100 % locale, protégée par le CORS restrictif (`main.py`). Seul
+  delta introduit par l'upload : `multipart/form-data` est CORS-safelisted (POST sans
+  préflight depuis un site tiers), d'où la garde `Origin` (`verifier_origine_upload`, 403 si
+  origine présente hors allowlist). `ORIGINES_LOCALES` est partagée entre `main.py` et
+  `validation.py` pour éviter la dérive.
+- **Purge** : `purger_uploads_anciens()` (appelée au démarrage) ne supprime QUE les dossiers
+  abandonnés (vieux, sans `*_traduit*.md`/`*.state.json`, non référencés en Bibliothèque) —
+  les sorties étant écrites à côté de la source, une purge naïve détruirait des traductions.
+
+### Fiabilité des longues traductions (retry + statut honnête)
+
+Une panne d'Ollama (arrêt, redémarrage, **Mac en veille** — réglage `sleep 1` = 1 min) ne
+doit jamais faire passer un job troué pour un succès. L'incident de référence : sur un livre
+de 306 pages, Ollama est tombé pendant la veille nocturne, l'ancienne boucle a rempli 135 des
+233 sections de `[ERREUR DE TRADUCTION]` en une seconde puis déclaré le job `termine`.
+
+- **Retry réseau** : `translator.appeler_ollama()` distingue les erreurs **réseau/5xx**
+  (transitoires → backoff exponentiel, budget **mural** de 30 min, `OLLAMA_RETRY_*` dans
+  `settings.py`) des erreurs **4xx** (définitives → abandon immédiat). Un callback
+  `interruption` garde Pause/Annuler vivants pendant le backoff. Exceptions publiques :
+  `OllamaIndisponible` (fatale pour le job) et `OllamaErreurApplicative` (locale à la section).
+- **Statut honnête** : `EtatJob.sections_echouees` / `chapitres_echoues`. Un job avec ≥1
+  section en échec finit `erreur`, **jamais** `termine` — et la bascule dépend UNIQUEMENT de
+  ces listes, pas de `erreurs`/`avertissements` (qui portent aussi les avertissements qualité,
+  eux inoffensifs). Une `OllamaIndisponible` propage et arrête le job **sans** écrire de
+  placeholder ni avancer `derniere_section_completee`.
+- **Reprise = rejeu à cache chaud** : `demarrer_traduction(resume=True)` accepte désormais le
+  statut `ERREUR` (l'ajouter au tuple est **indissociable** du point précédent, sinon la
+  reprise retombe dans la branche qui tronque la sortie). Le cache (`cache_traduction.py`)
+  étant indexé par **contenu** et ne contenant jamais les sections échouées, on **rejoue
+  depuis la section 0** : les bonnes reviennent du cache instantanément, seuls les trous
+  repartent chez Ollama. `_trous_legacy()` couvre les `.state.json` d'avant `sections_echouees`
+  (détection du marqueur dans la sortie). Garde d'intégrité : si `len(chunks) != total_sections`
+  (source éditée / `CHUNK_TAILLE_MAX` changé), on repart proprement de zéro.
+- **Perf mesurée** : Ollama fait ~29 tok/s sur M2 Pro (~32 s/chunk). Le parallélisme des chunks
+  a été mesuré **inutile** (1,04× — Ollama 0.32 sérialise sans `OLLAMA_NUM_PARALLEL`), donc
+  écarté. Items connus non traités : ETA en O(n²), anti-sommeil `caffeinate`, sous-découpage
+  des blocs code/tableau (voir `docs/features-roadmap.md`).
 
 ### Clonage vocal (moteur `openvoice`)
 

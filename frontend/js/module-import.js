@@ -13,13 +13,13 @@
 
   // ── Ajout au lot ────────────────────────────────────────────────────────────
 
-  async function ajouterAuLot() {
-    const chemin = $("import-chemin").value.trim();
+  function ajouterAuLot(chemin) {
+    chemin = (chemin || "").trim();
     if (!chemin) { alert("Indique le chemin absolu d'un fichier .pdf ou .md."); return; }
-    if (lot.some(f => f.chemin === chemin)) { alert("Ce fichier est déjà dans le lot."); return; }
+    if (lot.some(f => f.chemin === chemin)) { return; } // déjà présent — silencieux (multi-ajout)
 
     const item = {
-      id: `f${Date.now()}`,
+      id: `f${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       chemin,
       type: estMarkdown(chemin) ? "MD" : "PDF",
       stage: "analyse",
@@ -27,9 +27,39 @@
       jobId: null, statutJob: null, pct: 0, sections: "",
     };
     lot.push(item);
-    $("import-chemin").value = "";
     rendreLot();
     analyserItem(item);
+  }
+
+  // ── Upload navigateur (Parcourir + glisser-déposer) ─────────────────────────
+  // Le navigateur ne révèle jamais le chemin disque d'un fichier : on envoie ses
+  // octets à /api/upload, qui retourne un chemin serveur réinjecté dans le lot.
+
+  async function televerser(file) {
+    const statut = $("import-upload-statut");
+    statut.textContent = `⏳ Envoi de ${file.name}…`;
+    const form = new FormData();
+    form.append("fichier", file);
+    try {
+      const rep = await fetch(`${API_BASE}/upload`, { method: "POST", body: form });
+      const data = await rep.json().catch(() => ({}));
+      if (!rep.ok) throw new Error(data.detail || `Erreur HTTP ${rep.status}`);
+      statut.textContent = "";
+      ajouterAuLot(data.chemin);
+    } catch (e) {
+      statut.textContent = `❌ ${file.name} : ${e.message}`;
+    }
+  }
+
+  async function televerserPlusieurs(fileList) {
+    for (const file of fileList) {
+      const nom = file.name.toLowerCase();
+      if (!nom.endsWith(".pdf") && !nom.endsWith(".md") && !nom.endsWith(".markdown")) {
+        $("import-upload-statut").textContent = `❌ ${file.name} : seuls .pdf et .md sont acceptés.`;
+        continue;
+      }
+      await televerser(file);
+    }
   }
 
   async function analyserItem(item) {
@@ -347,8 +377,36 @@
 
   // ── Écouteurs ───────────────────────────────────────────────────────────────
 
-  $("bouton-ajouter-lot").addEventListener("click", ajouterAuLot);
-  $("import-chemin").addEventListener("keydown", (e) => { if (e.key === "Enter") ajouterAuLot(); });
+  $("bouton-ajouter-lot").addEventListener("click", () => {
+    ajouterAuLot($("import-chemin").value);
+    $("import-chemin").value = "";
+  });
+  $("import-chemin").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { ajouterAuLot($("import-chemin").value); $("import-chemin").value = ""; }
+  });
+
+  // Parcourir : ouvre le sélecteur natif puis uploade.
+  $("bouton-parcourir").addEventListener("click", () => $("import-fichier").click());
+  $("import-fichier").addEventListener("change", (e) => {
+    televerserPlusieurs(e.target.files);
+    e.target.value = ""; // permet de re-sélectionner le même fichier
+  });
+
+  // Glisser-déposer sur la zone. Un preventDefault global évite qu'un fichier
+  // lâché à côté fasse naviguer le navigateur vers lui (et perde le lot).
+  const zone = $("dropzone");
+  ["dragover", "drop"].forEach((evt) =>
+    window.addEventListener(evt, (e) => e.preventDefault())
+  );
+  zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("is-survol"); });
+  zone.addEventListener("dragleave", (e) => {
+    if (e.target === zone) zone.classList.remove("is-survol");
+  });
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    zone.classList.remove("is-survol");
+    if (e.dataTransfer.files.length) televerserPlusieurs(e.dataTransfer.files);
+  });
   $("bouton-lancer-lot").addEventListener("click", lancerLot);
   $("bouton-pause-lot").addEventListener("click", basculerPauseLot);
   $("bouton-planifier").addEventListener("click", planifierLot);

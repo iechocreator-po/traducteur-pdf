@@ -92,11 +92,15 @@ def lister_documents() -> list[dict]:
             enrichi["statut"] = etat.statut.value
             enrichi["sections_completees"] = etat.derniere_section_completee
             enrichi["total_sections"] = etat.total_sections
+            # Permet à la Bibliothèque de proposer « Reprendre » sur un document
+            # lisible mais troué, plutôt que de le déclarer inaccessible.
+            enrichi["nb_sections_echouees"] = len(etat.sections_echouees) + len(etat.chapitres_echoues)
         else:
             # Sortie présente sans état : traduction d'avant le registre — jugée finie
             enrichi["statut"] = "termine"
             enrichi["sections_completees"] = 0
             enrichi["total_sections"] = 0
+            enrichi["nb_sections_echouees"] = 0
         resultats.append(enrichi)
 
     resultats.sort(key=lambda d: d.get("maj_a", ""), reverse=True)

@@ -40,3 +40,5 @@ backend/bibliotheque.json
 backend/interet_fonctionnalites.log
 # Artefacts runtime OpenVoice (segments VAD de se_extractor)
 backend/processed/
+# Documents uploadés depuis le navigateur (+ leurs traductions) — données locales
+backend/uploads/

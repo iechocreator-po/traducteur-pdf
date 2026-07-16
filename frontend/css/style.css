@@ -1,5 +1,5 @@
 /* ============================================================================
-   iTRADUCTEUR — interface Workflow (3 modules)
+   TOLEDO — interface Workflow (3 modules)
    Construit sur le design system (tokens.css, chargé AVANT ce fichier). Toutes
    les couleurs passent par les variables sémantiques → le mode clair/sombre est
    géré automatiquement (suit le système ou [data-theme]).
@@ -257,7 +257,13 @@ pre { white-space: pre-wrap; font-size: 0.85rem; }
   border-width: 2px;
   text-align: center;
   padding: 2rem 1.4rem;
+  transition: border-color 0.15s, background 0.15s;
 }
+.carte-dropzone.is-survol {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.ligne-ajout-chemin { justify-content: center; }
 .dropzone-icone {
   width: 40px;
   height: 40px;
@@ -424,6 +430,31 @@ html:not(.avance) .biblio-layout { grid-template-columns: 230px minmax(0, 1fr); 
 }
 .sidebar-item:hover { background: var(--surface-2); color: var(--text); }
 .sidebar-item.is-active { background: var(--accent-bg); color: var(--accent); }
+
+/* Cases à cocher et barre de sélection : réservées au mode avancé (fiches). */
+html:not(.avance) .chap-check,
+html:not(.avance) .chap-selection-barre { display: none; }
+
+/* Chapitres avec case à cocher (sélection pour les fiches d'étude) */
+.chap-selection-barre {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.chap-selection-barre .aide { margin: 0; flex: 1; }
+.chap-ligne { display: flex; align-items: center; gap: 4px; }
+.chap-ligne.is-active { border-radius: var(--radius-sm); }
+.chap-check { flex-shrink: 0; margin: 0 0 2px 4px; cursor: pointer; accent-color: var(--accent); }
+.chap-titre { flex: 1; min-width: 0; }
+.chap-titre.sidebar-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.chap-ligne.is-active .chap-titre { background: var(--accent-bg); color: var(--accent); }
+
+/* Bloc de fiche par chapitre (panneau Résumé & Quiz) */
+.ia-bloc-chapitre { padding-bottom: 0.6rem; margin-bottom: 0.6rem; border-bottom: 1px solid var(--border); }
+.ia-bloc-chapitre:last-child { border-bottom: none; }
+.ia-bloc-titre { font-weight: 700; font-size: 0.9rem; color: var(--text); margin-top: 0.4rem; }
 .sidebar-item-nom {
   flex: 1;
   min-width: 0;
@@ -451,6 +482,19 @@ html:not(.avance) .biblio-layout { grid-template-columns: 230px minmax(0, 1fr); 
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.lecture-echec {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0.9rem 2.4rem 0;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--amber-bg);
+  color: var(--amber);
+  font-size: 0.85rem;
+}
+.lecture-echec-icone { font-size: 1rem; }
+.lecture-echec button { margin-left: auto; }
 .lecture-corps {
   flex: 1;
   overflow-y: auto;

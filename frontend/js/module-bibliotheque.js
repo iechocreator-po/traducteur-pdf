@@ -7,6 +7,7 @@
   let docActif = null;       // entrée du registre bibliothèque
   let chapitres = [];
   let chapActif = null;
+  let chapitresCoches = new Set(); // index cochés pour la génération de fiches
   let ficheParChapitre = {}; // index → FicheChapitre (depuis /etude/statut)
   let pollFiche = null;
   let pollAudio = null;
@@ -66,12 +67,15 @@
   // ── Sélection d'un document ─────────────────────────────────────────────────
 
   async function selectionnerDoc(doc) {
-    if (doc.statut !== "termine") {
+    // Un document « erreur » est lisible : il peut être traduit à 98 % et ne
+    // manquer que quelques sections. On l'ouvre, avec un bandeau pour recoudre.
+    if (doc.statut !== "termine" && doc.statut !== "erreur") {
       alert("Ce document est encore en cours de traduction — il sera lisible une fois terminé.");
       return;
     }
     docActif = doc;
     chapActif = null;
+    chapitresCoches = new Set();
     ficheParChapitre = {};
     arreterPollFiche();
     rendreDocs();
@@ -81,6 +85,7 @@
     $("lecture-doc-nom").textContent = doc.nom;
     $("lecture-vide").hidden = true;
     $("barre-audio").hidden = false;
+    rendreBandeauEchec();
 
     try {
       const data = await apiPost("/chapitres", { chemin_md: doc.chemin_sortie });
@@ -103,6 +108,44 @@
     rafraichirAudio();
   }
 
+  // ── Bandeau « sections en échec » (job erreur) ──────────────────────────────
+
+  function rendreBandeauEchec() {
+    const bandeau = $("lecture-echec");
+    const enEchec = docActif && docActif.statut === "erreur";
+    bandeau.hidden = !enEchec;
+    if (!enEchec) return;
+    const n = docActif.nb_sections_echouees || 0;
+    $("lecture-echec-texte").textContent = n
+      ? `${n} section${n > 1 ? "s" : ""} n'${n > 1 ? "ont" : "a"} pas pu être traduite${n > 1 ? "s" : ""}.`
+      : "La traduction s'est interrompue avant la fin.";
+  }
+
+  async function reprendreTraduction() {
+    if (!docActif) return;
+    if (!(await exigerSante())) return;
+    const bouton = $("lecture-echec-reprendre");
+    bouton.disabled = true;
+    bouton.textContent = "Reprise en cours…";
+    try {
+      await apiPost("/translate", corpsSource(docActif.chemin_source, {
+        langue_source: docActif.langue_source,
+        langue_cible: docActif.langue_cible,
+        modele_ollama: docActif.modele,
+        resume: true,
+      }));
+      $("lecture-echec-texte").textContent =
+        "Reprise lancée — seules les sections manquantes sont retraduites. Suis la progression dans « Nouveau document ».";
+      bouton.hidden = true;
+    } catch (e) {
+      $("lecture-echec-texte").textContent = `❌ ${e.message}`;
+      bouton.disabled = false;
+      bouton.textContent = "⏯ Reprendre";
+    }
+  }
+
+  $("lecture-echec-reprendre").addEventListener("click", reprendreTraduction);
+
   function rendreChapitres() {
     const zone = $("biblio-chapitres");
     zone.innerHTML = "";
@@ -112,19 +155,48 @@
       vide.className = "aide";
       vide.textContent = "Aucun titre détecté dans ce document.";
       zone.appendChild(vide);
+      $("chap-selection-barre").hidden = true;
       return;
     }
+
+    // Barre « tout cocher / décocher » — n'a de sens qu'en mode avancé (fiches).
+    $("chap-selection-barre").hidden = false;
+
     for (const chap of chapitres) {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "sidebar-item";
-      item.style.paddingLeft = `${8 + (chap.niveau - 1) * 12}px`;
-      if (chapActif && chap.index === chapActif.index) item.classList.add("is-active");
-      item.textContent = chap.titre;
-      item.title = chap.titre;
-      item.addEventListener("click", () => selectionnerChapitre(chap));
-      zone.appendChild(item);
+      const ligne = document.createElement("div");
+      ligne.className = "chap-ligne";
+      if (chapActif && chap.index === chapActif.index) ligne.classList.add("is-active");
+
+      // Case à cocher : sélectionne le chapitre pour la génération de fiche.
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.className = "chap-check";
+      check.checked = chapitresCoches.has(chap.index);
+      check.title = "Inclure ce chapitre dans le résumé & quiz";
+      check.addEventListener("change", () => {
+        if (check.checked) chapitresCoches.add(chap.index);
+        else chapitresCoches.delete(chap.index);
+        majBoutonGenerer();
+      });
+
+      // Titre : cliquer lit le chapitre (comportement historique).
+      const titre = document.createElement("button");
+      titre.type = "button";
+      titre.className = "sidebar-item chap-titre";
+      titre.style.paddingLeft = `${8 + (chap.niveau - 1) * 12}px`;
+      titre.textContent = chap.titre;
+      titre.title = chap.titre;
+      titre.addEventListener("click", () => selectionnerChapitre(chap));
+
+      ligne.append(check, titre);
+      zone.appendChild(ligne);
     }
+    majBoutonGenerer();
+  }
+
+  function coderTousLesChapitres(coche) {
+    chapitresCoches = coche ? new Set(chapitres.map(c => c.index)) : new Set();
+    rendreChapitres();
   }
 
   // ── Lecture d'un chapitre ───────────────────────────────────────────────────
@@ -283,13 +355,20 @@
 
   // ── Panneau IA (points clés + quiz via le backend Étude) ────────────────────
 
+  // Reconstruit ficheParChapitre DEPUIS l'état backend (jamais d'accumulation) :
+  // si le backend est reparti de zéro, l'UI ne doit pas garder des fiches mortes.
+  function synchroniserFiches(etat) {
+    ficheParChapitre = {};
+    for (const chap of etat.chapitres) {
+      if (chap.etape === "termine") ficheParChapitre[chap.index] = chap;
+    }
+  }
+
   async function chargerFicheExistante() {
     try {
       const etat = await apiGet(`/etude/statut?chemin_source=${encodeURIComponent(docActif.chemin_sortie)}`);
       if (etat) {
-        for (const chap of etat.chapitres) {
-          if (chap.etape === "termine") ficheParChapitre[chap.index] = chap;
-        }
+        synchroniserFiches(etat);
         if (etat.statut === "en_cours" || etat.statut === "en_attente") demarrerPollFiche();
       }
     } catch { /* pas de fiche */ }
@@ -297,16 +376,21 @@
   }
 
   async function genererFiche() {
-    if (!docActif || !chapActif) return;
+    if (!docActif) return;
+    const selection = [...chapitresCoches];
+    if (selection.length === 0) return;
     if (!(await exigerSante())) return;
     try {
       await apiPost("/etude", {
         chemin_md: docActif.chemin_sortie,
-        chapitres_selectionnes: [chapActif.index],
-        modele_ollama: $("modele").value,
+        chapitres_selectionnes: selection,
+        // Options ANCRÉES sur le document, pas sur les menus d'un autre module :
+        // sinon changer un menu de l'Import efface les fiches déjà générées
+        // (le backend redémarre à zéro si les options diffèrent).
+        modele_ollama: docActif.modele,
         nb_points: 5,
         nb_questions: 3,
-        langue_fiche: $("langue-cible").value,
+        langue_fiche: docActif.langue_cible || "français",
       });
       $("ia-statut").textContent = "⏳ Génération en cours…";
       $("ia-generer").disabled = true;
@@ -321,18 +405,20 @@
     try {
       const etat = await apiGet(`/etude/statut?chemin_source=${encodeURIComponent(docActif.chemin_sortie)}`);
       if (!etat) return;
-      for (const chap of etat.chapitres) {
-        if (chap.etape === "termine") ficheParChapitre[chap.index] = chap;
-      }
+      synchroniserFiches(etat);
+      const enErreur = etat.chapitres.filter(c => c.etape === "erreur").length;
       if (["termine", "erreur", "annule"].includes(etat.statut)) {
         arreterPollFiche();
-        $("ia-statut").textContent = etat.statut === "termine" ? "" : `❌ ${etat.erreurs.slice(-1)[0] || "Erreur"}`;
+        if (etat.statut === "annule") $("ia-statut").textContent = "✕ Annulé";
+        else if (enErreur) $("ia-statut").textContent = `⚠ ${enErreur} chapitre(s) en échec — les autres sont prêts.`;
+        else $("ia-statut").textContent = "";
         rendreFiche();
       } else {
-        const chapEnCours = etat.chapitres.find(c => ["points", "questions"].includes(c.etape));
-        $("ia-statut").textContent = chapEnCours
-          ? `⏳ ${chapEnCours.etape === "points" ? "Points clés" : "Questions"} en cours…`
-          : "⏳ En file d'attente…";
+        // Progression globale plutôt que le premier chapitre en cours : lisible
+        // quand plusieurs chapitres sont sélectionnés.
+        $("ia-statut").textContent =
+          `⏳ Génération — ${etat.etapes_completees}/${etat.total_etapes} étapes`;
+        rendreFiche();
       }
     } catch { /* prochain tick */ }
   }
@@ -348,18 +434,29 @@
     pollFiche = null;
   }
 
-  function rendreFiche() {
-    majBoutonExport();
-    const fiche = chapActif ? ficheParChapitre[chapActif.index] : null;
-    $("ia-generer").disabled = !chapActif || !!pollFiche;
-    $("ia-generer").textContent = fiche ? "↻ Régénérer points clés + quiz" : "Générer les 5 points clés + quiz";
+  function majBoutonGenerer() {
+    const n = chapitresCoches.size;
+    const btn = $("ia-generer");
+    btn.disabled = n === 0 || !!pollFiche;
+    btn.textContent = n === 0
+      ? "Coche des chapitres à générer"
+      : `Générer pour ${n} chapitre${n > 1 ? "s" : ""}`;
+  }
 
-    $("ia-points-zone").hidden = !fiche;
-    $("ia-quiz-zone").hidden = !fiche;
-    if (!fiche) return;
+  // Rend un bloc de fiche (points + quiz) pour un chapitre donné.
+  function rendreBlocFiche(chap, fiche) {
+    const bloc = document.createElement("div");
+    bloc.className = "ia-bloc-chapitre";
 
-    const zonePoints = $("ia-points-resultat");
-    zonePoints.innerHTML = "";
+    const titre = document.createElement("div");
+    titre.className = "ia-bloc-titre";
+    titre.textContent = chap.titre;
+    bloc.appendChild(titre);
+
+    const tPoints = document.createElement("div");
+    tPoints.className = "ia-zone-titre";
+    tPoints.textContent = "Points clés";
+    bloc.appendChild(tPoints);
     for (const point of fiche.points) {
       const ligne = document.createElement("div");
       ligne.className = "ia-point";
@@ -368,11 +465,13 @@
       const texte = document.createElement("span");
       texte.textContent = point;
       ligne.append(puce, texte);
-      zonePoints.appendChild(ligne);
+      bloc.appendChild(ligne);
     }
 
-    const zoneQuiz = $("ia-quiz-resultat");
-    zoneQuiz.innerHTML = "";
+    const tQuiz = document.createElement("div");
+    tQuiz.className = "ia-zone-titre";
+    tQuiz.textContent = "Quiz";
+    bloc.appendChild(tQuiz);
     fiche.questions.forEach((q, i) => {
       const carte = document.createElement("div");
       carte.className = "ia-question";
@@ -386,8 +485,22 @@
       reponse.textContent = q.reponse;
       details.append(summary, reponse);
       carte.append(question, details);
-      zoneQuiz.appendChild(carte);
+      bloc.appendChild(carte);
     });
+    return bloc;
+  }
+
+  function rendreFiche() {
+    majBoutonExport();
+    majBoutonGenerer();
+
+    // Affiche les fiches des chapitres générés, dans l'ordre du document.
+    const zone = $("ia-resultats");
+    zone.innerHTML = "";
+    const aFiches = chapitres.filter(c => ficheParChapitre[c.index]);
+    for (const chap of aFiches) {
+      zone.appendChild(rendreBlocFiche(chap, ficheParChapitre[chap.index]));
+    }
   }
 
   $("ia-generer").addEventListener("click", genererFiche);
@@ -406,6 +519,14 @@
     return div.innerHTML;
   }
 
+  // Chapitres à inclure dans l'export : ceux cochés qui ont une fiche ; si
+  // aucune case n'est cochée, toutes les fiches générées (repli).
+  function indicesPourExport() {
+    const avecFiche = new Set(Object.keys(ficheParChapitre).map(Number));
+    const coches = [...chapitresCoches].filter((i) => avecFiche.has(i));
+    return new Set(coches.length ? coches : avecFiche);
+  }
+
   function construireFicheHtml() {
     const titre = echapperHtml(docActif.nom || "Document");
     const meta = [
@@ -415,18 +536,19 @@
       docActif.maj_a ? `Généré le ${echapperHtml(new Date(docActif.maj_a).toLocaleString("fr-CA"))}` : "",
     ].filter(Boolean).join(" · ");
 
+    const inclus = indicesPourExport();
+
     // Table des matières : tous les chapitres, indentés par niveau.
     const toc = chapitres.map((c) => {
-      const aFiche = !!ficheParChapitre[c.index];
-      const lien = aFiche
+      const lien = inclus.has(c.index)
         ? `<a href="#chap-${c.index}">${echapperHtml(c.titre)}</a>`
         : `<span class="sans-fiche">${echapperHtml(c.titre)}</span>`;
       return `<li style="margin-left:${(Math.max(c.niveau, 1) - 1) * 1.2}rem">${lien}</li>`;
     }).join("\n");
 
-    // Sections détaillées : uniquement les chapitres ayant une fiche, dans l'ordre.
+    // Sections détaillées : les chapitres inclus dans l'export, dans l'ordre.
     const sections = chapitres
-      .filter((c) => ficheParChapitre[c.index])
+      .filter((c) => inclus.has(c.index))
       .map((c) => {
         const fiche = ficheParChapitre[c.index];
         const points = (fiche.points || [])
@@ -521,6 +643,8 @@
   }
 
   $("ia-exporter").addEventListener("click", exporterFicheHtml);
+  $("chap-tout-cocher").addEventListener("click", () => coderTousLesChapitres(true));
+  $("chap-tout-decocher").addEventListener("click", () => coderTousLesChapitres(false));
   document.addEventListener("flags-charges", majBoutonExport);
 
   // ── Rafraîchissements ───────────────────────────────────────────────────────

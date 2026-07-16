@@ -10,7 +10,8 @@ import time
 
 from app.models.schemas import Langue, StatutJob
 from app.services import translation_runner
-from app.services.job_manager import charger_etat, demander_annulation
+from app.services.job_manager import charger_etat, demander_annulation, sauvegarder_etat
+from app.services.translator import OllamaIndisponible, OllamaErreurApplicative
 
 
 def _ecrire_source_md(tmp_path, nom: str, nb_sections: int = 4) -> str:
@@ -54,7 +55,7 @@ def test_deux_jobs_ne_traduisent_jamais_en_parallele(tmp_path, monkeypatch):
     en_cours = 0
     max_simultanes = 0
 
-    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None):
+    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
         nonlocal en_cours, max_simultanes
         with verrou:
             en_cours += 1
@@ -80,7 +81,7 @@ def test_deux_jobs_ne_traduisent_jamais_en_parallele(tmp_path, monkeypatch):
 
 
 def test_annulation_d_un_job_en_cours(tmp_path, monkeypatch):
-    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None):
+    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
         time.sleep(0.15)
         return texte
 
@@ -99,7 +100,7 @@ def test_annulation_d_un_job_en_cours(tmp_path, monkeypatch):
 
 
 def test_annulation_d_un_job_en_file_d_attente(tmp_path, monkeypatch):
-    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None):
+    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
         time.sleep(0.1)
         return texte
 
@@ -124,7 +125,7 @@ def test_annulation_d_un_job_en_file_d_attente(tmp_path, monkeypatch):
 def test_controle_qualite_retente_puis_avertit(tmp_path, monkeypatch):
     appels = []
 
-    def traduction_qui_resume(texte, modele, langue_source, langue_cible, termes_a_conserver=None):
+    def traduction_qui_resume(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
         appels.append(texte)
         return "trop court"  # ratio très inférieur à RATIO_TRADUCTION_SUSPECT
 
@@ -144,7 +145,7 @@ def test_controle_qualite_retente_puis_avertit(tmp_path, monkeypatch):
 def test_cache_evite_de_retraduire_au_re_run(tmp_path, monkeypatch):
     appels = []
 
-    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None):
+    def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
         appels.append(texte)
         return texte.upper()
 
@@ -163,6 +164,171 @@ def test_cache_evite_de_retraduire_au_re_run(tmp_path, monkeypatch):
     assert etat2.statut == StatutJob.TERMINE
     assert len(appels) == nb_appels_premier_run
     assert any("cache" in ligne for ligne in etat2.journal)
+
+
+def _reprendre(chemin_source: str) -> str:
+    """Relance le même document en mode reprise. Retourne le chemin de sortie."""
+    translation_runner.demarrer_traduction(
+        source_path=chemin_source,
+        langue_source=Langue.ANGLAIS,
+        langue_cible=Langue.FRANCAIS,
+        modele="llama3.1",
+        resume=True,
+    )
+    return translation_runner.build_output_path(chemin_source, "llama3.1")
+
+
+def test_erreur_applicative_marque_le_job_en_erreur(tmp_path, monkeypatch):
+    """Une section en échec suffit à disqualifier le job : jamais « termine »."""
+    def traduction_qui_echoue_section_2(texte, modele, langue_source, langue_cible,
+                                        termes_a_conserver=None, interruption=None):
+        if "Section 1" in texte:
+            raise OllamaErreurApplicative("modèle inconnu")
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traduction_qui_echoue_section_2)
+
+    source = _ecrire_source_md(tmp_path, "doc_echec.md")
+    _, sortie = _demarrer(source)
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+
+    assert etat.statut == StatutJob.ERREUR
+    assert etat.sections_echouees == [1]
+    # Les autres sections sont bien traduites : l'échec reste local.
+    assert etat.derniere_section_completee == etat.total_sections
+    contenu = open(sortie, encoding="utf-8").read()
+    assert "[ERREUR DE TRADUCTION — section 2]" in contenu
+    assert "SECTION 0" in contenu.upper()
+
+
+def test_ollama_indisponible_arrete_le_job_sans_bruler_les_sections(tmp_path, monkeypatch):
+    """
+    Régression de l'incident des 306 pages : Ollama tombe à la section 2, et
+    l'ancienne boucle remplissait les 3 restantes de placeholders en 1 ms avant
+    de déclarer « termine ». Le job doit s'arrêter net et rester reprenable.
+    """
+    appels = []
+
+    def ollama_mort(texte, modele, langue_source, langue_cible,
+                    termes_a_conserver=None, interruption=None):
+        appels.append(texte)
+        if "Section 1" in texte:
+            raise OllamaIndisponible("Ollama injoignable, budget épuisé")
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", ollama_mort)
+
+    source = _ecrire_source_md(tmp_path, "doc_panne.md")
+    _, sortie = _demarrer(source)
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+
+    assert etat.statut == StatutJob.ERREUR
+    # La section perdue n'est PAS comptée comme faite → la reprise repart d'elle.
+    assert etat.derniere_section_completee == 1
+    # Aucun placeholder : rien n'a été brûlé.
+    contenu = open(sortie, encoding="utf-8").read()
+    assert translation_runner.MARQUEUR_ECHEC not in contenu
+    # Les sections 3 et 4 n'ont même jamais été tentées.
+    assert len(appels) == 2
+
+
+def test_reprise_apres_panne_recoud_sans_retraduire(tmp_path, monkeypatch):
+    """Après une panne, la reprise ne retraduit que ce qui manque (cache chaud)."""
+    appels = []
+    ollama_vivant = False
+
+    def traducteur(texte, modele, langue_source, langue_cible,
+                   termes_a_conserver=None, interruption=None):
+        appels.append(texte)
+        if not ollama_vivant and "Section 1" in texte:
+            raise OllamaIndisponible("Ollama injoignable")
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+
+    source = _ecrire_source_md(tmp_path, "doc_reprise.md")
+    _, sortie = _demarrer(source)
+    etat = _attendre_statut(sortie, {StatutJob.ERREUR})
+    assert etat.statut == StatutJob.ERREUR
+    appels_apres_panne = len(appels)
+
+    ollama_vivant = True
+    sortie2 = _reprendre(source)
+    etat2 = _attendre_statut(sortie2, {StatutJob.TERMINE, StatutJob.ERREUR})
+
+    assert etat2.statut == StatutJob.TERMINE
+    # La section 0 était en cache → seules 1, 2 et 3 partent réellement.
+    assert len(appels) - appels_apres_panne == 3
+    contenu = open(sortie2, encoding="utf-8").read()
+    assert translation_runner.MARQUEUR_ECHEC not in contenu
+    assert contenu.count("SECTION 0") == 1  # pas de doublon
+
+
+def test_rejeu_a_cache_chaud_ne_retraduit_que_les_trous(tmp_path, monkeypatch):
+    """Un job « erreur » avec des trous : la reprise rejoue depuis 0 mais
+    l'immense majorité revient du cache — seuls les trous coûtent un appel."""
+    appels = []
+    echouer = True
+
+    def traducteur(texte, modele, langue_source, langue_cible,
+                   termes_a_conserver=None, interruption=None):
+        appels.append(texte)
+        if echouer and "Section 1" in texte:
+            raise OllamaErreurApplicative("échec transitoire")
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+
+    source = _ecrire_source_md(tmp_path, "doc_rejeu.md")
+    _, sortie = _demarrer(source)
+    etat = _attendre_statut(sortie, {StatutJob.ERREUR})
+    assert etat.sections_echouees == [1]
+    appels_run1 = len(appels)
+
+    echouer = False
+    sortie2 = _reprendre(source)
+    etat2 = _attendre_statut(sortie2, {StatutJob.TERMINE, StatutJob.ERREUR})
+
+    assert etat2.statut == StatutJob.TERMINE
+    assert etat2.sections_echouees == []
+    # 4 sections rejouées, mais 3 étaient en cache → 1 seul vrai appel.
+    assert len(appels) - appels_run1 == 1
+    contenu = open(sortie2, encoding="utf-8").read()
+    assert translation_runner.MARQUEUR_ECHEC not in contenu
+    # Les sections sont dans l'ordre, sans doublon.
+    assert contenu.index("SECTION 0") < contenu.index("SECTION 1") < contenu.index("SECTION 2")
+    assert any("Rejeu à cache chaud" in ligne for ligne in etat2.journal)
+
+
+def test_rejeu_declenche_par_un_etat_legacy_sans_sections_echouees(tmp_path, monkeypatch):
+    """
+    Les .state.json d'avant sections_echouees se chargent avec une liste vide :
+    sans le repli sur le fichier de sortie, la reprise les croirait intacts et
+    laisserait les placeholders en place.
+    """
+    def traducteur(texte, modele, langue_source, langue_cible,
+                   termes_a_conserver=None, interruption=None):
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+
+    source = _ecrire_source_md(tmp_path, "doc_legacy.md")
+    _, sortie = _demarrer(source)
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE})
+
+    # Simule un état legacy : trou dans la sortie, mais rien dans l'état.
+    with open(sortie, "a", encoding="utf-8") as f:
+        f.write("[ERREUR DE TRADUCTION — section 3]\n\n")
+    etat.statut = StatutJob.ERREUR
+    etat.sections_echouees = []
+    sauvegarder_etat(etat)
+
+    sortie2 = _reprendre(source)
+    etat2 = _attendre_statut(sortie2, {StatutJob.TERMINE, StatutJob.ERREUR})
+
+    assert etat2.statut == StatutJob.TERMINE
+    contenu = open(sortie2, encoding="utf-8").read()
+    assert translation_runner.MARQUEUR_ECHEC not in contenu
 
 
 def test_annexe_liens_ajoutee_une_seule_fois(tmp_path, monkeypatch):

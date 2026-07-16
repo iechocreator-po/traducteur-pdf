@@ -19,7 +19,11 @@ from app.config.settings import (
     CONTROLE_QUALITE_LONGUEUR_MIN,
 )
 from app.services.pdf_extractor import extraire_texte, decouper_en_chunks, compter_pages, extraire_urls
-from app.services.translator import traduire_texte
+from app.services.translator import (
+    traduire_texte,
+    OllamaIndisponible,
+    AppelInterrompu,
+)
 from app.services import cache_traduction, glossaire
 from app.services.job_manager import (
     sauvegarder_etat,
@@ -73,6 +77,12 @@ def _journaliser(state: EtatJob, message: str) -> None:
     state.journal.append(f"[{_horodatage()}] {message}")
 
 
+def _interruption_pour(state: EtatJob):
+    """Callback consulté par le traducteur pendant le backoff — le retry peut
+    durer des minutes, pendant lesquelles Pause/Annuler doivent rester vivants."""
+    return lambda: est_annule(state.job_id) or est_en_pause(state.job_id)
+
+
 def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], etiquette: str) -> str:
     """
     Traduit un texte avec cache, glossaire et contrôle qualité anti-résumé.
@@ -93,9 +103,10 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
         _journaliser(state, f"{etiquette} : reprise depuis le cache")
         return cache[cle]
 
+    interruption = _interruption_pour(state)
     traduit = traduire_texte(
         texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value,
-        termes_a_conserver=termes,
+        termes_a_conserver=termes, interruption=interruption,
     )
     ratio = len(traduit) / max(len(texte), 1)
 
@@ -103,7 +114,7 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
         _journaliser(state, f"{etiquette} : traduction suspecte (ratio {ratio:.2f}) — nouvelle tentative")
         nouvelle = traduire_texte(
             texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value,
-            termes_a_conserver=termes,
+            termes_a_conserver=termes, interruption=interruption,
         )
         nouveau_ratio = len(nouvelle) / max(len(texte), 1)
         if nouveau_ratio > ratio:
@@ -210,11 +221,20 @@ def _executer_traduction(state: EtatJob, chunks: list[str]) -> None:
                     )
                     f.write(translated + "\n\n")
                     cache_traduction.sauvegarder_cache(output_path, cache)
+                except (OllamaIndisponible, AppelInterrompu):
+                    # Panne d'Ollama ou interruption : on ARRÊTE le job ici.
+                    # Ne rien écrire et ne pas incrémenter derniere_section_completee
+                    # (fait plus bas) : la reprise repartira exactement de cette
+                    # section. Continuer la boucle remplirait les sections
+                    # restantes de placeholders en quelques millisecondes — c'est
+                    # ce qui a coûté 135 sections sur 233 lors du run de 306 pages.
+                    raise
                 except Exception as e:
                     msg = f"Erreur section {i + 1}/{state.total_sections} : {e}"
                     state.erreurs.append(msg)
                     journaliser_erreur(output_path, msg)
                     f.write(f"[ERREUR DE TRADUCTION — section {i + 1}]\n\n")
+                    state.sections_echouees.append(i)
 
                 state.derniere_section_completee = i + 1
                 state.mots_traduits += len(chunk.split())
@@ -230,11 +250,33 @@ def _executer_traduction(state: EtatJob, chunks: list[str]) -> None:
                 sauvegarder_etat(state)
 
         _annexer_liens_source(state)
-        state.statut = StatutJob.TERMINE
         state.temps_ecoule_secondes += time.time() - temps_debut_session
-        _journaliser(state, "Traduction terminée")
+        # Une seule section trouée suffit à disqualifier le job : `termine` doit
+        # rester une promesse fiable. On bascule sur sections_echouees et JAMAIS
+        # sur erreurs/avertissements, qui contiennent aussi les avertissements
+        # qualité (ratio suspect, glossaire perdu) — ceux-là restent `termine`.
+        if state.sections_echouees:
+            state.statut = StatutJob.ERREUR
+            _journaliser(
+                state,
+                f"Traduction terminée avec {len(state.sections_echouees)} section(s) en échec — "
+                f"relancer avec « Reprendre » pour recoudre les trous",
+            )
+        else:
+            state.statut = StatutJob.TERMINE
+            _journaliser(state, "Traduction terminée")
         sauvegarder_etat(state)
 
+    except AppelInterrompu:
+        # L'utilisateur a demandé pause/annulation pendant un backoff. Le tour de
+        # boucle suivant aurait traité le flag ; ici on le fait sans avancer.
+        state.temps_ecoule_secondes += time.time() - temps_debut_session
+        state.statut = StatutJob.ANNULE if est_annule(state.job_id) else StatutJob.EN_PAUSE
+        _journaliser(
+            state,
+            f"Interruption pendant l'attente — section {state.derniere_section_completee}/{state.total_sections}",
+        )
+        sauvegarder_etat(state)
     except Exception as e:
         msg = f"Erreur fatale du job : {e}"
         state.erreurs.append(msg)
@@ -325,17 +367,21 @@ def _executer_traduction_chapitres(state: EtatJob, chapitres: list[dict]) -> Non
                 with open(output_path, "a", encoding="utf-8") as f:
                     f.write(f"\n<!-- === chapitre {chap['index']} : {chap['titre']} === -->\n\n")
                     f.write(traduit + "\n")
-            except AnnulationDemandee:
+                # Uniquement dans le chemin de succès : un chapitre listé ici est
+                # exclu des runs suivants (_demarrer_traduction_chapitres), donc
+                # l'y ajouter après un échec le condamnait à ne jamais être retraduit.
+                state.chapitres_traduits.append(chap["index"])
+            except (AnnulationDemandee, OllamaIndisponible, AppelInterrompu):
                 raise
             except Exception as e:
                 msg = f"Erreur chapitre {chap['index']} ({chap['titre']}) : {e}"
                 state.erreurs.append(msg)
                 journaliser_erreur(output_path, msg)
-                with open(output_path, "a", encoding="utf-8") as f:
-                    f.write(f"\n<!-- === chapitre {chap['index']} : {chap['titre']} === -->\n\n")
-                    f.write("[ERREUR DE TRADUCTION]\n")
+                state.chapitres_echoues.append(chap["index"])
+                # Rien n'est écrit dans la sortie : le chapitre reste re-sélectionnable
+                # et un second passage n'ajoutera pas un bloc « === chapitre N === »
+                # en double à côté d'un placeholder.
 
-            state.chapitres_traduits.append(chap["index"])
             state.derniere_section_completee = i + 1
             state.mots_traduits += len(chap["contenu"].split())
             elapsed = state.temps_ecoule_secondes + (time.time() - temps_debut_session)
@@ -348,14 +394,22 @@ def _executer_traduction_chapitres(state: EtatJob, chapitres: list[dict]) -> Non
             _mettre_a_jour_entete_chapitres(output_path, state.chapitres_traduits, state)
 
         _annexer_liens_source(state)
-        state.statut = StatutJob.TERMINE
-        _journaliser(state, "Traduction des chapitres terminée")
+        if state.chapitres_echoues:
+            state.statut = StatutJob.ERREUR
+            _journaliser(
+                state,
+                f"Traduction des chapitres terminée avec {len(state.chapitres_echoues)} "
+                f"chapitre(s) en échec : {sorted(state.chapitres_echoues)}",
+            )
+        else:
+            state.statut = StatutJob.TERMINE
+            _journaliser(state, "Traduction des chapitres terminée")
         sauvegarder_etat(state)
 
-    except AnnulationDemandee:
+    except (AnnulationDemandee, AppelInterrompu):
         state.temps_ecoule_secondes += time.time() - temps_debut_session
-        state.statut = StatutJob.ANNULE
-        _journaliser(state, f"Annulation — chapitre {state.derniere_section_completee}/{state.total_sections}")
+        state.statut = StatutJob.EN_PAUSE if est_en_pause(state.job_id) else StatutJob.ANNULE
+        _journaliser(state, f"Interruption — chapitre {state.derniere_section_completee}/{state.total_sections}")
         sauvegarder_etat(state)
     except Exception as e:
         msg = f"Erreur fatale du job : {e}"
@@ -460,6 +514,68 @@ def _demarrer_traduction_chapitres(
     return state.job_id
 
 
+MARQUEUR_ECHEC = "[ERREUR DE TRADUCTION"
+
+
+def _ecrire_entete(output_path: str, modele: str, langue_source: Langue, langue_cible: Langue) -> None:
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(f"<!-- modèle : {modele} | source : {langue_source.value} → {langue_cible.value} -->\n\n")
+
+
+def _trous_legacy(output_path: str) -> bool:
+    """
+    Détecte les trous d'un état antérieur à sections_echouees : ces .state.json
+    se chargent avec une liste vide, donc la reprise les croirait intacts et
+    passerait `termine` en gardant les placeholders. On interroge alors le
+    fichier de sortie lui-même, où le marqueur d'échec est resté.
+    Se neutralisera d'elle-même une fois tous les états régénérés.
+    """
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            return MARQUEUR_ECHEC in f.read()
+    except OSError:
+        return False
+
+
+def _doit_rejouer(state: EtatJob, output_path: str) -> bool:
+    return bool(state.sections_echouees) or _trous_legacy(output_path)
+
+
+def _preparer_rejeu(
+    state: EtatJob,
+    output_path: str,
+    nb_chunks: int,
+    modele: str,
+    langue_source: Langue,
+    langue_cible: Langue,
+) -> None:
+    """
+    Rejeu à cache chaud : on repart de la section 0 sur le cache existant.
+
+    Le fichier de sortie est écrit en append séquentiel — réinsérer la section
+    trouée à sa place exigerait de la chirurgie. Inutile : le cache est indexé
+    par CONTENU et ne contient jamais les sections en échec. Rejouer depuis 0
+    fait donc revenir les bonnes sections instantanément, dans l'ordre, et
+    n'envoie chez Ollama que les trous. La sortie est de la donnée dérivée.
+
+    Garde d'intégrité : si la source a été éditée (ou CHUNK_TAILLE_MAX modifié),
+    la correspondance section↔chunk est rompue et le rejeu n'a plus de sens.
+    """
+    if nb_chunks != state.total_sections:
+        _journaliser(
+            state,
+            f"Source modifiée depuis le dernier run ({state.total_sections} → {nb_chunks} sections) "
+            f"— reprise à zéro, le cache réutilisera ce qui correspond encore",
+        )
+        state.total_sections = nb_chunks
+    nb_trous = len(state.sections_echouees) or "?"
+    _journaliser(state, f"Rejeu à cache chaud — {nb_trous} section(s) à recoudre")
+    _ecrire_entete(output_path, modele, langue_source, langue_cible)
+    state.derniere_section_completee = 0
+    state.mots_traduits = 0
+    state.sections_echouees = []
+
+
 def demarrer_traduction(
     source_path: str,
     langue_source: Langue,
@@ -491,14 +607,25 @@ def demarrer_traduction(
             chapitres_selectionnes, estimation_temps_total,
         )
 
-    if resume and existing and existing.statut in (StatutJob.EN_PAUSE, StatutJob.EN_COURS):
+    # Extraction + découpage UNE seule fois : la reprise a besoin de len(chunks)
+    # pour sa garde d'intégrité, et le job en a besoin pour s'exécuter. Ce travail
+    # était fait deux fois à l'identique (45 s mesurées sur un livre de 306 pages).
+    texte = _lire_source_markdown(source_path, extracteur)
+    chunks = decouper_en_chunks(texte, taille_max=CHUNK_TAILLE_MAX)
+    nb_chunks = len(chunks)
+
+    reprenable = (StatutJob.EN_PAUSE, StatutJob.EN_COURS, StatutJob.ERREUR)
+    if resume and existing and existing.statut in reprenable:
         state = existing
+        if _doit_rejouer(state, output_path):
+            _preparer_rejeu(state, output_path, nb_chunks, modele, langue_source, langue_cible)
+        else:
+            _journaliser(
+                state,
+                f"Reprise de la traduction — section {state.derniere_section_completee}/{state.total_sections}",
+            )
         state.statut = StatutJob.EN_ATTENTE
-        _journaliser(state, f"Reprise de la traduction — section {state.derniere_section_completee}/{state.total_sections}")
     else:
-        texte = _lire_source_markdown(source_path, extracteur)
-        chunks = decouper_en_chunks(texte, taille_max=CHUNK_TAILLE_MAX)
-        nb_chunks = len(chunks)
         try:
             nb_pages = compter_pages(source_path) if not source_path.lower().endswith(".md") else 0
         except Exception:
@@ -523,11 +650,7 @@ def demarrer_traduction(
             ),
         )
         _journaliser(state, f"Traduction lancée — {nb_chunks} sections, {nb_pages} pages, {total_mots} mots")
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(f"<!-- modèle : {modele} | source : {langue_source.value} → {langue_cible.value} -->\n\n")
-
-    texte = _lire_source_markdown(source_path, extracteur)
-    chunks = decouper_en_chunks(texte, taille_max=CHUNK_TAILLE_MAX)
+        _ecrire_entete(output_path, modele, langue_source, langue_cible)
 
     _journaliser(state, "Job ajouté à la file d'attente")
     enregistrer_job(state.job_id)

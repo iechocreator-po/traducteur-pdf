@@ -2,6 +2,7 @@
 Tests des routes API, via le client de test FastAPI (aucun serveur réel nécessaire).
 """
 
+import os
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -328,3 +329,73 @@ def test_supprimer_voix_clonee(monkeypatch):
 def test_supprimer_voix_clonee_introuvable():
     reponse = client.delete("/api/voix-clonees/inconnu")
     assert reponse.status_code == 404
+
+
+# ── Upload de documents (T1/T2) ───────────────────────────────────────────────
+
+def _pdf_bytes() -> bytes:
+    import io
+    from reportlab.pdfgen import canvas
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf)
+    c.drawString(100, 750, "Bonjour")
+    c.save()
+    return buf.getvalue()
+
+
+def test_upload_pdf_valide():
+    reponse = client.post("/api/upload", files={"fichier": ("cours.pdf", _pdf_bytes(), "application/pdf")})
+    assert reponse.status_code == 200
+    data = reponse.json()
+    assert data["type"] == "PDF"
+    assert data["chemin"].endswith("/cours.pdf")
+
+
+def test_upload_md_puis_reinjectable_dans_chapitres():
+    """Le chemin retourné par /upload doit repartir tel quel dans le flux existant."""
+    contenu = b"# Chapitre 1\n\ntexte\n\n# Chapitre 2\n\nsuite\n"
+    up = client.post("/api/upload", files={"fichier": ("notes.md", contenu, "text/markdown")})
+    assert up.status_code == 200
+    chemin = up.json()["chemin"]
+    assert chemin.endswith(".md")
+
+    chap = client.post("/api/chapitres", json={"chemin_md": chemin})
+    assert chap.status_code == 200
+    assert len(chap.json()["chapitres"]) == 2
+
+
+def test_upload_anti_evasion_du_nom():
+    reponse = client.post(
+        "/api/upload",
+        files={"fichier": ("../../../etc/passwd", _pdf_bytes(), "application/pdf")},
+    )
+    assert reponse.status_code == 200
+    from app.services import uploads
+    reel = os.path.realpath(reponse.json()["chemin"])
+    racine = os.path.realpath(uploads.DOSSIER_UPLOADS)
+    assert os.path.commonpath([reel, racine]) == racine
+
+
+def test_upload_contenu_prime_sur_extension():
+    # Nommé .md mais contient un PDF → stocké en .pdf.
+    reponse = client.post("/api/upload", files={"fichier": ("piege.md", _pdf_bytes(), "text/markdown")})
+    assert reponse.json()["chemin"].endswith(".pdf")
+
+
+def test_upload_binaire_non_md_rejete():
+    reponse = client.post("/api/upload", files={"fichier": ("x.md", b"\xff\xfe\x00parasite", "text/plain")})
+    assert reponse.status_code == 422
+
+
+def test_upload_vide_rejete():
+    reponse = client.post("/api/upload", files={"fichier": ("vide.md", b"", "text/plain")})
+    assert reponse.status_code == 422
+
+
+def test_upload_origine_tierce_refusee():
+    reponse = client.post(
+        "/api/upload",
+        files={"fichier": ("x.pdf", _pdf_bytes(), "application/pdf")},
+        headers={"origin": "https://evil.example"},
+    )
+    assert reponse.status_code == 403

@@ -5,12 +5,13 @@ métier — elle valide les entrées et délègue aux services/agents.
 
 import os
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, Field, model_validator
 
 from app.config.feature_flags import charger_flags, EXTRACTEURS_PDF, EXTRACTEUR_PAR_DEFAUT
 from app.models.schemas import DemandeTraduction, EtatJob, EtatJobEtude, ResultatAnalyse
 from app.services.translator import lister_modeles_disponibles
+from app.api.validation import resoudre_source, valider_chemin_source
 
 router = APIRouter()
 
@@ -39,6 +40,29 @@ def liste_extracteurs() -> dict:
     return {"extracteurs": EXTRACTEURS_PDF, "defaut": EXTRACTEUR_PAR_DEFAUT}
 
 
+@router.post("/upload")
+async def uploader_document(request: Request, fichier: UploadFile = File(...)) -> dict:
+    """
+    Reçoit un PDF ou un Markdown depuis le navigateur (« Parcourir » / glisser-
+    déposer) et l'écrit dans backend/uploads/<hash>/. Retourne le chemin absolu,
+    que le frontend réinjecte tel quel dans le flux existant (analyse/traduction).
+    """
+    from app.api.validation import verifier_origine_upload
+    from app.services import uploads
+
+    verifier_origine_upload(request.headers.get("origin"))
+
+    # fichier.file est le SpooledTemporaryFile sous-jacent : lecture SYNCHRONE par
+    # blocs, sans rapatrier tout le fichier en RAM (un PDF scanné peut être gros).
+    def lire_morceau() -> bytes:
+        return fichier.file.read(1024 * 1024)
+
+    try:
+        return uploads.enregistrer_flux(lire_morceau, fichier.filename)
+    except uploads.UploadInvalide as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 class ConvertRequest(BaseModel):
     chemin_pdf: str
     extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
@@ -47,8 +71,7 @@ class ConvertRequest(BaseModel):
 @router.post("/convert")
 def convertir_pdf(req: ConvertRequest) -> dict:
     """Converts a PDF to Markdown using the chosen extractor. Returns the output path."""
-    if not os.path.exists(req.chemin_pdf):
-        raise HTTPException(status_code=404, detail="Fichier PDF introuvable.")
+    req.chemin_pdf = valider_chemin_source(req.chemin_pdf, extensions=(".pdf",), label="Fichier PDF")
 
     from app.services.pdf_extractor import extraire_texte
 
@@ -108,10 +131,7 @@ def lister_chapitres(req: ChapitresRequest) -> dict:
     Identifie les chapitres d'un PDF ou Markdown.
     Priorité : signets PDF intégrés → fallback titres Markdown.
     """
-    chemin = req.chemin_md or req.chemin_pdf
-    if not os.path.exists(chemin):
-        label = "Fichier Markdown" if req.chemin_md else "Fichier PDF"
-        raise HTTPException(status_code=404, detail=f"{label} introuvable.")
+    chemin = resoudre_source(req.chemin_pdf, req.chemin_md)
 
     from app.services.pdf_extractor import extraire_toc_pdf, identifier_chapitres
 
@@ -150,10 +170,7 @@ class ChapitreContenuRequest(BaseModel):
 @router.post("/chapitres/contenu")
 def contenu_chapitre(req: ChapitreContenuRequest) -> dict:
     """Retourne le contenu Markdown d'un chapitre (lecture dans la Bibliothèque)."""
-    chemin = req.chemin_md or req.chemin_pdf
-    if not os.path.exists(chemin):
-        label = "Fichier Markdown" if req.chemin_md else "Fichier PDF"
-        raise HTTPException(status_code=404, detail=f"{label} introuvable.")
+    chemin = resoudre_source(req.chemin_pdf, req.chemin_md)
 
     from app.services.pdf_extractor import chapitres_avec_contenu
 
@@ -229,10 +246,7 @@ class TranslateRequest(BaseModel):
 @router.post("/translate")
 def translate(req: TranslateRequest) -> dict:
     """Starts or resumes a translation job (from PDF or Markdown) in background. Returns job_id."""
-    chemin_source = req.chemin_md or req.chemin_pdf
-    if not os.path.exists(chemin_source):
-        label = "Fichier Markdown" if req.chemin_md else "Fichier PDF"
-        raise HTTPException(status_code=404, detail=f"{label} introuvable.")
+    chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
 
     from app.models.schemas import Langue
     from app.services.translation_runner import demarrer_traduction
@@ -323,10 +337,7 @@ class ScheduleRequest(BaseModel):
 
 @router.post("/schedule")
 def creer_job_planifie(req: ScheduleRequest) -> dict:
-    chemin_source = req.chemin_md or req.chemin_pdf
-    if not os.path.exists(chemin_source):
-        label = "Fichier Markdown" if req.chemin_md else "Fichier PDF"
-        raise HTTPException(status_code=404, detail=f"{label} introuvable.")
+    chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
 
     from datetime import datetime
     from app.services.scheduler import planifier_job
@@ -377,13 +388,7 @@ def creer_jobs_planifies(req: ScheduleBatchRequest) -> dict:
     except ValueError:
         raise HTTPException(status_code=422, detail="Format de date invalide (attendu ISO 8601).")
 
-    chemins = [c.strip() for c in req.chemins if c.strip()]
-    introuvables = [c for c in chemins if not os.path.exists(c)]
-    if introuvables:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Fichier(s) introuvable(s) : {', '.join(introuvables)}",
-        )
+    chemins = [valider_chemin_source(c.strip()) for c in req.chemins if c.strip()]
 
     jobs = [
         planifier_job(
@@ -447,10 +452,7 @@ def generer_fiche_etude(req: EtudeRequest) -> dict:
     compréhension) pour les chapitres sélectionnés. Les chapitres déjà générés
     avec les mêmes options sont conservés (reprise/ajout automatique).
     """
-    chemin_source = req.chemin_md or req.chemin_pdf
-    if not os.path.exists(chemin_source):
-        label = "Fichier Markdown" if req.chemin_md else "Fichier PDF"
-        raise HTTPException(status_code=404, detail=f"{label} introuvable.")
+    chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
 
     from app.services.study_runner import demarrer_etude
 
@@ -533,13 +535,9 @@ def ecouter_extrait(req: TTSExtraitRequest) -> Response:
 @router.post("/tts")
 def generer_audio(req: TTSGenerationRequest) -> dict:
     """Enfile la génération audio d'un fichier Markdown complet."""
-    if not os.path.exists(req.chemin_md):
-        raise HTTPException(status_code=404, detail="Fichier Markdown introuvable.")
-    if not req.chemin_md.lower().endswith(".md"):
-        raise HTTPException(
-            status_code=422,
-            detail="La génération audio attend un fichier .md (convertis d'abord le PDF).",
-        )
+    req.chemin_md = valider_chemin_source(
+        req.chemin_md, extensions=(".md",), label="Fichier Markdown"
+    )
     from app.services.tts_runner import demarrer_generation_audio
     try:
         etat = demarrer_generation_audio(req.chemin_md, req.moteur, req.voix, req.langue)
@@ -660,9 +658,8 @@ def supprimer_voix_clonee(id_voix: str) -> dict:
 @router.post("/analyser", response_model=ResultatAnalyse)
 def analyser_document(demande: DemandeTraduction) -> ResultatAnalyse:
     """Lance l'analyse préliminaire d'un PDF."""
-    if not os.path.exists(demande.chemin_pdf):
-        raise HTTPException(status_code=404, detail="Fichier PDF introuvable.")
+    chemin_pdf = valider_chemin_source(demande.chemin_pdf, extensions=(".pdf",), label="Fichier PDF")
 
     from app.agents.analysis_agent import analyser_pdf
 
-    return analyser_pdf(demande.chemin_pdf)
+    return analyser_pdf(chemin_pdf)

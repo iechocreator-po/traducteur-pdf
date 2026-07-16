@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>iTraducteur</title>
+  <title>toledo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/style.css">
@@ -18,7 +18,7 @@
 
   <!-- ── Barre supérieure ─────────────────────────────────────────────────── -->
   <header class="barre-app">
-    <div class="logo"><span class="logo-pastille"></span>iTraducteur</div>
+    <div class="logo"><span class="logo-pastille"></span>toledo</div>
     <nav class="modules-nav" role="tablist">
       <button type="button" class="onglet-module" data-module="import" role="tab">Nouveau document</button>
       <button type="button" class="onglet-module" data-module="bibliotheque" role="tab">Bibliothèque</button>
@@ -46,11 +46,16 @@
     <section class="carte carte-dropzone" id="dropzone">
       <div class="dropzone-icone"></div>
       <div class="dropzone-titre">Ajoute tes documents</div>
-      <p class="aide">Chemin absolu d'un fichier .pdf ou .md — un fichier à la fois, ils s'accumulent dans le lot.</p>
+      <p class="aide">Glisse tes fichiers .pdf ou .md ici, ou parcours ton disque — ils s'accumulent dans le lot.</p>
+      <input type="file" id="import-fichier" accept=".pdf,.md,.markdown" multiple hidden>
       <div class="ligne-ajout">
-        <input type="text" id="import-chemin" placeholder="/Users/.../document.pdf ou .md">
-        <button id="bouton-ajouter-lot" class="bouton-principal">＋ Ajouter</button>
+        <button id="bouton-parcourir" class="bouton-principal">📂 Parcourir…</button>
       </div>
+      <div class="ligne-ajout ligne-ajout-chemin" data-avance hidden>
+        <input type="text" id="import-chemin" placeholder="/Users/.../document.pdf ou .md">
+        <button id="bouton-ajouter-lot" class="bouton-secondaire">＋ Ajouter par chemin</button>
+      </div>
+      <p id="import-upload-statut" class="aide"></p>
     </section>
 
     <div id="zone-lot" hidden>
@@ -126,6 +131,11 @@
         </div>
         <div class="sidebar-section">
           <div class="sidebar-titre">Chapitres</div>
+          <div class="chap-selection-barre" id="chap-selection-barre" hidden>
+            <span class="aide">Cocher pour le résumé &amp; quiz :</span>
+            <button type="button" id="chap-tout-cocher" class="bouton-lien">Tout</button>
+            <button type="button" id="chap-tout-decocher" class="bouton-lien">Aucun</button>
+          </div>
           <div id="biblio-chapitres"></div>
         </div>
       </aside>
@@ -134,6 +144,11 @@
         <div class="lecture-bandeau" id="lecture-bandeau" hidden>
           <span class="badge-type" id="lecture-badge">MD</span>
           <span id="lecture-doc-nom" class="lecture-doc-nom"></span>
+        </div>
+        <div class="lecture-echec" id="lecture-echec" hidden>
+          <span class="lecture-echec-icone">⚠</span>
+          <span id="lecture-echec-texte"></span>
+          <button id="lecture-echec-reprendre" class="bouton-mini">⏯ Reprendre</button>
         </div>
         <div class="lecture-corps">
           <div id="lecture-vide" class="lecture-vide">
@@ -158,18 +173,11 @@
 
       <aside class="biblio-ia" data-avance hidden>
         <div class="sidebar-titre">Résumé &amp; Quiz</div>
-        <p class="aide">Générés par l'IA locale pour le chapitre affiché.</p>
-        <button id="ia-generer" class="bouton-ia" disabled>Générer les 5 points clés + quiz</button>
+        <p class="aide">Coche des chapitres à gauche, puis génère leurs points clés + quiz par l'IA locale.</p>
+        <button id="ia-generer" class="bouton-ia" disabled>Générer les points clés + quiz</button>
         <button id="ia-exporter" class="bouton-secondaire" hidden>⬇ Exporter la fiche (HTML)…</button>
         <p id="ia-statut" class="aide"></p>
-        <div id="ia-points-zone" hidden>
-          <div class="ia-zone-titre">Points clés</div>
-          <div id="ia-points-resultat" class="ia-points"></div>
-        </div>
-        <div id="ia-quiz-zone" hidden>
-          <div class="ia-zone-titre">Quiz</div>
-          <div id="ia-quiz-resultat" class="ia-quiz"></div>
-        </div>
+        <div id="ia-resultats" class="ia-resultats"></div>
       </aside>
 
     </div>
@@ -292,9 +300,9 @@
     </section>
   </main>
 
-  <script src="js/commun.js?v=1"></script>
-  <script src="js/module-import.js?v=1"></script>
-  <script src="js/module-bibliotheque.js?v=1"></script>
-  <script src="js/module-laboratoire.js?v=1"></script>
+  <script src="js/commun.js?v=2"></script>
+  <script src="js/module-import.js?v=2"></script>
+  <script src="js/module-bibliotheque.js?v=2"></script>
+  <script src="js/module-laboratoire.js?v=2"></script>
 </body>
 </html>

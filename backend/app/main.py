@@ -13,7 +13,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.api.validation import ORIGINES_LOCALES
 from app.services.scheduler import demarrer_surveillance
+from app.services.uploads import purger_uploads_anciens
 
 
 
@@ -30,11 +32,7 @@ app = FastAPI(
 # Le client Swift (URLSession) n'est pas soumis au CORS et n'est pas affecté.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5500",
-        "http://127.0.0.1:5500",
-        "null",
-    ],
+    allow_origins=list(ORIGINES_LOCALES),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -42,4 +40,6 @@ app.add_middleware(
 app.include_router(router, prefix="/api")
 
 demarrer_surveillance()
+# Ménage des uploads abandonnés (jamais des traductions produites) au démarrage.
+purger_uploads_anciens()
 

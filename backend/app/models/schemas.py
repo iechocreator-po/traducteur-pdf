@@ -65,6 +65,12 @@ class EtatJob(BaseModel):
     avertissements: list[str] = Field(default_factory=list)
     journal: list[str] = Field(default_factory=list)
     chapitres_traduits: list[int] = Field(default_factory=list)
+    # Sections/chapitres dont la traduction a échoué. Un job qui en contient
+    # finit en `erreur`, jamais en `termine` : une traduction trouée ne doit
+    # pas s'annoncer comme un succès. Ces index pilotent aussi le rejeu à
+    # cache chaud de la reprise (voir demarrer_traduction).
+    sections_echouees: list[int] = Field(default_factory=list)
+    chapitres_echoues: list[int] = Field(default_factory=list)
 
 
 class QuestionEtude(BaseModel):

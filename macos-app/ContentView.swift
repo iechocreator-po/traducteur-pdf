@@ -125,7 +125,7 @@ struct ContentView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(DS.accent)
                     .frame(width: 18, height: 18)
-                Text("iTraducteur")
+                Text("toledo")
                     .font(.system(size: 15, weight: .heavy))
             }
 

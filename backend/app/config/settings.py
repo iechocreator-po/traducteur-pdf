@@ -12,6 +12,25 @@ OLLAMA_TIMEOUT = 600
 # Modèle utilisé par défaut si aucun n'est spécifié par l'utilisateur.
 OLLAMA_MODELE_DEFAUT = "llama3.1"
 
+# ── Retry des appels Ollama ───────────────────────────────────────────────────
+# Une panne d'Ollama (arrêt, redémarrage, Mac réveillé après une mise en veille)
+# ne doit jamais faire perdre des sections : on réessaie avec un backoff
+# exponentiel, puis on abandonne PROPREMENT le job (statut erreur) plutôt que de
+# brûler les sections restantes avec des placeholders.
+#
+# Le budget est en horloge MURALE, pas en nombre de tentatives : une
+# ConnectionError échoue en 1 ms (~30 tentatives dans le budget) alors qu'un
+# Timeout coûte OLLAMA_TIMEOUT secondes (~3 tentatives). Seul le temps a du sens.
+#
+# 30 min suffisent même pour une veille de 8 h : quand le Mac dort, le process
+# Python dort aussi (time.sleep ne s'écoule pas). Le budget ne couvre pas la
+# veille, il couvre les minutes ÉVEILLÉES où Ollama n'est pas encore revenu.
+OLLAMA_RETRY_DELAI_INITIAL = 2.0
+OLLAMA_RETRY_FACTEUR = 2.0
+OLLAMA_RETRY_DELAI_MAX = 60.0
+OLLAMA_RETRY_BUDGET_SECONDES = 1800
+OLLAMA_RETRY_JITTER = 0.2
+
 # ── Découpage du texte ────────────────────────────────────────────────────────
 
 # Taille max (caractères) d'un chunk en mode traduction complète (tous les chunks).
@@ -41,3 +60,14 @@ RATIO_TRADUCTION_SUSPECT = 0.5
 # Longueur minimale (caractères) du texte source pour appliquer le contrôle :
 # les très petits chunks (titres, lignes isolées) peuvent légitimement raccourcir.
 CONTROLE_QUALITE_LONGUEUR_MIN = 200
+
+# ── Upload de documents ───────────────────────────────────────────────────────
+
+# Taille max (octets) d'un fichier uploadé via POST /api/upload. Un PDF scanné
+# peut être volumineux, mais on borne pour éviter qu'un client ne remplisse le
+# disque. Le contrôle se fait au fil de l'écriture (pas de lecture en RAM).
+TAILLE_MAX_UPLOAD_OCTETS = 200 * 1024 * 1024
+
+# Nombre de jours après lequel un dossier d'upload ABANDONNÉ (aucune traduction
+# produite, non référencé en Bibliothèque) est purgé au démarrage du backend.
+UPLOADS_RETENTION_JOURS = 30

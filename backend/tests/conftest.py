@@ -30,3 +30,13 @@ def registre_voix_clonees_isole(tmp_path, monkeypatch):
     dossier = tmp_path / "voix_utilisateur_test"
     monkeypatch.setattr(voix_clonees, "DOSSIER_VOIX_UTILISATEUR", str(dossier))
     monkeypatch.setattr(voix_clonees, "CHEMIN_REGISTRE", str(dossier / "registre.json"))
+
+
+@pytest.fixture(autouse=True)
+def dossier_uploads_isole(tmp_path, monkeypatch):
+    """Redirige les uploads vers un dossier temporaire : sans ça, les tests
+    d'upload écriraient dans le vrai backend/uploads/."""
+    from app.services import uploads
+    dossier = tmp_path / "uploads_test"
+    monkeypatch.setattr(uploads, "DOSSIER_UPLOADS", str(dossier))
+    monkeypatch.setattr(uploads, "DOSSIER_TMP", str(dossier / ".tmp"))
