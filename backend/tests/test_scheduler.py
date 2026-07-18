@@ -69,12 +69,13 @@ def test_declenchement_d_un_job_echu(monkeypatch):
     assert len(lancements) == 1
     assert lancements[0]["source_path"] == "/fake/doc.pdf"
 
-    # Le job échu passe à « declenche », le futur reste planifié
+    # Le job échu, une fois déclenché AVEC SUCCÈS, est retiré de la liste (plus
+    # de « Déclenché » fantôme) ; le futur reste planifié.
     restants = scheduler.lister_jobs_planifies()
     assert [j["id"] for j in restants] == [futur["id"]]
     tous = scheduler._charger()
-    statuts = {j["id"]: j["statut"] for j in tous}
-    assert statuts[echu["id"]] == "declenche"
+    assert [j["id"] for j in tous] == [futur["id"]]  # echu purgé après lancement
+    assert echu["id"] not in {j["id"] for j in tous}
 
 
 def test_date_naive_traitee_comme_utc(monkeypatch):
@@ -101,3 +102,34 @@ def test_lister_tous_jobs_inclut_annules_et_declenches():
     assert {j["statut"] for j in tous} == {"annule", "planifie"}
     # La vue filtrée ne montre que les planifiés
     assert len(scheduler.lister_jobs_planifies()) == 1
+
+
+def test_supprimer_job_quel_que_soit_le_statut():
+    """supprimer_job retire l'entrée même si elle est annulée ou déclenchée."""
+    planifie = _planifier(datetime.now(timezone.utc) + timedelta(hours=2))
+    annule = _planifier(datetime.now(timezone.utc) + timedelta(hours=3), chemin="/fake/b.pdf")
+    scheduler.annuler_job(annule["id"])
+
+    # Un job annulé (non « planifie ») : annuler_job le refuse, supprimer_job non.
+    assert scheduler.annuler_job(annule["id"]) is False
+    assert scheduler.supprimer_job(annule["id"]) is True
+    assert scheduler.supprimer_job(planifie["id"]) is True
+    assert scheduler._charger() == []
+    # Suppression d'un id inconnu → False.
+    assert scheduler.supprimer_job("inconnu") is False
+
+
+def test_echec_de_lancement_laisse_le_job_dans_la_liste(monkeypatch):
+    """Si le déclenchement échoue, le job n'est PAS purgé (reste visible/effaçable)."""
+    def demarrage_qui_echoue(**kwargs):
+        raise RuntimeError("Ollama injoignable")
+
+    monkeypatch.setattr(
+        "app.services.translation_runner.demarrer_traduction", demarrage_qui_echoue
+    )
+    echu = _planifier(datetime.now(timezone.utc) - timedelta(minutes=1))
+    scheduler._verifier_et_declencher()
+
+    tous = scheduler._charger()
+    assert [j["id"] for j in tous] == [echu["id"]]
+    assert tous[0]["statut"] == "declenche"  # marqué déclenché, mais conservé

@@ -36,10 +36,18 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   lancement en lot (file séquentielle backend), planification. Une section **« Reprendre
   une traduction »** (IIFE dédiée dans `module-import.js`, distincte du `lot` en mémoire)
   liste les jobs **non terminés** via `GET /api/jobs/reprenables` — donc **persistante**
-  (survit au reload et aux sessions) : chaque document a un bouton **Reprendre**
-  (`POST /api/translate` `resume=true`, options issues du **registre** et non des menus) et
-  un bouton **Supprimer** (`DELETE /api/bibliotheque` → retire du registre, fichiers disque
-  conservés).
+  (survit au reload et aux sessions). Contrôles par document selon l'état : job **en cours**
+  → **Pause** (`POST /api/job/{job_id}/pause`, `job_id` exposé par le registre) ; job **arrêté**
+  → **Reprendre** (`POST /api/translate` `resume=true`, options issues du **registre** et non
+  des menus) **et** **➕ Chapitres** (`window.toledoImport.ajouterEtOuvrirChapitres` renvoie le
+  document dans le `lot` avec le sélecteur de chapitres ouvert → flux **additif** pour traduire
+  de nouveaux chapitres). Tous : **Supprimer** (`DELETE /api/bibliotheque` → retire du registre,
+  fichiers disque conservés).
+- **Planification** (`scheduler.py`) : la liste « Traductions planifiées » (`GET /api/scheduled/tous`)
+  a un bouton **Retirer** sur **chaque** ligne quel que soit le statut (`DELETE /api/scheduled/{id}`
+  → `supprimer_job`, suppression réelle et non simple passage en `annule`). Un job **déclenché
+  avec succès est auto-purgé** de la liste (`_lancer_job`) : la traduction est ensuite suivie
+  dans « Reprendre »/la Bibliothèque, plus de « Déclenché » fantôme qui subsiste après la fin.
 - **Bibliothèque** (`module-bibliotheque.js`) : documents traduits (`GET /api/bibliotheque`,
   registre alimenté par `translation_runner`), lecture chapitre par chapitre
   (`POST /api/chapitres/contenu`), barre audio TTS (`GET /api/tts/audio`), panneau IA

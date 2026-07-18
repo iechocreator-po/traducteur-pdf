@@ -297,16 +297,19 @@
       tdStatut.textContent = job.statut === "planifie" ? "🕐 Planifié"
         : job.statut === "annule" ? "✕ Annulé" : "▶ Déclenché";
       const tdAction = document.createElement("td");
-      if (job.statut === "planifie") {
-        const btn = document.createElement("button");
-        btn.className = "bouton-mini";
-        btn.textContent = "✕ Retirer";
-        btn.addEventListener("click", async () => {
-          await fetch(`${API_BASE}/scheduled/${job.id}`, { method: "DELETE" });
-          rafraichirPlanifies();
-        });
-        tdAction.appendChild(btn);
-      }
+      // Retirer disponible pour TOUS les statuts : un planifié supprimé ne se
+      // déclenchera pas ; un déclenché/annulé disparaît simplement de la liste.
+      const btn = document.createElement("button");
+      btn.className = "bouton-mini bouton-danger";
+      btn.textContent = "✕ Retirer";
+      btn.title = job.statut === "planifie"
+        ? "Annuler et retirer cette planification"
+        : "Retirer de la liste";
+      btn.addEventListener("click", async () => {
+        await fetch(`${API_BASE}/scheduled/${job.id}`, { method: "DELETE" });
+        rafraichirPlanifies();
+      });
+      tdAction.appendChild(btn);
       tr.append(tdFichier, tdQuand, tdStatut, tdAction);
       tbody.appendChild(tr);
     }
@@ -556,6 +559,19 @@
 
   document.addEventListener("backend-connecte", rafraichirPlanifies);
   setInterval(rafraichirPlanifies, 10000);
+
+  // Exposé pour la section « Reprendre une traduction » : renvoyer un document
+  // dans le lot rouvre le sélecteur de chapitres (flux additif) sans dupliquer
+  // la logique d'ajout/analyse ici.
+  window.toledoImport = {
+    ajouterEtOuvrirChapitres(chemin) {
+      ajouterAuLot(chemin);
+      const item = lot.find(f => f.chemin === chemin);
+      if (item) item.chapitresOuverts = true;
+      rendreLot();
+      $("zone-lot")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+  };
 })();
 
 // ── Reprendre une traduction (jobs non terminés, persistants) ─────────────────
@@ -640,14 +656,32 @@
 
     const actions = document.createElement("div");
     actions.className = "reprendre-actions";
+    const enMarche = doc.statut === "en_cours" || doc.statut === "en_attente";
 
-    const reprendre = document.createElement("button");
-    reprendre.className = "bouton-mini";
-    reprendre.textContent = doc.statut === "en_cours" || doc.statut === "en_attente"
-      ? "⏳ En cours" : "⏯ Reprendre";
-    reprendre.disabled = doc.statut === "en_cours" || doc.statut === "en_attente";
-    reprendre.addEventListener("click", () => reprendreDoc(doc, reprendre));
-    actions.appendChild(reprendre);
+    if (enMarche) {
+      // Job actif → une seule action utile : le mettre en pause (plus de bouton
+      // « Reprendre » grisé redondant avec la pastille de statut).
+      const pause = document.createElement("button");
+      pause.className = "bouton-mini";
+      pause.textContent = "⏸ Pause";
+      pause.disabled = !doc.job_id;
+      pause.addEventListener("click", () => pauseDoc(doc, pause));
+      actions.appendChild(pause);
+    } else {
+      // Job arrêté → reprendre la même sélection, OU ajouter de nouveaux chapitres.
+      const reprendre = document.createElement("button");
+      reprendre.className = "bouton-mini";
+      reprendre.textContent = "⏯ Reprendre";
+      reprendre.addEventListener("click", () => reprendreDoc(doc, reprendre));
+      actions.appendChild(reprendre);
+
+      const chapitres = document.createElement("button");
+      chapitres.className = "bouton-mini";
+      chapitres.textContent = "➕ Chapitres";
+      chapitres.title = "Choisir de nouveaux chapitres à traduire (ajout au document existant)";
+      chapitres.addEventListener("click", () => window.toledoImport?.ajouterEtOuvrirChapitres(doc.chemin_source));
+      actions.appendChild(chapitres);
+    }
 
     const supprimer = document.createElement("button");
     supprimer.className = "bouton-mini bouton-danger";
@@ -658,6 +692,22 @@
 
     ligne.appendChild(actions);
     return ligne;
+  }
+
+  async function pauseDoc(doc, bouton) {
+    if (!doc.job_id) return;
+    bouton.disabled = true;
+    bouton.textContent = "⏳ Pause…";
+    try {
+      const rep = await fetch(`${API_BASE}/job/${doc.job_id}/pause`, { method: "POST" });
+      if (!rep.ok) throw new Error(`HTTP ${rep.status}`);
+    } catch (e) {
+      bouton.disabled = false;
+      bouton.textContent = "⏸ Pause";
+      alert(`Pause impossible : ${e.message}`);
+      return;
+    }
+    rafraichir();  // le poll basculera la ligne en « En pause »
   }
 
   async function reprendreDoc(doc, bouton) {

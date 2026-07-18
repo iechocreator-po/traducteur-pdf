@@ -62,7 +62,12 @@ from app.services.job_manager import (
     journaliser_erreur,
 )
 
-SECONDES_PAR_CHUNK_ESTIME = 10  # estimation initiale avant d'avoir des mesures réelles
+# Estimation initiale (avant toute mesure réelle) du temps de traduction d'un
+# sous-morceau (~CHAPITRE_SOUS_CHUNK_TAILLE_MAX caractères). Volontairement
+# prudent : mieux vaut surestimer un peu que promettre 40 min pour un livre qui
+# en prend des heures. L'ETA affichée est recalculée depuis le débit RÉEL dès le
+# 1er morceau traduit — cette constante ne sert donc qu'avant le démarrage.
+SECONDES_PAR_CHUNK_ESTIME = 20
 
 # Statuts depuis lesquels une reprise (resume=true) est acceptée. ANNULE et
 # ERREUR y figurent : une sortie propre (aucun placeholder) jusqu'aux chapitres

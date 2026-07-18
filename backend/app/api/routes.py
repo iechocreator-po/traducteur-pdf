@@ -460,12 +460,16 @@ def liste_tous_jobs_planifies() -> dict:
 
 
 @router.delete("/scheduled/{job_id}")
-def annuler_job_planifie(job_id: str) -> dict:
-    from app.services.scheduler import annuler_job
-    ok = annuler_job(job_id)
+def supprimer_job_planifie(job_id: str) -> dict:
+    """
+    Retire un job de la liste des planifiées, quel que soit son statut
+    (planifié, déclenché ou annulé). Permet de nettoyer la liste 1 à 1.
+    """
+    from app.services.scheduler import supprimer_job
+    ok = supprimer_job(job_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Job introuvable ou déjà déclenché/annulé.")
-    return {"statut": "annule"}
+        raise HTTPException(status_code=404, detail="Job introuvable.")
+    return {"supprime": True}
 
 
 class EtudeRequest(BaseModel):

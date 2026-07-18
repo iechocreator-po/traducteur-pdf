@@ -108,6 +108,9 @@ def lister_documents() -> list[dict]:
             enrichi["statut"] = etat.statut.value
             enrichi["sections_completees"] = etat.derniere_section_completee
             enrichi["total_sections"] = etat.total_sections
+            # job_id du run courant : permet de mettre en pause un job en cours
+            # directement depuis « Reprendre une traduction ».
+            enrichi["job_id"] = etat.job_id
             # Permet à la Bibliothèque de proposer « Reprendre » sur un document
             # lisible mais troué, plutôt que de le déclarer inaccessible.
             enrichi["nb_sections_echouees"] = len(etat.sections_echouees) + len(etat.chapitres_echoues)

@@ -90,6 +90,21 @@ def annuler_job(job_id: str) -> bool:
         return False
 
 
+def supprimer_job(job_id: str) -> bool:
+    """
+    Retire définitivement un job planifié de la liste, QUEL QUE SOIT son statut
+    (planifié, déclenché ou annulé). Un job « planifié » supprimé ne se
+    déclenchera pas (il n'existe plus). Retourne True si un job a été retiré.
+    """
+    with _lock:
+        jobs = _charger()
+        restants = [j for j in jobs if j["id"] != job_id]
+        if len(restants) == len(jobs):
+            return False
+        _sauvegarder(restants)
+        return True
+
+
 # ── Thread de surveillance ────────────────────────────────────────────────────
 
 def _boucle_surveillance() -> None:
@@ -146,6 +161,10 @@ def _lancer_job(job: dict[str, Any]) -> None:
             chapitres_selectionnes=chapitres,
         )
         print(f"[scheduler] job {job['id']} démarré avec succès — {chapitres_info}", flush=True)
+        # Le job planifié a fini son rôle : la traduction est maintenant suivie
+        # dans « Reprendre une traduction » / la Bibliothèque. On le retire de la
+        # liste des planifiées pour ne pas y laisser un « Déclenché » fantôme.
+        supprimer_job(job["id"])
     except Exception as e:
         import sys
         import traceback
