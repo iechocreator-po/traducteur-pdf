@@ -70,6 +70,22 @@ def enregistrer_document(
         _sauvegarder(documents)
 
 
+def retirer_document(chemin_sortie: str) -> bool:
+    """
+    Retire une entrée du registre, identifiée par son fichier de sortie.
+    NE TOUCHE PAS aux fichiers sur disque (_traduit.md, .state.json, .errors.log,
+    dossier upload) — c'est un simple nettoyage de la liste, réversible en
+    relançant une traduction. Retourne True si une entrée a été retirée.
+    """
+    with _lock:
+        documents = _charger()
+        restants = [d for d in documents if d.get("chemin_sortie") != chemin_sortie]
+        if len(restants) == len(documents):
+            return False
+        _sauvegarder(restants)
+        return True
+
+
 def lister_documents() -> list[dict]:
     """
     Retourne les documents du registre, enrichis du statut et de la progression
@@ -92,6 +108,14 @@ def lister_documents() -> list[dict]:
             enrichi["statut"] = etat.statut.value
             enrichi["sections_completees"] = etat.derniere_section_completee
             enrichi["total_sections"] = etat.total_sections
+            # job_id du run courant : permet de mettre en pause un job en cours
+            # directement depuis « Reprendre une traduction ».
+            enrichi["job_id"] = etat.job_id
+            # Chapitres déjà traduits : le sélecteur de « ➕ Chapitres » les marque
+            # (✓ désactivés) pour que l'utilisateur coche uniquement les NOUVEAUX.
+            enrichi["chapitres_traduits"] = etat.chapitres_traduits
+            # Portée du run courant : sert au compteur « N/M chapitres » de la barre.
+            enrichi["chapitres_selectionnes"] = etat.chapitres_selectionnes
             # Permet à la Bibliothèque de proposer « Reprendre » sur un document
             # lisible mais troué, plutôt que de le déclarer inaccessible.
             enrichi["nb_sections_echouees"] = len(etat.sections_echouees) + len(etat.chapitres_echoues)

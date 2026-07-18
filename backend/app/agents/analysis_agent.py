@@ -9,6 +9,7 @@ import re
 import requests
 
 from app.models.schemas import ResultatAnalyse
+from app.config.settings import CHAPITRE_SOUS_CHUNK_TAILLE_MAX
 from app.services.pdf_extractor import compter_pages, extraire_texte, decouper_en_chunks, extraire_toc_pdf
 from app.services.translation_runner import SECONDES_PAR_CHUNK_ESTIME
 
@@ -53,7 +54,15 @@ def analyser_pdf(chemin_pdf: str, nb_pages: int = NB_PAGES_ANALYSE_DEFAUT) -> Re
     nb_pages_total = compter_pages(chemin_pdf)
     texte_extractible = bool(texte_complet.strip())
 
-    chunks = decouper_en_chunks(texte_complet) if texte_extractible else []
+    # Découpe AVEC LA MÊME TAILLE que le moteur unifié (CHAPITRE_SOUS_CHUNK_TAILLE_MAX),
+    # sinon on compte ~2× moins de morceaux que le nombre réellement traduit et l'ETA
+    # est fausse d'autant. L'estimation par morceau reste grossière (elle est recalculée
+    # depuis le débit réel dès le 1er morceau traduit) mais n'est plus systématiquement
+    # sous-évaluée d'un facteur ~n.
+    chunks = (
+        decouper_en_chunks(texte_complet, taille_max=CHAPITRE_SOUS_CHUNK_TAILLE_MAX)
+        if texte_extractible else []
+    )
     nb_chunks = len(chunks)
     estimation_temps = nb_chunks * SECONDES_PAR_CHUNK_ESTIME
 

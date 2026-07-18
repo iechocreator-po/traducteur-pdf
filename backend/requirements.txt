@@ -1,5 +1,6 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9  # requis par les routes d'upload (multipart/form-data)
 pdfplumber>=0.11.0
 requests>=2.32.0
 pydantic>=2.9.0

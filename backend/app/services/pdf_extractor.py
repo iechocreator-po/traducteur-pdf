@@ -237,26 +237,66 @@ def _lire_source(chemin: str, extracteur: str) -> str:
     return extraire_texte(chemin, extracteur)
 
 
+# Mots ignorés lors de l'appariement TOC↔Markdown : trop courants pour être
+# distinctifs (un titre de signet « Chapter 6: Stages of Sight » doit matcher sur
+# « stages », « sight », pas sur « chapter »). Inclut les nombres écrits, car la
+# TOC dit « Chapter 6 » là où l'OCR écrit « CHAPTER SIX » (6 ≠ six).
+_MOTS_VIDES_TITRE = {
+    "chapter", "chapitre", "part", "partie", "the", "of", "and", "a", "an", "to",
+    "in", "on", "for", "from", "le", "la", "les", "de", "des", "du", "et",
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+    "eighteen", "nineteen", "twenty",
+}
+
+
+def _mots_distinctifs(titre: str) -> set[str]:
+    """Mots significatifs d'un titre (minuscules, sans ponctuation, sans mots
+    vides ni nombres seuls) — servent de clé d'appariement robuste."""
+    mots = re.sub(r"[^\w\s]", " ", titre).lower().split()
+    return {m for m in mots if len(m) > 2 and m not in _MOTS_VIDES_TITRE and not m.isdigit()}
+
+
 def relier_toc_a_markdown(toc: list[dict], chapitres_md: list[dict]) -> list[dict]:
     """
-    Relie les entrées de la TOC PDF (signets) aux chapitres Markdown.
-    Pour chaque signet, cherche le chapitre Markdown dont le titre correspond
-    (correspondance partielle insensible à la casse).
-    Les signets sans correspondance Markdown conservent un contenu vide.
+    Relie chaque entrée de la TOC PDF (signets, titres propres) au chapitre
+    Markdown extrait qui porte son CONTENU.
+
+    Robustesse (l'ancienne version prenait le 1er titre « contenant » l'autre, ce
+    qui faisait matcher tous les chapitres non trouvés sur le premier titre vide
+    « * * * » → contenu du Half-Title partout) :
+    - appariement sur les **mots distinctifs** du titre (ignore « chapter », les
+      nombres, les mots vides) ;
+    - les headings Markdown sans mot distinctif (« * * * », « Notes ») sont ignorés ;
+    - progression **monotone** (chaque signet matche APRÈS le précédent), et à
+      égalité de recouvrement on préfère le heading au **contenu le plus long**
+      (le vrai chapitre, pas son entrée dans la table des matières).
+    Les signets sans correspondance conservent un contenu vide.
     """
-    def normaliser(titre: str) -> str:
-        return re.sub(r"[^\w\s]", "", titre).lower().strip()
+    mds = [
+        {**c, "_mots": _mots_distinctifs(c["titre"])}
+        for c in chapitres_md
+    ]
 
     chapitres_relies = []
+    pos_min = 0  # index Markdown minimal autorisé (monotone)
     for entree in toc:
-        titre_toc = normaliser(entree["titre"])
+        mots_toc = _mots_distinctifs(entree["titre"])
         meilleur = None
-        for chap_md in chapitres_md:
-            titre_md = normaliser(chap_md["titre"])
-            # Correspondance si le titre du signet est contenu dans le titre Markdown ou vice-versa
-            if titre_toc in titre_md or titre_md in titre_toc:
-                meilleur = chap_md
-                break
+        meilleur_pos = pos_min
+        meilleur_cle = (0, 0)  # (recouvrement, longueur contenu)
+        for j in range(pos_min, len(mds)):
+            chap_md = mds[j]
+            if not chap_md["_mots"]:
+                continue  # heading sans mot distinctif (séparateurs, « Notes »…)
+            recouvrement = len(mots_toc & chap_md["_mots"])
+            if recouvrement == 0:
+                continue
+            cle = (recouvrement, len(chap_md["contenu"]))
+            if cle > meilleur_cle:
+                meilleur, meilleur_pos, meilleur_cle = chap_md, j, cle
+        if meilleur is not None:
+            pos_min = meilleur_pos + 1  # le prochain signet matche plus loin
         chapitres_relies.append({
             "index": entree["index"],
             "titre": entree["titre"],
