@@ -356,7 +356,10 @@ def test_reprise_apres_annulation_repart_du_chapitre_stoppe(tmp_path, monkeypatc
     # l'annulation pourrait tomber avant le 1er chapitre → rien de fait).
     fin = time.time() + 15
     while time.time() < fin:
-        e = charger_etat(sortie)
+        try:
+            e = charger_etat(sortie)  # peut lire un .state.json mi-écriture
+        except Exception:
+            e = None
         if e and e.chapitres_traduits:
             break
         time.sleep(0.02)

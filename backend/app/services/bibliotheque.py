@@ -111,6 +111,9 @@ def lister_documents() -> list[dict]:
             # job_id du run courant : permet de mettre en pause un job en cours
             # directement depuis « Reprendre une traduction ».
             enrichi["job_id"] = etat.job_id
+            # Chapitres déjà traduits : le sélecteur de « ➕ Chapitres » les marque
+            # (✓ désactivés) pour que l'utilisateur coche uniquement les NOUVEAUX.
+            enrichi["chapitres_traduits"] = etat.chapitres_traduits
             # Permet à la Bibliothèque de proposer « Reprendre » sur un document
             # lisible mais troué, plutôt que de le déclarer inaccessible.
             enrichi["nb_sections_echouees"] = len(etat.sections_echouees) + len(etat.chapitres_echoues)

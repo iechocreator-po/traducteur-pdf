@@ -26,6 +26,17 @@ L'interface web suit la **refonte « Workflow »** (design retenu dans
 `toledo_v2/handoff_iTraducteur/`, décisions dans `docs/refonte-workflow-decisions.md`) :
 une barre supérieure (thème, mode avancé, statuts) et **3 modules** organisés par flux
 de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module) :
+- **Vos traductions** (`module-import.js`, section « Vos traductions ») : liste
+  **tous** les documents du registre (`GET /api/bibliotheque`) — en cours, en pause,
+  interrompus ET terminés — pour les gérer sans passer par la Bibliothèque (qui, elle,
+  est réservée aux résumés/quiz/export). Actions par document : **Pause** (en cours),
+  **Reprendre** (arrêté/troué), **➕ Chapitres** et **Supprimer**. **➕ Chapitres**
+  (`window.toledoImport.ajouterEtOuvrirChapitres(chemin, chapitres_traduits)`) rouvre le
+  sélecteur de chapitres dans le lot **sans repasser par l'analyse** (pas d'OCR lent sur un
+  doc déjà connu), avec les chapitres déjà traduits **verrouillés** (« ✓ déjà traduit »,
+  `lister_documents` expose `chapitres_traduits`) : on ne coche que les nouveaux → flux
+  **additif** (`chapitres_selectionnes`). Si tout est déjà traduit, le sélecteur l'indique
+  et le lancement est bloqué (fini le « terminé » silencieux quand rien n'est à faire).
 - **Nouveau document** (`module-import.js`) : lot multi-fichiers — **import par
   navigateur** (bouton « Parcourir » + glisser-déposer, `televerser()` → `POST /api/upload`)
   ou, en mode avancé, ajout par **chemin absolu** (flux historique conservé). Le navigateur
@@ -33,16 +44,11 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   les écrit dans `backend/uploads/<hash-contenu>/` (`services/uploads.py`) et retourne un
   chemin absolu réinjecté tel quel dans le flux existant. Puis : analyse auto (qualité /
   durée / chapitres), réglages du lot (langues ; extracteur et modèle en mode avancé),
-  lancement en lot (file séquentielle backend), planification. Une section **« Reprendre
-  une traduction »** (IIFE dédiée dans `module-import.js`, distincte du `lot` en mémoire)
-  liste les jobs **non terminés** via `GET /api/jobs/reprenables` — donc **persistante**
-  (survit au reload et aux sessions). Contrôles par document selon l'état : job **en cours**
-  → **Pause** (`POST /api/job/{job_id}/pause`, `job_id` exposé par le registre) ; job **arrêté**
-  → **Reprendre** (`POST /api/translate` `resume=true`, options issues du **registre** et non
-  des menus) **et** **➕ Chapitres** (`window.toledoImport.ajouterEtOuvrirChapitres` renvoie le
-  document dans le `lot` avec le sélecteur de chapitres ouvert → flux **additif** pour traduire
-  de nouveaux chapitres). Tous : **Supprimer** (`DELETE /api/bibliotheque` → retire du registre,
-  fichiers disque conservés).
+  lancement en lot (file séquentielle backend), planification. La gestion des traductions
+  existantes se fait dans la section **« Vos traductions »** (décrite plus haut) :
+  Pause / Reprendre (`POST /api/job/{job_id}/pause`, `POST /api/translate` `resume=true`,
+  options issues du **registre**), **➕ Chapitres** (flux additif) et **Supprimer**
+  (`DELETE /api/bibliotheque` → retire du registre, fichiers disque conservés).
 - **Planification** (`scheduler.py`) : la liste « Traductions planifiées » (`GET /api/scheduled/tous`)
   a un bouton **Retirer** sur **chaque** ligne quel que soit le statut (`DELETE /api/scheduled/{id}`
   → `supprimer_job`, suppression réelle et non simple passage en `annule`). Un job **déclenché

@@ -26,7 +26,7 @@
       stage: "analyse",
       qualite: null, eta: null, chapitres: null, recommandation: null,
       jobId: null, statutJob: null, pct: 0, sections: "",
-      listeChapitres: null, chapitresCoches: null,
+      listeChapitres: null, chapitresCoches: null, chapitresDejaTraduits: null,
       chapitresOuverts: false, chapitresChargement: false,
     };
     lot.push(item);
@@ -109,7 +109,16 @@
 
   function initSelectionChapitres(item, chapitres) {
     item.listeChapitres = chapitres;
-    item.chapitresCoches = new Set(chapitres.map(c => c.index));
+    const deja = item.chapitresDejaTraduits || new Set();
+    // Par défaut, coche uniquement les chapitres PAS encore traduits (pour un
+    // document neuf, deja est vide → tout est coché comme avant).
+    item.chapitresCoches = new Set(chapitres.map(c => c.index).filter(i => !deja.has(i)));
+  }
+
+  function chapitresRestants(item) {
+    const deja = item.chapitresDejaTraduits || new Set();
+    return item.listeChapitres == null ? null
+      : item.listeChapitres.filter(c => !deja.has(c.index)).length;
   }
 
   function selectionPartielle(item) {
@@ -132,6 +141,9 @@
         extracteur_pdf: $("extracteur-pdf").value,
       }));
       initSelectionChapitres(item, data.chapitres);
+      // Renseigne le compte (le sélecteur n'est rendu que si chapitres > 0),
+      // utile quand on arrive par « ➕ Chapitres » sans passer par l'analyse.
+      if (item.chapitres == null) item.chapitres = data.chapitres.length;
     } catch (e) {
       item.chapitresOuverts = false;
       alert(`Impossible de lister les chapitres : ${e.message}`);
@@ -352,14 +364,20 @@
     });
     entete.appendChild(toggle);
 
+    const deja = item.chapitresDejaTraduits || new Set();
+
     if (item.chapitresOuverts && item.listeChapitres != null) {
+      // « Tout » ne coche que les chapitres NON traduits (on ne retraduit pas
+      // ce qui est déjà fait) ; « Aucun » vide la sélection.
       for (const [label, coche] of [["Tout", true], ["Aucun", false]]) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "bouton-lien";
         btn.textContent = label;
         btn.addEventListener("click", () => {
-          item.chapitresCoches = coche ? new Set(item.listeChapitres.map(c => c.index)) : new Set();
+          item.chapitresCoches = coche
+            ? new Set(item.listeChapitres.map(c => c.index).filter(i => !deja.has(i)))
+            : new Set();
           rendreLot();
         });
         entete.appendChild(btn);
@@ -377,24 +395,35 @@
         const liste = document.createElement("div");
         liste.className = "lot-chapitres-liste";
         for (const chap of item.listeChapitres) {
+          const dejaFait = deja.has(chap.index);
           const ligne = document.createElement("label");
-          ligne.className = "lot-chap-ligne";
+          ligne.className = dejaFait ? "lot-chap-ligne lot-chap-fait" : "lot-chap-ligne";
           ligne.style.paddingLeft = `${4 + (Math.max(chap.niveau, 1) - 1) * 14}px`;
           const check = document.createElement("input");
           check.type = "checkbox";
-          check.checked = item.chapitresCoches.has(chap.index);
+          // Un chapitre déjà traduit est verrouillé (coché visuellement, non
+          // décochable) : on ne le retraduit pas via ce flux additif.
+          check.checked = dejaFait || item.chapitresCoches.has(chap.index);
+          check.disabled = dejaFait;
           check.addEventListener("change", () => {
             if (check.checked) item.chapitresCoches.add(chap.index);
             else item.chapitresCoches.delete(chap.index);
             rendreLot();
           });
           const titre = document.createElement("span");
-          titre.textContent = chap.titre;
+          titre.textContent = dejaFait ? `${chap.titre}  ✓ déjà traduit` : chap.titre;
           ligne.append(check, titre);
           liste.appendChild(ligne);
         }
         bloc.appendChild(liste);
-        if (item.chapitresCoches.size === 0) {
+
+        const restants = chapitresRestants(item);
+        if (restants === 0) {
+          const info = document.createElement("p");
+          info.className = "aide";
+          info.textContent = "✓ Tous les chapitres sont déjà traduits — rien à ajouter.";
+          bloc.appendChild(info);
+        } else if (item.chapitresCoches.size === 0) {
           const alerte = document.createElement("p");
           alerte.className = "aide erreur";
           alerte.textContent = "⚠ Aucun chapitre coché — ce fichier ne sera pas traduit.";
@@ -564,21 +593,47 @@
   // dans le lot rouvre le sélecteur de chapitres (flux additif) sans dupliquer
   // la logique d'ajout/analyse ici.
   window.toledoImport = {
-    ajouterEtOuvrirChapitres(chemin) {
-      ajouterAuLot(chemin);
-      const item = lot.find(f => f.chemin === chemin);
-      if (item) item.chapitresOuverts = true;
+    ajouterEtOuvrirChapitres(chemin, dejaTraduits = []) {
+      // Document DÉJÀ connu : on NE repasse PAS par l'analyse (/analyser fait de
+      // l'OCR lent sur un PDF). On l'ajoute directement « prêt » et on charge
+      // juste la liste des chapitres pour le sélecteur.
+      let item = lot.find(f => f.chemin === chemin);
+      if (!item) {
+        item = {
+          id: `f${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          chemin,
+          type: estMarkdown(chemin) ? "MD" : "PDF",
+          stage: "pret",
+          qualite: "Déjà importé", eta: null, chapitres: null, recommandation: null,
+          jobId: null, statutJob: null, pct: 0, sections: "",
+          listeChapitres: null, chapitresCoches: null, chapitresDejaTraduits: null,
+          chapitresOuverts: true, chapitresChargement: false,
+        };
+        lot.push(item);
+      } else {
+        item.stage = "pret";
+        item.chapitresOuverts = true;
+      }
+      item.chapitresDejaTraduits = new Set(dejaTraduits);
+      if (item.listeChapitres != null) {
+        initSelectionChapitres(item, item.listeChapitres);
+        rendreLot();
+      } else if (!item.chapitresChargement) {
+        chargerChapitresItem(item);  // charge la TOC/titres + rend le sélecteur
+      }
       rendreLot();
       $("zone-lot")?.scrollIntoView({ behavior: "smooth", block: "start" });
     },
   };
 })();
 
-// ── Reprendre une traduction (jobs non terminés, persistants) ─────────────────
-// Section distincte du lot en mémoire : elle est alimentée par le backend
-// (GET /jobs/reprenables), donc elle survit au rechargement de page et aux
-// sessions. Chaque document non terminé (en cours / en pause / interrompu /
-// erreur / annulé) peut être repris (⏯) ou retiré de la liste (🗑).
+// ── Vos traductions (tous les documents du registre, persistants) ─────────────
+// Section distincte du lot en mémoire : alimentée par le backend
+// (GET /bibliotheque), elle survit au rechargement de page et aux sessions et
+// liste TOUS les documents — en cours, en pause, interrompus ET terminés — pour
+// pouvoir les reprendre (⏯), les compléter avec de nouveaux chapitres (➕) ou
+// les retirer (🗑). C'est le seul endroit pour gérer les traductions ; la
+// Bibliothèque, elle, sert aux résumés / quiz / export.
 (() => {
   const STATUTS_LABEL = {
     en_cours: ["En cours…", "pill-attention"],
@@ -586,6 +641,7 @@
     en_pause: ["En pause", "pill-attention"],
     erreur: ["Interrompu", "pill-erreur"],
     annule: ["Annulé", "pill-erreur"],
+    termine: ["Terminé", "pill-succes"],
   };
 
   let pollTimer = null;
@@ -593,7 +649,7 @@
   async function rafraichir() {
     let docs = [];
     try {
-      docs = (await apiGet("/jobs/reprenables")).documents || [];
+      docs = (await apiGet("/bibliotheque")).documents || [];
     } catch { return; }
 
     $("zone-reprendre").hidden = docs.length === 0;
@@ -668,18 +724,25 @@
       pause.addEventListener("click", () => pauseDoc(doc, pause));
       actions.appendChild(pause);
     } else {
-      // Job arrêté → reprendre la même sélection, OU ajouter de nouveaux chapitres.
-      const reprendre = document.createElement("button");
-      reprendre.className = "bouton-mini";
-      reprendre.textContent = "⏯ Reprendre";
-      reprendre.addEventListener("click", () => reprendreDoc(doc, reprendre));
-      actions.appendChild(reprendre);
+      // Un job arrêté et TROUÉ (pause/erreur/annulé) peut être repris là où il
+      // s'est arrêté. Un job terminé n'a pas de « Reprendre » — seulement l'ajout
+      // de nouveaux chapitres.
+      if (doc.statut !== "termine") {
+        const reprendre = document.createElement("button");
+        reprendre.className = "bouton-mini";
+        reprendre.textContent = "⏯ Reprendre";
+        reprendre.addEventListener("click", () => reprendreDoc(doc, reprendre));
+        actions.appendChild(reprendre);
+      }
 
+      // Compléter : rouvre le sélecteur de chapitres avec les chapitres déjà
+      // traduits marqués, pour n'ajouter que les nouveaux (flux additif).
       const chapitres = document.createElement("button");
       chapitres.className = "bouton-mini";
       chapitres.textContent = "➕ Chapitres";
       chapitres.title = "Choisir de nouveaux chapitres à traduire (ajout au document existant)";
-      chapitres.addEventListener("click", () => window.toledoImport?.ajouterEtOuvrirChapitres(doc.chemin_source));
+      chapitres.addEventListener("click", () =>
+        window.toledoImport?.ajouterEtOuvrirChapitres(doc.chemin_source, doc.chapitres_traduits || []));
       actions.appendChild(chapitres);
     }
 

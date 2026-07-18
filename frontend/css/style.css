@@ -359,6 +359,8 @@ pre { white-space: pre-wrap; font-size: 0.85rem; }
   gap: 8px;
   margin-top: 0.6rem;
 }
+.lot-chap-fait { opacity: 0.55; }
+.lot-chap-fait span { font-style: italic; }
 .bouton-danger { color: var(--red); }
 .bouton-danger:hover:not(:disabled) {
   border-color: var(--red);

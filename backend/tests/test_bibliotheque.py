@@ -92,6 +92,29 @@ def test_registre_absent_retourne_vide(tmp_path, monkeypatch):
 
 # ── Capture d'intérêt ─────────────────────────────────────────────────────────
 
+def test_lister_expose_chapitres_traduits_et_job_id(tmp_path, monkeypatch):
+    """La liste enrichie expose chapitres_traduits (pour marquer le sélecteur) et
+    job_id (pour la pause depuis « Vos traductions »)."""
+    _registre_temporaire(tmp_path, monkeypatch)
+    sortie = tmp_path / "doc_traduit_ll.md"
+    sortie.write_text("contenu", encoding="utf-8")
+    etat = EtatJob(
+        job_id="abc", chemin_pdf=str(tmp_path / "doc.pdf"), chemin_sortie=str(sortie),
+        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS, modele_ollama="llama3.1",
+        statut=StatutJob.TERMINE, chapitres_traduits=[0, 2, 5],
+    )
+    sauvegarder_etat(etat)
+    bibliotheque.enregistrer_document(
+        chemin_source=str(tmp_path / "doc.pdf"), chemin_sortie=str(sortie),
+        modele="llama3.1", langue_source="anglais", langue_cible="français",
+    )
+
+    doc = bibliotheque.lister_documents()[0]
+    assert doc["chapitres_traduits"] == [0, 2, 5]
+    assert doc["job_id"] == "abc"
+    assert doc["statut"] == "termine"
+
+
 def test_retirer_document_du_registre_sans_toucher_au_disque(tmp_path, monkeypatch):
     _registre_temporaire(tmp_path, monkeypatch)
     sortie = tmp_path / "doc_traduit_ll.md"
