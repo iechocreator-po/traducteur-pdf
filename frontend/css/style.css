@@ -361,6 +361,12 @@ pre { white-space: pre-wrap; font-size: 0.85rem; }
 }
 .lot-chap-fait { opacity: 0.55; }
 .lot-chap-fait span { font-style: italic; }
+.reprendre-chapitres {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.reprendre-chapitres .bouton-secondaire { margin-top: 0.6rem; }
 .bouton-danger { color: var(--red); }
 .bouton-danger:hover:not(:disabled) {
   border-color: var(--red);

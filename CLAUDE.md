@@ -29,14 +29,17 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
 - **Vos traductions** (`module-import.js`, section « Vos traductions ») : liste
   **tous** les documents du registre (`GET /api/bibliotheque`) — en cours, en pause,
   interrompus ET terminés — pour les gérer sans passer par la Bibliothèque (qui, elle,
-  est réservée aux résumés/quiz/export). Actions par document : **Pause** (en cours),
-  **Reprendre** (arrêté/troué), **➕ Chapitres** et **Supprimer**. **➕ Chapitres**
-  (`window.toledoImport.ajouterEtOuvrirChapitres(chemin, chapitres_traduits)`) rouvre le
-  sélecteur de chapitres dans le lot **sans repasser par l'analyse** (pas d'OCR lent sur un
-  doc déjà connu), avec les chapitres déjà traduits **verrouillés** (« ✓ déjà traduit »,
-  `lister_documents` expose `chapitres_traduits`) : on ne coche que les nouveaux → flux
-  **additif** (`chapitres_selectionnes`). Si tout est déjà traduit, le sélecteur l'indique
-  et le lancement est bloqué (fini le « terminé » silencieux quand rien n'est à faire).
+  est réservée aux résumés/quiz/export). Chaque ligne affiche la progression **« N/M
+  chapitres · X/Y morceaux »** (`lister_documents` expose `chapitres_traduits` et
+  `chapitres_selectionnes`). Actions selon l'état : **Pause** (en cours), **Reprendre**
+  (arrêté/troué), **➕ Chapitres** et **Supprimer** (ce dernier **masqué pendant un job**
+  en cours/en file). **➕ Chapitres** ouvre un sélecteur de chapitres **inline, directement
+  sous le document** (pas de saut vers le lot, pas de re-analyse OCR) : les chapitres déjà
+  traduits sont **verrouillés** (« ✓ déjà traduit »), on ne coche que les nouveaux, et le
+  bouton **« Traduire N chapitres »** lance le flux **additif** (`chapitres_selectionnes`,
+  options issues du **registre**). Si tout est déjà traduit, le sélecteur l'indique et
+  aucun lancement n'est possible (fini le « terminé » silencieux). **Lancer une traduction
+  retire le document du lot** (il vit désormais ici) — plus de doublon lot ↔ Vos traductions.
 - **Nouveau document** (`module-import.js`) : lot multi-fichiers — **import par
   navigateur** (bouton « Parcourir » + glisser-déposer, `televerser()` → `POST /api/upload`)
   ou, en mode avancé, ajout par **chemin absolu** (flux historique conservé). Le navigateur

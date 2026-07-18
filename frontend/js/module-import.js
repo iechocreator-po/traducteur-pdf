@@ -155,13 +155,21 @@
   // ── Lancement du lot ────────────────────────────────────────────────────────
 
   async function lancerLot() {
+    const btn = $("bouton-lancer-lot");
     if (!(await exigerSante())) return;
     const prets = lot.filter(itemLancable);
     if (prets.length === 0) return;
 
+    // Feedback immédiat : le bouton grise pendant le lancement (le traitement
+    // backend démarre, l'utilisateur voit que « ça part »).
+    const libelle = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "⏳ Lancement…";
+
+    const lances = [];
     for (const item of prets) {
       try {
-        const data = await apiPost("/translate", corpsSource(item.chemin, {
+        await apiPost("/translate", corpsSource(item.chemin, {
           langue_source: $("langue-source").value,
           langue_cible: $("langue-cible").value,
           modele_ollama: $("modele").value,
@@ -171,17 +179,20 @@
             ? { chapitres_selectionnes: [...item.chapitresCoches].sort((a, b) => a - b) }
             : {}),
         }));
-        item.jobId = data.job_id;
-        item.stage = "lance";
-        item.statutJob = "en_attente";
+        lances.push(item.id);
       } catch (e) {
         item.stage = "erreur";
         item.recommandation = String(e.message || e);
       }
     }
-    lotEnPause = false;
+    // Les fichiers lancés QUITTENT le lot : ils sont désormais suivis dans
+    // « Vos traductions » (plus de doublon lot ↔ Vos traductions).
+    lot = lot.filter(f => !lances.includes(f.id));
+    btn.disabled = false;
+    btn.textContent = libelle;
     rendreLot();
-    demarrerPolling();
+    // Demande à « Vos traductions » de se rafraîchir immédiatement.
+    document.dispatchEvent(new CustomEvent("traductions-relancer"));
   }
 
   // ── Suivi (polling par fichier via check-resume) ────────────────────────────
@@ -589,42 +600,9 @@
   document.addEventListener("backend-connecte", rafraichirPlanifies);
   setInterval(rafraichirPlanifies, 10000);
 
-  // Exposé pour la section « Reprendre une traduction » : renvoyer un document
-  // dans le lot rouvre le sélecteur de chapitres (flux additif) sans dupliquer
-  // la logique d'ajout/analyse ici.
-  window.toledoImport = {
-    ajouterEtOuvrirChapitres(chemin, dejaTraduits = []) {
-      // Document DÉJÀ connu : on NE repasse PAS par l'analyse (/analyser fait de
-      // l'OCR lent sur un PDF). On l'ajoute directement « prêt » et on charge
-      // juste la liste des chapitres pour le sélecteur.
-      let item = lot.find(f => f.chemin === chemin);
-      if (!item) {
-        item = {
-          id: `f${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          chemin,
-          type: estMarkdown(chemin) ? "MD" : "PDF",
-          stage: "pret",
-          qualite: "Déjà importé", eta: null, chapitres: null, recommandation: null,
-          jobId: null, statutJob: null, pct: 0, sections: "",
-          listeChapitres: null, chapitresCoches: null, chapitresDejaTraduits: null,
-          chapitresOuverts: true, chapitresChargement: false,
-        };
-        lot.push(item);
-      } else {
-        item.stage = "pret";
-        item.chapitresOuverts = true;
-      }
-      item.chapitresDejaTraduits = new Set(dejaTraduits);
-      if (item.listeChapitres != null) {
-        initSelectionChapitres(item, item.listeChapitres);
-        rendreLot();
-      } else if (!item.chapitresChargement) {
-        chargerChapitresItem(item);  // charge la TOC/titres + rend le sélecteur
-      }
-      rendreLot();
-      $("zone-lot")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    },
-  };
+  // Chemins actuellement en préparation dans le lot (fichiers neufs pas encore
+  // lancés) : « Vos traductions » les masque pour éviter un doublon.
+  window.__lotChemins = () => new Set(lot.map(f => f.chemin));
 })();
 
 // ── Vos traductions (tous les documents du registre, persistants) ─────────────
@@ -645,6 +623,14 @@
   };
 
   let pollTimer = null;
+  // État des sélecteurs « ➕ Chapitres » ouverts, par chemin_sortie (persisté
+  // entre les re-rendus du poll) : {ouvert, chapitres|null, coches:Set,
+  // deja:Set, chargement, lancement}.
+  const selecteurs = new Map();
+
+  function selecteurOuvert() {
+    return [...selecteurs.values()].some(s => s.ouvert);
+  }
 
   async function rafraichir() {
     let docs = [];
@@ -652,17 +638,19 @@
       docs = (await apiGet("/bibliotheque")).documents || [];
     } catch { return; }
 
+    // Dédup : masque les documents encore en préparation dans le lot (neufs).
+    const dansLot = window.__lotChemins ? window.__lotChemins() : new Set();
+    docs = docs.filter(d => !dansLot.has(d.chemin_source));
+
     $("zone-reprendre").hidden = docs.length === 0;
     const liste = $("liste-reprendre");
     liste.innerHTML = "";
+    for (const doc of docs) liste.appendChild(rendreLigne(doc));
 
-    for (const doc of docs) {
-      liste.appendChild(rendreLigne(doc));
-    }
-
-    // Poll tant qu'un document bouge encore (en cours / en file).
+    // Poll tant qu'un document bouge, MAIS pas pendant qu'un sélecteur est ouvert
+    // (on ne veut pas reconstruire le sélecteur sous les doigts de l'utilisateur).
     const actif = docs.some(d => d.statut === "en_cours" || d.statut === "en_attente");
-    if (actif && !pollTimer) pollTimer = setInterval(rafraichir, 2500);
+    if (actif && !pollTimer) pollTimer = setInterval(() => { if (!selecteurOuvert()) rafraichir(); }, 2500);
     if (!actif && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   }
 
@@ -672,21 +660,17 @@
 
     const entete = document.createElement("div");
     entete.className = "lot-ligne-entete";
-
     const badge = document.createElement("span");
     badge.className = "badge-type";
     badge.textContent = estMarkdown(doc.chemin_source) ? "MD" : "PDF";
-
     const nom = document.createElement("span");
     nom.className = "lot-nom";
     nom.textContent = doc.nom || nomFichier(doc.chemin_source);
     nom.title = doc.chemin_source;
-
     const [txt, classe] = STATUTS_LABEL[doc.statut] || [doc.statut, "pill-neutre"];
     const pill = document.createElement("span");
     pill.className = `pill ${classe}`;
     pill.textContent = txt;
-
     entete.append(badge, nom, pill);
     ligne.appendChild(entete);
 
@@ -702,9 +686,13 @@
       ligne.appendChild(barre);
     }
 
+    // Info : « N/M chapitres » (à gauche) puis « X/Y morceaux ».
     const info = document.createElement("div");
     info.className = "lot-info";
     const morceaux = [];
+    const scope = doc.chapitres_selectionnes || [];
+    const faitsChap = (doc.chapitres_traduits || []).filter(i => scope.includes(i)).length;
+    if (scope.length > 0) morceaux.push(`${faitsChap}/${scope.length} chapitres`);
     if (total > 0) morceaux.push(`${faites}/${total} morceaux`);
     if (doc.nb_sections_echouees) morceaux.push(`${doc.nb_sections_echouees} en échec`);
     info.textContent = morceaux.join("   ·   ");
@@ -715,8 +703,6 @@
     const enMarche = doc.statut === "en_cours" || doc.statut === "en_attente";
 
     if (enMarche) {
-      // Job actif → une seule action utile : le mettre en pause (plus de bouton
-      // « Reprendre » grisé redondant avec la pastille de statut).
       const pause = document.createElement("button");
       pause.className = "bouton-mini";
       pause.textContent = "⏸ Pause";
@@ -724,9 +710,6 @@
       pause.addEventListener("click", () => pauseDoc(doc, pause));
       actions.appendChild(pause);
     } else {
-      // Un job arrêté et TROUÉ (pause/erreur/annulé) peut être repris là où il
-      // s'est arrêté. Un job terminé n'a pas de « Reprendre » — seulement l'ajout
-      // de nouveaux chapitres.
       if (doc.statut !== "termine") {
         const reprendre = document.createElement("button");
         reprendre.className = "bouton-mini";
@@ -734,27 +717,156 @@
         reprendre.addEventListener("click", () => reprendreDoc(doc, reprendre));
         actions.appendChild(reprendre);
       }
-
-      // Compléter : rouvre le sélecteur de chapitres avec les chapitres déjà
-      // traduits marqués, pour n'ajouter que les nouveaux (flux additif).
       const chapitres = document.createElement("button");
       chapitres.className = "bouton-mini";
-      chapitres.textContent = "➕ Chapitres";
+      const etat = selecteurs.get(doc.chemin_sortie);
+      chapitres.textContent = etat?.ouvert ? "▾ Chapitres" : "➕ Chapitres";
       chapitres.title = "Choisir de nouveaux chapitres à traduire (ajout au document existant)";
-      chapitres.addEventListener("click", () =>
-        window.toledoImport?.ajouterEtOuvrirChapitres(doc.chemin_source, doc.chapitres_traduits || []));
+      chapitres.addEventListener("click", () => basculerSelecteur(doc));
       actions.appendChild(chapitres);
     }
 
-    const supprimer = document.createElement("button");
-    supprimer.className = "bouton-mini bouton-danger";
-    supprimer.textContent = "🗑 Supprimer";
-    supprimer.title = "Retirer de la liste (les fichiers sur disque sont conservés)";
-    supprimer.addEventListener("click", () => supprimerDoc(doc));
-    actions.appendChild(supprimer);
-
+    // Supprimer : disponible seulement hors traitement (terminé / pause / erreur /
+    // annulé) — jamais pendant un job en cours ou en file.
+    if (!enMarche) {
+      const supprimer = document.createElement("button");
+      supprimer.className = "bouton-mini bouton-danger";
+      supprimer.textContent = "🗑 Supprimer";
+      supprimer.title = "Retirer de la liste (les fichiers sur disque sont conservés)";
+      supprimer.addEventListener("click", () => supprimerDoc(doc));
+      actions.appendChild(supprimer);
+    }
     ligne.appendChild(actions);
+
+    // Sélecteur de chapitres INLINE, directement sous ce document.
+    const etat = selecteurs.get(doc.chemin_sortie);
+    if (etat?.ouvert) ligne.appendChild(rendreSelecteur(doc, etat));
     return ligne;
+  }
+
+  function basculerSelecteur(doc) {
+    let etat = selecteurs.get(doc.chemin_sortie);
+    if (etat?.ouvert) { etat.ouvert = false; rafraichir(); return; }
+    if (!etat) {
+      etat = { ouvert: true, chapitres: null, coches: new Set(),
+               deja: new Set(doc.chapitres_traduits || []), chargement: false, lancement: false };
+      selecteurs.set(doc.chemin_sortie, etat);
+    } else {
+      etat.ouvert = true;
+      etat.deja = new Set(doc.chapitres_traduits || []);
+    }
+    if (etat.chapitres == null && !etat.chargement) chargerChapitres(doc, etat);
+    else rafraichir();
+  }
+
+  async function chargerChapitres(doc, etat) {
+    etat.chargement = true;
+    rafraichir();
+    try {
+      const data = await apiPost("/chapitres", corpsSource(doc.chemin_source));
+      etat.chapitres = data.chapitres;
+      // Coche par défaut les chapitres NON traduits.
+      etat.coches = new Set(data.chapitres.map(c => c.index).filter(i => !etat.deja.has(i)));
+    } catch (e) {
+      etat.ouvert = false;
+      alert(`Impossible de lister les chapitres : ${e.message}`);
+    }
+    etat.chargement = false;
+    rafraichir();
+  }
+
+  function rendreSelecteur(doc, etat) {
+    const bloc = document.createElement("div");
+    bloc.className = "lot-chapitres reprendre-chapitres";
+
+    if (etat.chargement || etat.chapitres == null) {
+      const aide = document.createElement("p");
+      aide.className = "aide";
+      aide.textContent = "⏳ Chargement des chapitres…";
+      bloc.appendChild(aide);
+      return bloc;
+    }
+
+    const restants = etat.chapitres.filter(c => !etat.deja.has(c.index)).length;
+
+    const entete = document.createElement("div");
+    entete.className = "lot-chapitres-entete";
+    for (const [label, tout] of [["Tout", true], ["Aucun", false]]) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "bouton-lien";
+      btn.textContent = label;
+      btn.addEventListener("click", () => {
+        etat.coches = tout
+          ? new Set(etat.chapitres.map(c => c.index).filter(i => !etat.deja.has(i)))
+          : new Set();
+        rafraichir();
+      });
+      entete.appendChild(btn);
+    }
+    bloc.appendChild(entete);
+
+    const liste = document.createElement("div");
+    liste.className = "lot-chapitres-liste";
+    for (const chap of etat.chapitres) {
+      const dejaFait = etat.deja.has(chap.index);
+      const ligne = document.createElement("label");
+      ligne.className = dejaFait ? "lot-chap-ligne lot-chap-fait" : "lot-chap-ligne";
+      ligne.style.paddingLeft = `${4 + (Math.max(chap.niveau, 1) - 1) * 14}px`;
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.checked = dejaFait || etat.coches.has(chap.index);
+      check.disabled = dejaFait;
+      check.addEventListener("change", () => {
+        if (check.checked) etat.coches.add(chap.index);
+        else etat.coches.delete(chap.index);
+        rafraichir();
+      });
+      const titre = document.createElement("span");
+      titre.textContent = dejaFait ? `${chap.titre}  ✓ déjà traduit` : chap.titre;
+      ligne.append(check, titre);
+      liste.appendChild(ligne);
+    }
+    bloc.appendChild(liste);
+
+    if (restants === 0) {
+      const p = document.createElement("p");
+      p.className = "aide";
+      p.textContent = "✓ Tous les chapitres sont déjà traduits — rien à ajouter.";
+      bloc.appendChild(p);
+    } else {
+      const lancer = document.createElement("button");
+      lancer.className = "bouton-secondaire";
+      lancer.textContent = etat.lancement
+        ? "⏳ Lancement…"
+        : `Traduire ${etat.coches.size} chapitre${etat.coches.size > 1 ? "s" : ""}`;
+      lancer.disabled = etat.coches.size === 0 || etat.lancement;
+      lancer.addEventListener("click", () => lancerChapitres(doc, etat));
+      bloc.appendChild(lancer);
+    }
+    return bloc;
+  }
+
+  async function lancerChapitres(doc, etat) {
+    if (!(await exigerSante())) return;
+    etat.lancement = true;
+    rafraichir();
+    try {
+      await apiPost("/translate", corpsSource(doc.chemin_source, {
+        langue_source: doc.langue_source,
+        langue_cible: doc.langue_cible,
+        modele_ollama: doc.modele,
+        chapitres_selectionnes: [...etat.coches].sort((a, b) => a - b),
+      }));
+    } catch (e) {
+      etat.lancement = false;
+      alert(`Lancement impossible : ${e.message}`);
+      rafraichir();
+      return;
+    }
+    // Succès : ferme le sélecteur, la ligne passera « en cours » au rafraîchissement.
+    selecteurs.delete(doc.chemin_sortie);
+    rafraichir();
   }
 
   async function pauseDoc(doc, bouton) {
@@ -770,7 +882,7 @@
       alert(`Pause impossible : ${e.message}`);
       return;
     }
-    rafraichir();  // le poll basculera la ligne en « En pause »
+    rafraichir();
   }
 
   async function reprendreDoc(doc, bouton) {
@@ -778,7 +890,6 @@
     bouton.disabled = true;
     bouton.textContent = "⏳ Reprise…";
     try {
-      // Les options suivent le DOCUMENT (registre), pas les menus de l'Import.
       await apiPost("/translate", corpsSource(doc.chemin_source, {
         langue_source: doc.langue_source,
         langue_cible: doc.langue_cible,
@@ -810,12 +921,12 @@
       alert(`Suppression impossible : ${e.message}`);
       return;
     }
+    selecteurs.delete(doc.chemin_sortie);
     rafraichir();
   }
 
-  // Rafraîchit à la connexion backend, à l'affichage du module Import, et après
-  // qu'une traduction se termine (elle quitte alors la liste).
   document.addEventListener("backend-connecte", rafraichir);
   document.addEventListener("module-affiche", (e) => { if (e.detail === "import") rafraichir(); });
   document.addEventListener("traduction-terminee", rafraichir);
+  document.addEventListener("traductions-relancer", rafraichir);
 })();

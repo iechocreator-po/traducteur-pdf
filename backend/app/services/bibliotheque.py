@@ -114,6 +114,8 @@ def lister_documents() -> list[dict]:
             # Chapitres déjà traduits : le sélecteur de « ➕ Chapitres » les marque
             # (✓ désactivés) pour que l'utilisateur coche uniquement les NOUVEAUX.
             enrichi["chapitres_traduits"] = etat.chapitres_traduits
+            # Portée du run courant : sert au compteur « N/M chapitres » de la barre.
+            enrichi["chapitres_selectionnes"] = etat.chapitres_selectionnes
             # Permet à la Bibliothèque de proposer « Reprendre » sur un document
             # lisible mais troué, plutôt que de le déclarer inaccessible.
             enrichi["nb_sections_echouees"] = len(etat.sections_echouees) + len(etat.chapitres_echoues)
