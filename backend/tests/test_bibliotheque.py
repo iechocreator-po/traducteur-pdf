@@ -92,6 +92,25 @@ def test_registre_absent_retourne_vide(tmp_path, monkeypatch):
 
 # ── Capture d'intérêt ─────────────────────────────────────────────────────────
 
+def test_retirer_document_du_registre_sans_toucher_au_disque(tmp_path, monkeypatch):
+    _registre_temporaire(tmp_path, monkeypatch)
+    sortie = tmp_path / "doc_traduit_ll.md"
+    sortie.write_text("contenu traduit")
+    bibliotheque.enregistrer_document(
+        chemin_source=str(tmp_path / "doc.pdf"), chemin_sortie=str(sortie),
+        modele="llama3.1", langue_source="anglais", langue_cible="français",
+    )
+    assert len(bibliotheque.lister_documents()) == 1
+
+    retire = bibliotheque.retirer_document(str(sortie))
+    assert retire is True
+    assert bibliotheque.lister_documents() == []
+    # Le fichier de sortie sur le disque est CONSERVÉ (nettoyage de liste seulement).
+    assert sortie.exists()
+    # Retirer un chemin inconnu ne fait rien.
+    assert bibliotheque.retirer_document(str(tmp_path / "inconnu.md")) is False
+
+
 def test_email_valide():
     assert interet.email_valide("jp@example.com")
     assert interet.email_valide("  jp@example.com  ")  # espaces tolérés

@@ -33,7 +33,13 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   les écrit dans `backend/uploads/<hash-contenu>/` (`services/uploads.py`) et retourne un
   chemin absolu réinjecté tel quel dans le flux existant. Puis : analyse auto (qualité /
   durée / chapitres), réglages du lot (langues ; extracteur et modèle en mode avancé),
-  lancement en lot (file séquentielle backend), planification.
+  lancement en lot (file séquentielle backend), planification. Une section **« Reprendre
+  une traduction »** (IIFE dédiée dans `module-import.js`, distincte du `lot` en mémoire)
+  liste les jobs **non terminés** via `GET /api/jobs/reprenables` — donc **persistante**
+  (survit au reload et aux sessions) : chaque document a un bouton **Reprendre**
+  (`POST /api/translate` `resume=true`, options issues du **registre** et non des menus) et
+  un bouton **Supprimer** (`DELETE /api/bibliotheque` → retire du registre, fichiers disque
+  conservés).
 - **Bibliothèque** (`module-bibliotheque.js`) : documents traduits (`GET /api/bibliotheque`,
   registre alimenté par `translation_runner`), lecture chapitre par chapitre
   (`POST /api/chapitres/contenu`), barre audio TTS (`GET /api/tts/audio`), panneau IA
@@ -104,35 +110,57 @@ retourné est donc structurante** (`estMarkdown`, routage `/analyser` vs `/chapi
   abandonnés (vieux, sans `*_traduit*.md`/`*.state.json`, non référencés en Bibliothèque) —
   les sorties étant écrites à côté de la source, une purge naïve détruirait des traductions.
 
-### Fiabilité des longues traductions (retry + statut honnête)
+### Moteur de traduction unifié (fiabilité + reprise + progression)
 
-Une panne d'Ollama (arrêt, redémarrage, **Mac en veille** — réglage `sleep 1` = 1 min) ne
-doit jamais faire passer un job troué pour un succès. L'incident de référence : sur un livre
-de 306 pages, Ollama est tombé pendant la veille nocturne, l'ancienne boucle a rempli 135 des
-233 sections de `[ERREUR DE TRADUCTION]` en une seconde puis déclaré le job `termine`.
+**Il n'existe qu'UN seul moteur d'exécution** (`translation_runner._executer_traduction`,
+unifié le 2026-07-18). Les deux implémentations parallèles d'avant (document entier par
+`decouper_en_chunks` vs par chapitres) divergeaient : les correctifs fiabilité ne profitaient
+qu'à l'une, et le mode chapitre traînait des bugs (progression figée, ETA en double). Tout
+document est désormais traité comme une **liste ordonnée de chapitres** ; s'il n'a aucun titre
+`#`, on fabrique un **chapitre implicite** « Document entier » couvrant tout le texte
+(`_chapitres_ou_implicite`). Ne JAMAIS réintroduire un second chemin d'exécution.
 
-- **Retry réseau** : `translator.appeler_ollama()` distingue les erreurs **réseau/5xx**
-  (transitoires → backoff exponentiel, budget **mural** de 30 min, `OLLAMA_RETRY_*` dans
-  `settings.py`) des erreurs **4xx** (définitives → abandon immédiat). Un callback
-  `interruption` garde Pause/Annuler vivants pendant le backoff. Exceptions publiques :
-  `OllamaIndisponible` (fatale pour le job) et `OllamaErreurApplicative` (locale à la section).
-- **Statut honnête** : `EtatJob.sections_echouees` / `chapitres_echoues`. Un job avec ≥1
-  section en échec finit `erreur`, **jamais** `termine` — et la bascule dépend UNIQUEMENT de
-  ces listes, pas de `erreurs`/`avertissements` (qui portent aussi les avertissements qualité,
-  eux inoffensifs). Une `OllamaIndisponible` propage et arrête le job **sans** écrire de
-  placeholder ni avancer `derniere_section_completee`.
-- **Reprise = rejeu à cache chaud** : `demarrer_traduction(resume=True)` accepte désormais le
-  statut `ERREUR` (l'ajouter au tuple est **indissociable** du point précédent, sinon la
-  reprise retombe dans la branche qui tronque la sortie). Le cache (`cache_traduction.py`)
-  étant indexé par **contenu** et ne contenant jamais les sections échouées, on **rejoue
-  depuis la section 0** : les bonnes reviennent du cache instantanément, seuls les trous
-  repartent chez Ollama. `_trous_legacy()` couvre les `.state.json` d'avant `sections_echouees`
-  (détection du marqueur dans la sortie). Garde d'intégrité : si `len(chunks) != total_sections`
-  (source éditée / `CHUNK_TAILLE_MAX` changé), on repart proprement de zéro.
-- **Perf mesurée** : Ollama fait ~29 tok/s sur M2 Pro (~32 s/chunk). Le parallélisme des chunks
-  a été mesuré **inutile** (1,04× — Ollama 0.32 sérialise sans `OLLAMA_NUM_PARALLEL`), donc
-  écarté. Items connus non traités : ETA en O(n²), anti-sommeil `caffeinate`, sous-découpage
-  des blocs code/tableau (voir `docs/features-roadmap.md`).
+- **Progression au grain du sous-morceau** : chaque chapitre est sous-découpé
+  (`CHAPITRE_SOUS_CHUNK_TAILLE_MAX`), et `derniere_section_completee` avance à **chaque
+  sous-morceau** (pas seulement à la fin d'un chapitre) → la barre ne reste jamais figée sur
+  un gros chapitre (c'était le cœur du feedback #132). `total_sections` = nombre total de
+  sous-morceaux de la portée du run.
+- **Chapitre = unité atomique d'écriture** : un chapitre n'est écrit (append) que si TOUS ses
+  sous-morceaux réussissent ; sinon rien n'est écrit et il reste re-sélectionnable (aucun
+  placeholder, aucun trou au milieu du fichier).
+- **Retry réseau** (inchangé) : `translator.appeler_ollama()` distingue réseau/5xx
+  (transitoires → backoff, budget **mural** 30 min, `OLLAMA_RETRY_*`) et 4xx (définitives).
+  `OllamaIndisponible` (fatale → job `erreur`, reprenable) vs `OllamaErreurApplicative`
+  (locale au chapitre). Le callback `interruption` garde Pause/Annuler vivants pendant le backoff.
+- **Statut honnête** : un job avec ≥1 `chapitres_echoues` finit `erreur`, **jamais** `termine`
+  (bascule sur cette liste seule, pas sur `erreurs`/`avertissements` qui portent aussi les
+  avertissements qualité inoffensifs). `sections_echouees` est conservé sur `EtatJob` **pour la
+  compat** des `.state.json` d'avant l'unification ; le moteur unifié n'écrit que `chapitres_echoues`.
+- **ETA sans O(n²)** : `temps_ecoule_secondes` est figé pendant la boucle ; l'écoulé se calcule
+  en variable **locale** (`base_ecoule + (now - session_debut)`) et n'est réécrit dans l'état
+  qu'aux points de sortie (pause/annule/fin). Fini la ré-accumulation (ancien item G).
+- **Reprise unifiée** (`demarrer_traduction`, `chapitres_selectionnes` persisté sur `EtatJob`) :
+  - **Additive** — poursuivre de NOUVEAUX chapitres (état existant, sélection fournie) ou
+    reprendre sans trou : on garde la sortie et on **append** les chapitres restants
+    (sélection − `chapitres_traduits`).
+  - **Rejeu à cache chaud DANS L'ORDRE** — si l'état a des trous (`_a_des_trous` : `chapitres_echoues`,
+    `sections_echouees`, ou marqueur `MARQUEUR_ECHEC` legacy dans la sortie) : on réécrit tout
+    depuis l'en-tête, dans l'ordre. Le cache (`cache_traduction.py`, indexé par **contenu**, ne
+    contenant jamais les morceaux échoués) fait revenir instantanément le bon travail ; seuls les
+    trous repartent chez Ollama. La réécriture ordonnée évite qu'un chapitre du milieu recousu
+    se retrouve à la fin.
+- **Récupération au démarrage** : `recuperer_jobs_interrompus()` (appelée dans `main.py`) parcourt
+  le registre Bibliothèque et bascule tout `.state.json` resté `en_cours` → `en_pause` (au
+  redémarrage le registre mémoire est vide : un `en_cours` est forcément un job coupé par un
+  arrêt/crash serveur). Il redevient ainsi reprenable depuis « Nouveau document ».
+- **Endpoints associés** : `GET /api/jobs/reprenables` (documents non terminaux, filtre sur
+  `STATUTS_NON_TERMINAUX`) ; `DELETE /api/bibliotheque` (`bibliotheque.retirer_document` : retire
+  du registre, **ne touche pas** aux fichiers disque).
+- **Perf mesurée** : Ollama ~29 tok/s sur M2 Pro. Le parallélisme des sous-morceaux reste mesuré
+  **inutile** (1,04× — Ollama 0.32 sérialise sans `OLLAMA_NUM_PARALLEL`), donc non construit ;
+  l'architecture (file d'unités) le rendrait toutefois facile à ajouter. Items encore ouverts :
+  anti-sommeil `caffeinate` (item H). L'ETA O(n²) (G) et le sous-découpage des gros blocs (I) sont
+  résolus par cette unification. **v1 web** — parité macOS de la section Reprendre différée.
 
 ### Clonage vocal (moteur `openvoice`)
 

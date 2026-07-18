@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.api.validation import ORIGINES_LOCALES
 from app.services.scheduler import demarrer_surveillance
+from app.services.translation_runner import recuperer_jobs_interrompus
 from app.services.uploads import purger_uploads_anciens
 
 
@@ -42,4 +43,7 @@ app.include_router(router, prefix="/api")
 demarrer_surveillance()
 # Ménage des uploads abandonnés (jamais des traductions produites) au démarrage.
 purger_uploads_anciens()
+# Récupère les jobs coupés net par un arrêt du serveur : `en_cours` périmé →
+# `en_pause`, pour qu'ils redeviennent reprenables depuis « Nouveau document ».
+recuperer_jobs_interrompus()
 

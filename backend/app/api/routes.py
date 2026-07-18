@@ -197,6 +197,48 @@ def bibliotheque() -> dict:
     return {"documents": lister_documents()}
 
 
+# Statuts non terminaux : un document dans l'un d'eux peut être repris ou nettoyé
+# depuis « Nouveau document ». `termine` en est exclu (il vit dans la Bibliothèque).
+STATUTS_NON_TERMINAUX = {"en_cours", "en_pause", "en_attente", "erreur", "annule"}
+
+
+@router.get("/jobs/reprenables")
+def jobs_reprenables() -> dict:
+    """
+    Documents dont la traduction n'est pas terminée (en cours, en pause, en
+    attente, en erreur ou annulée). Alimente la section « Reprendre une
+    traduction » du module Nouveau document — persistant, donc survivant au
+    rechargement de page et aux sessions.
+    """
+    from app.services.bibliotheque import lister_documents
+    reprenables = [d for d in lister_documents() if d.get("statut") in STATUTS_NON_TERMINAUX]
+    return {"documents": reprenables}
+
+
+class SupprimerDocumentRequest(BaseModel):
+    chemin_sortie: str
+
+    @model_validator(mode="after")
+    def valider(self):
+        if not self.chemin_sortie.strip():
+            raise ValueError("chemin_sortie est requis.")
+        return self
+
+
+@router.delete("/bibliotheque")
+def supprimer_document(req: SupprimerDocumentRequest) -> dict:
+    """
+    Retire un document du registre (liste seulement — les fichiers sur disque
+    sont conservés). Utilisé par le bouton « Supprimer » de chaque document
+    dans « Reprendre une traduction ».
+    """
+    from app.services.bibliotheque import retirer_document
+    retire = retirer_document(req.chemin_sortie)
+    if not retire:
+        raise HTTPException(status_code=404, detail="Document introuvable dans le registre.")
+    return {"supprime": True}
+
+
 class InteretRequest(BaseModel):
     fonctionnalite: str
     email: str

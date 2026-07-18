@@ -399,3 +399,62 @@ def test_upload_origine_tierce_refusee():
         headers={"origin": "https://evil.example"},
     )
     assert reponse.status_code == 403
+
+
+def test_jobs_reprenables_filtre_les_termines(tmp_path, monkeypatch):
+    """GET /jobs/reprenables ne renvoie que les documents non terminés."""
+    from app.services import bibliotheque
+    from app.models.schemas import EtatJob, Langue, StatutJob
+    from app.services.job_manager import sauvegarder_etat
+
+    monkeypatch.setattr(bibliotheque, "_FICHIER_BIBLIO", str(tmp_path / "bibliotheque.json"))
+
+    # Un document terminé (sortie sans .state.json → jugé « termine »).
+    fini = tmp_path / "fini_traduit_ll.md"
+    fini.write_text("ok", encoding="utf-8")
+    bibliotheque.enregistrer_document(
+        chemin_source=str(tmp_path / "fini.md"), chemin_sortie=str(fini),
+        modele="llama3.1", langue_source="anglais", langue_cible="français",
+    )
+    # Un document en pause (reprenable).
+    pause = tmp_path / "pause_traduit_ll.md"
+    pause.write_text("<!-- h -->\n", encoding="utf-8")
+    etat = EtatJob(
+        job_id="p", chemin_pdf=str(tmp_path / "pause.md"), chemin_sortie=str(pause),
+        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS, modele_ollama="llama3.1",
+        statut=StatutJob.EN_PAUSE, derniere_section_completee=1, total_sections=3,
+    )
+    sauvegarder_etat(etat)
+    bibliotheque.enregistrer_document(
+        chemin_source=str(tmp_path / "pause.md"), chemin_sortie=str(pause),
+        modele="llama3.1", langue_source="anglais", langue_cible="français",
+    )
+
+    reponse = client.get("/api/jobs/reprenables")
+    assert reponse.status_code == 200
+    docs = reponse.json()["documents"]
+    sorties = {d["chemin_sortie"] for d in docs}
+    assert str(pause) in sorties
+    assert str(fini) not in sorties
+
+
+def test_supprimer_document_du_registre(tmp_path, monkeypatch):
+    from app.services import bibliotheque
+
+    monkeypatch.setattr(bibliotheque, "_FICHIER_BIBLIO", str(tmp_path / "bibliotheque.json"))
+    sortie = tmp_path / "doc_traduit_ll.md"
+    sortie.write_text("contenu", encoding="utf-8")
+    bibliotheque.enregistrer_document(
+        chemin_source=str(tmp_path / "doc.md"), chemin_sortie=str(sortie),
+        modele="llama3.1", langue_source="anglais", langue_cible="français",
+    )
+
+    reponse = client.request("DELETE", "/api/bibliotheque", json={"chemin_sortie": str(sortie)})
+    assert reponse.status_code == 200
+    assert reponse.json()["supprime"] is True
+    assert bibliotheque.lister_documents() == []
+    assert sortie.exists()  # fichier disque conservé
+
+    # Supprimer un document inconnu → 404.
+    manquant = client.request("DELETE", "/api/bibliotheque", json={"chemin_sortie": "/x/inconnu.md"})
+    assert manquant.status_code == 404

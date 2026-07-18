@@ -557,3 +557,152 @@
   document.addEventListener("backend-connecte", rafraichirPlanifies);
   setInterval(rafraichirPlanifies, 10000);
 })();
+
+// ── Reprendre une traduction (jobs non terminés, persistants) ─────────────────
+// Section distincte du lot en mémoire : elle est alimentée par le backend
+// (GET /jobs/reprenables), donc elle survit au rechargement de page et aux
+// sessions. Chaque document non terminé (en cours / en pause / interrompu /
+// erreur / annulé) peut être repris (⏯) ou retiré de la liste (🗑).
+(() => {
+  const STATUTS_LABEL = {
+    en_cours: ["En cours…", "pill-attention"],
+    en_attente: ["En file…", "pill-neutre"],
+    en_pause: ["En pause", "pill-attention"],
+    erreur: ["Interrompu", "pill-erreur"],
+    annule: ["Annulé", "pill-erreur"],
+  };
+
+  let pollTimer = null;
+
+  async function rafraichir() {
+    let docs = [];
+    try {
+      docs = (await apiGet("/jobs/reprenables")).documents || [];
+    } catch { return; }
+
+    $("zone-reprendre").hidden = docs.length === 0;
+    const liste = $("liste-reprendre");
+    liste.innerHTML = "";
+
+    for (const doc of docs) {
+      liste.appendChild(rendreLigne(doc));
+    }
+
+    // Poll tant qu'un document bouge encore (en cours / en file).
+    const actif = docs.some(d => d.statut === "en_cours" || d.statut === "en_attente");
+    if (actif && !pollTimer) pollTimer = setInterval(rafraichir, 2500);
+    if (!actif && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function rendreLigne(doc) {
+    const ligne = document.createElement("div");
+    ligne.className = "reprendre-ligne carte";
+
+    const entete = document.createElement("div");
+    entete.className = "lot-ligne-entete";
+
+    const badge = document.createElement("span");
+    badge.className = "badge-type";
+    badge.textContent = estMarkdown(doc.chemin_source) ? "MD" : "PDF";
+
+    const nom = document.createElement("span");
+    nom.className = "lot-nom";
+    nom.textContent = doc.nom || nomFichier(doc.chemin_source);
+    nom.title = doc.chemin_source;
+
+    const [txt, classe] = STATUTS_LABEL[doc.statut] || [doc.statut, "pill-neutre"];
+    const pill = document.createElement("span");
+    pill.className = `pill ${classe}`;
+    pill.textContent = txt;
+
+    entete.append(badge, nom, pill);
+    ligne.appendChild(entete);
+
+    const total = doc.total_sections || 0;
+    const faites = doc.sections_completees || 0;
+    if (total > 0) {
+      const barre = document.createElement("div");
+      barre.className = "barre-conteneur barre-fine";
+      const prog = document.createElement("div");
+      prog.className = "barre-progression";
+      prog.style.width = `${Math.round((faites / total) * 100)}%`;
+      barre.appendChild(prog);
+      ligne.appendChild(barre);
+    }
+
+    const info = document.createElement("div");
+    info.className = "lot-info";
+    const morceaux = [];
+    if (total > 0) morceaux.push(`${faites}/${total} morceaux`);
+    if (doc.nb_sections_echouees) morceaux.push(`${doc.nb_sections_echouees} en échec`);
+    info.textContent = morceaux.join("   ·   ");
+    ligne.appendChild(info);
+
+    const actions = document.createElement("div");
+    actions.className = "reprendre-actions";
+
+    const reprendre = document.createElement("button");
+    reprendre.className = "bouton-mini";
+    reprendre.textContent = doc.statut === "en_cours" || doc.statut === "en_attente"
+      ? "⏳ En cours" : "⏯ Reprendre";
+    reprendre.disabled = doc.statut === "en_cours" || doc.statut === "en_attente";
+    reprendre.addEventListener("click", () => reprendreDoc(doc, reprendre));
+    actions.appendChild(reprendre);
+
+    const supprimer = document.createElement("button");
+    supprimer.className = "bouton-mini bouton-danger";
+    supprimer.textContent = "🗑 Supprimer";
+    supprimer.title = "Retirer de la liste (les fichiers sur disque sont conservés)";
+    supprimer.addEventListener("click", () => supprimerDoc(doc));
+    actions.appendChild(supprimer);
+
+    ligne.appendChild(actions);
+    return ligne;
+  }
+
+  async function reprendreDoc(doc, bouton) {
+    if (!(await exigerSante())) return;
+    bouton.disabled = true;
+    bouton.textContent = "⏳ Reprise…";
+    try {
+      // Les options suivent le DOCUMENT (registre), pas les menus de l'Import.
+      await apiPost("/translate", corpsSource(doc.chemin_source, {
+        langue_source: doc.langue_source,
+        langue_cible: doc.langue_cible,
+        modele_ollama: doc.modele,
+        resume: true,
+      }));
+    } catch (e) {
+      bouton.disabled = false;
+      bouton.textContent = "⏯ Reprendre";
+      alert(`Impossible de reprendre : ${e.message}`);
+      return;
+    }
+    rafraichir();
+  }
+
+  async function supprimerDoc(doc) {
+    if (!confirm(`Retirer « ${doc.nom || nomFichier(doc.chemin_source)} » de la liste ?\n\nLes fichiers déjà traduits sur le disque sont conservés.`)) return;
+    try {
+      const rep = await fetch(`${API_BASE}/bibliotheque`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chemin_sortie: doc.chemin_sortie }),
+      });
+      if (!rep.ok) {
+        const data = await rep.json().catch(() => ({}));
+        throw new Error(data.detail || `Erreur HTTP ${rep.status}`);
+      }
+    } catch (e) {
+      alert(`Suppression impossible : ${e.message}`);
+      return;
+    }
+    rafraichir();
+  }
+
+  // Rafraîchit à la connexion backend, à l'affichage du module Import, et après
+  // qu'une traduction se termine (elle quitte alors la liste).
+  document.addEventListener("backend-connecte", rafraichir);
+  document.addEventListener("module-affiche", (e) => { if (e.detail === "import") rafraichir(); });
+  document.addEventListener("traduction-terminee", rafraichir);
+})();

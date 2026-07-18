@@ -1,7 +1,15 @@
 """
-Tests du runner de traduction : file d'attente séquentielle, annulation,
-contrôle qualité anti-résumé et cache de chunks.
-Ollama est remplacé par des fausses fonctions de traduction (monkeypatch).
+Tests du runner de traduction UNIFIÉ : file d'attente séquentielle, annulation,
+contrôle qualité anti-résumé, cache, reprise (additive et rejeu à cache chaud)
+et récupération des jobs interrompus.
+
+Le moteur traite tout document comme une liste de chapitres (un chapitre
+implicite « Document entier » s'il n'a pas de titres), avec une progression au
+grain du sous-morceau. Ici chaque source a des sections `#` assez courtes pour
+qu'un chapitre = un sous-morceau, donc « chapitre » et « unité de progression »
+coïncident et les comptes restent lisibles.
+
+Ollama est remplacé par de fausses fonctions de traduction (monkeypatch).
 """
 
 import threading
@@ -15,10 +23,11 @@ from app.services.translator import OllamaIndisponible, OllamaErreurApplicative
 
 
 def _ecrire_source_md(tmp_path, nom: str, nb_sections: int = 4) -> str:
-    """Crée un fichier Markdown avec nb_sections sections d'environ 2000 caractères
-    chacune, pour que decouper_en_chunks (taille_max=3000) produise un chunk par section."""
+    """Crée un Markdown de nb_sections sections d'environ 800 caractères chacune :
+    court assez pour qu'un chapitre = un sous-morceau (decouper_en_chunks à 1500),
+    long assez (≥ 200) pour activer le contrôle qualité anti-résumé."""
     contenu = "".join(
-        f"# Section {i}\n\n" + ("mot " * 500) + "\n\n" for i in range(nb_sections)
+        f"# Section {i}\n\n" + ("mot " * 200) + "\n\n" for i in range(nb_sections)
     )
     chemin = tmp_path / nom
     chemin.write_text(contenu, encoding="utf-8")
@@ -80,6 +89,66 @@ def test_deux_jobs_ne_traduisent_jamais_en_parallele(tmp_path, monkeypatch):
     assert max_simultanes == 1
 
 
+def test_progression_avance_au_grain_du_sous_morceau(tmp_path, monkeypatch):
+    """
+    Cœur de l'incident « ça tourne sans fin » : un gros chapitre (plusieurs
+    sous-morceaux) doit faire AVANCER la progression morceau par morceau, pas
+    seulement à la fin du chapitre.
+    """
+    # Un seul chapitre, volontairement gros → plusieurs sous-morceaux.
+    contenu = "# Gros chapitre\n\n" + "\n\n".join("mot " * 200 for _ in range(6))
+    source = tmp_path / "doc_gros.md"
+    source.write_text(contenu, encoding="utf-8")
+
+    from app.services.pdf_extractor import chapitres_avec_contenu, decouper_en_chunks
+    from app.config.settings import CHAPITRE_SOUS_CHUNK_TAILLE_MAX
+    chap = chapitres_avec_contenu(str(source))[0]
+    nb_sous_chunks = len(decouper_en_chunks(chap["contenu"], taille_max=CHAPITRE_SOUS_CHUNK_TAILLE_MAX))
+    assert nb_sous_chunks > 1  # sinon le test ne prouve rien
+
+    vues = []
+
+    def traducteur(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        # Enregistre la progression telle que la voit un client qui poll.
+        etat = charger_etat(translation_runner.build_output_path(str(source), "llama3.1"))
+        if etat:
+            vues.append(etat.derniere_section_completee)
+        time.sleep(0.02)
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+
+    _, sortie = _demarrer(str(source))
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+    assert etat.statut == StatutJob.TERMINE
+    assert etat.total_sections == nb_sous_chunks
+    # La progression a pris des valeurs intermédiaires strictement croissantes
+    # AVANT d'atteindre le total (elle n'a pas sauté de 0 à nb d'un coup).
+    intermediaires = [v for v in vues if 0 < v < nb_sous_chunks]
+    assert intermediaires, f"aucune progression intermédiaire observée : {vues}"
+
+
+def test_document_sans_titre_traduit_en_chapitre_implicite(tmp_path, monkeypatch):
+    """Un document sans aucun titre `#` est traité comme un chapitre implicite
+    couvrant tout le texte, et se termine normalement."""
+    source = tmp_path / "doc_plat.md"
+    source.write_text("mot " * 200 + "\n\nautre paragraphe " * 30, encoding="utf-8")
+
+    def traducteur(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+
+    _, sortie = _demarrer(str(source))
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+    assert etat.statut == StatutJob.TERMINE
+    assert etat.total_sections >= 1
+    contenu = open(sortie, encoding="utf-8").read()
+    assert "MOT" in contenu.upper()
+    # Pas de marqueur de chapitre pour un chapitre implicite.
+    assert "=== chapitre" not in contenu
+
+
 def test_annulation_d_un_job_en_cours(tmp_path, monkeypatch):
     def fausse_traduction(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
         time.sleep(0.15)
@@ -136,7 +205,7 @@ def test_controle_qualite_retente_puis_avertit(tmp_path, monkeypatch):
 
     etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
     assert etat.statut == StatutJob.TERMINE
-    # 1 chunk → 1 appel initial + 1 retry
+    # 1 chapitre = 1 sous-morceau → 1 appel initial + 1 retry
     assert len(appels) == 2
     assert len(etat.avertissements) == 1
     assert "résumée" in etat.avertissements[0]
@@ -179,33 +248,34 @@ def _reprendre(chemin_source: str) -> str:
 
 
 def test_erreur_applicative_marque_le_job_en_erreur(tmp_path, monkeypatch):
-    """Une section en échec suffit à disqualifier le job : jamais « termine »."""
-    def traduction_qui_echoue_section_2(texte, modele, langue_source, langue_cible,
-                                        termes_a_conserver=None, interruption=None):
+    """Un chapitre en échec suffit à disqualifier le job : jamais « termine »."""
+    def traduction_qui_echoue_chapitre_1(texte, modele, langue_source, langue_cible,
+                                         termes_a_conserver=None, interruption=None):
         if "Section 1" in texte:
             raise OllamaErreurApplicative("modèle inconnu")
         return texte.upper()
 
-    monkeypatch.setattr(translation_runner, "traduire_texte", traduction_qui_echoue_section_2)
+    monkeypatch.setattr(translation_runner, "traduire_texte", traduction_qui_echoue_chapitre_1)
 
     source = _ecrire_source_md(tmp_path, "doc_echec.md")
     _, sortie = _demarrer(source)
     etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
 
     assert etat.statut == StatutJob.ERREUR
-    assert etat.sections_echouees == [1]
-    # Les autres sections sont bien traduites : l'échec reste local.
-    assert etat.derniere_section_completee == etat.total_sections
+    assert etat.chapitres_echoues == [1]
+    # Le chapitre troué n'est PAS écrit (reste re-sélectionnable), les autres oui.
+    assert 1 not in etat.chapitres_traduits
     contenu = open(sortie, encoding="utf-8").read()
-    assert "[ERREUR DE TRADUCTION — section 2]" in contenu
+    assert translation_runner.MARQUEUR_ECHEC not in contenu  # pas de placeholder
     assert "SECTION 0" in contenu.upper()
+    assert "SECTION 1" not in contenu.upper()
 
 
-def test_ollama_indisponible_arrete_le_job_sans_bruler_les_sections(tmp_path, monkeypatch):
+def test_ollama_indisponible_arrete_le_job_sans_bruler_les_chapitres(tmp_path, monkeypatch):
     """
-    Régression de l'incident des 306 pages : Ollama tombe à la section 2, et
-    l'ancienne boucle remplissait les 3 restantes de placeholders en 1 ms avant
-    de déclarer « termine ». Le job doit s'arrêter net et rester reprenable.
+    Régression de l'incident des 306 pages : Ollama tombe au chapitre 1, et
+    l'ancienne boucle remplissait les suivants de placeholders en 1 ms avant de
+    déclarer « termine ». Le job doit s'arrêter net et rester reprenable.
     """
     appels = []
 
@@ -223,12 +293,12 @@ def test_ollama_indisponible_arrete_le_job_sans_bruler_les_sections(tmp_path, mo
     etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
 
     assert etat.statut == StatutJob.ERREUR
-    # La section perdue n'est PAS comptée comme faite → la reprise repart d'elle.
+    # Seul le chapitre 0 est fait → la reprise repartira du chapitre 1.
+    assert etat.chapitres_traduits == [0]
     assert etat.derniere_section_completee == 1
-    # Aucun placeholder : rien n'a été brûlé.
     contenu = open(sortie, encoding="utf-8").read()
-    assert translation_runner.MARQUEUR_ECHEC not in contenu
-    # Les sections 3 et 4 n'ont même jamais été tentées.
+    assert translation_runner.MARQUEUR_ECHEC not in contenu  # rien de brûlé
+    # Les chapitres 2 et 3 n'ont même jamais été tentés.
     assert len(appels) == 2
 
 
@@ -257,16 +327,17 @@ def test_reprise_apres_panne_recoud_sans_retraduire(tmp_path, monkeypatch):
     etat2 = _attendre_statut(sortie2, {StatutJob.TERMINE, StatutJob.ERREUR})
 
     assert etat2.statut == StatutJob.TERMINE
-    # La section 0 était en cache → seules 1, 2 et 3 partent réellement.
+    # Le chapitre 0 était fait/en cache → seuls 1, 2 et 3 partent réellement.
     assert len(appels) - appels_apres_panne == 3
     contenu = open(sortie2, encoding="utf-8").read()
     assert translation_runner.MARQUEUR_ECHEC not in contenu
-    assert contenu.count("SECTION 0") == 1  # pas de doublon
+    # Chapitre 0 écrit une seule fois (le marqueur ne se répète pas → pas de doublon).
+    assert contenu.count("=== chapitre 0 ") == 1
 
 
-def test_reprise_apres_annulation_repart_de_la_section_stoppee(tmp_path, monkeypatch):
-    """Un job annulé en vol laisse une sortie propre : la reprise continue depuis
-    derniere_section_completee (comme une pause), sans retraduire ni tronquer."""
+def test_reprise_apres_annulation_repart_du_chapitre_stoppe(tmp_path, monkeypatch):
+    """Un job annulé en vol laisse une sortie propre : la reprise poursuit les
+    chapitres restants, sans retraduire ni tronquer les précédents."""
     appels = []
     lent = True
 
@@ -281,31 +352,38 @@ def test_reprise_apres_annulation_repart_de_la_section_stoppee(tmp_path, monkeyp
 
     source = _ecrire_source_md(tmp_path, "doc_annule_reprise.md", nb_sections=6)
     job_id, sortie = _demarrer(source)
-    _attendre_statut(sortie, {StatutJob.EN_COURS})
+    # Attend qu'AU MOINS un chapitre soit terminé avant d'annuler (sinon course :
+    # l'annulation pourrait tomber avant le 1er chapitre → rien de fait).
+    fin = time.time() + 15
+    while time.time() < fin:
+        e = charger_etat(sortie)
+        if e and e.chapitres_traduits:
+            break
+        time.sleep(0.02)
     assert demander_annulation(job_id) is True
     etat = _attendre_statut(sortie, {StatutJob.ANNULE, StatutJob.TERMINE})
     assert etat.statut == StatutJob.ANNULE
-    faites = etat.derniere_section_completee
-    assert 0 < faites < etat.total_sections
-    appels_avant = len(appels)
+    faits = len(etat.chapitres_traduits)
+    assert 0 < faits < etat.total_sections
 
-    # Reprise : le reste part réellement, les sections déjà faites viennent du cache.
+    # Reprise : le reste part réellement, les chapitres déjà faits viennent du cache.
     lent = False
     sortie2 = _reprendre(source)
     etat2 = _attendre_statut(sortie2, {StatutJob.TERMINE, StatutJob.ERREUR})
 
     assert etat2.statut == StatutJob.TERMINE
-    # Aucun placeholder, sections dans l'ordre, une seule fois chacune.
+    assert sorted(etat2.chapitres_traduits) == list(range(6))  # tout est fait au final
     contenu = open(sortie2, encoding="utf-8").read()
     assert translation_runner.MARQUEUR_ECHEC not in contenu
-    assert contenu.count("SECTION 0") == 1
-    # On ne retraduit pas ce qui était déjà fait avant l'annulation (cache chaud).
-    assert len(appels) - appels_avant <= etat2.total_sections - faites
+    assert contenu.count("=== chapitre 0 ") == 1  # chapitre déjà fait non réécrit
+    # La reprise additive ne met en scope que les chapitres restants : ceux déjà
+    # faits sont exclus (donc jamais retraduits), pas seulement servis par le cache.
+    assert etat2.total_sections == 6 - faits
 
 
-def test_rejeu_a_cache_chaud_ne_retraduit_que_les_trous(tmp_path, monkeypatch):
-    """Un job « erreur » avec des trous : la reprise rejoue depuis 0 mais
-    l'immense majorité revient du cache — seuls les trous coûtent un appel."""
+def test_rejeu_a_cache_chaud_recoud_dans_l_ordre(tmp_path, monkeypatch):
+    """Un job « erreur » avec un trou au milieu : la reprise réécrit tout DANS
+    L'ORDRE ; l'immense majorité revient du cache, seul le trou coûte un appel."""
     appels = []
     echouer = True
 
@@ -321,7 +399,7 @@ def test_rejeu_a_cache_chaud_ne_retraduit_que_les_trous(tmp_path, monkeypatch):
     source = _ecrire_source_md(tmp_path, "doc_rejeu.md")
     _, sortie = _demarrer(source)
     etat = _attendre_statut(sortie, {StatutJob.ERREUR})
-    assert etat.sections_echouees == [1]
+    assert etat.chapitres_echoues == [1]
     appels_run1 = len(appels)
 
     echouer = False
@@ -329,21 +407,21 @@ def test_rejeu_a_cache_chaud_ne_retraduit_que_les_trous(tmp_path, monkeypatch):
     etat2 = _attendre_statut(sortie2, {StatutJob.TERMINE, StatutJob.ERREUR})
 
     assert etat2.statut == StatutJob.TERMINE
-    assert etat2.sections_echouees == []
-    # 4 sections rejouées, mais 3 étaient en cache → 1 seul vrai appel.
+    assert etat2.chapitres_echoues == []
+    # 4 chapitres rejoués, mais 3 étaient en cache → 1 seul vrai appel.
     assert len(appels) - appels_run1 == 1
-    contenu = open(sortie2, encoding="utf-8").read()
+    contenu = open(sortie2, encoding="utf-8").read().upper()
     assert translation_runner.MARQUEUR_ECHEC not in contenu
-    # Les sections sont dans l'ordre, sans doublon.
+    # Les chapitres sont dans l'ordre, sans doublon (grâce à la réécriture ordonnée).
     assert contenu.index("SECTION 0") < contenu.index("SECTION 1") < contenu.index("SECTION 2")
     assert any("Rejeu à cache chaud" in ligne for ligne in etat2.journal)
 
 
-def test_rejeu_declenche_par_un_etat_legacy_sans_sections_echouees(tmp_path, monkeypatch):
+def test_rejeu_declenche_par_un_placeholder_legacy(tmp_path, monkeypatch):
     """
-    Les .state.json d'avant sections_echouees se chargent avec une liste vide :
-    sans le repli sur le fichier de sortie, la reprise les croirait intacts et
-    laisserait les placeholders en place.
+    Les sorties de l'ancien moteur « sections » peuvent contenir un placeholder
+    sans que l'état ne liste d'échec : la reprise doit quand même détecter le
+    trou (via le marqueur dans la sortie) et réécrire proprement.
     """
     def traducteur(texte, modele, langue_source, langue_cible,
                    termes_a_conserver=None, interruption=None):
@@ -355,10 +433,11 @@ def test_rejeu_declenche_par_un_etat_legacy_sans_sections_echouees(tmp_path, mon
     _, sortie = _demarrer(source)
     etat = _attendre_statut(sortie, {StatutJob.TERMINE})
 
-    # Simule un état legacy : trou dans la sortie, mais rien dans l'état.
+    # Simule un état legacy : placeholder dans la sortie, mais rien dans l'état.
     with open(sortie, "a", encoding="utf-8") as f:
         f.write("[ERREUR DE TRADUCTION — section 3]\n\n")
     etat.statut = StatutJob.ERREUR
+    etat.chapitres_echoues = []
     etat.sections_echouees = []
     sauvegarder_etat(etat)
 
@@ -368,6 +447,77 @@ def test_rejeu_declenche_par_un_etat_legacy_sans_sections_echouees(tmp_path, mon
     assert etat2.statut == StatutJob.TERMINE
     contenu = open(sortie2, encoding="utf-8").read()
     assert translation_runner.MARQUEUR_ECHEC not in contenu
+
+
+def test_ajout_de_chapitres_poursuit_sans_retraduire(tmp_path, monkeypatch):
+    """Poursuivre un document déjà partiellement traduit avec de NOUVEAUX
+    chapitres n'ajoute que ceux-là (les précédents restent, viennent du cache)."""
+    appels = []
+
+    def traducteur(texte, modele, langue_source, langue_cible,
+                   termes_a_conserver=None, interruption=None):
+        appels.append(texte)
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+
+    source = _ecrire_source_md(tmp_path, "doc_ajout.md", nb_sections=4)
+
+    # 1er run : seulement les chapitres 0 et 1.
+    translation_runner.demarrer_traduction(
+        source_path=source, langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS,
+        modele="llama3.1", chapitres_selectionnes=[0, 1],
+    )
+    sortie = translation_runner.build_output_path(source, "llama3.1")
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+    assert etat.statut == StatutJob.TERMINE
+    assert sorted(etat.chapitres_traduits) == [0, 1]
+    appels_run1 = len(appels)
+
+    # 2e run : on ajoute les chapitres 2 et 3 (sans resume) — additif.
+    translation_runner.demarrer_traduction(
+        source_path=source, langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS,
+        modele="llama3.1", chapitres_selectionnes=[2, 3],
+    )
+    etat2 = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+    assert etat2.statut == StatutJob.TERMINE
+    assert sorted(etat2.chapitres_traduits) == [0, 1, 2, 3]
+    # Seuls 2 et 3 partent réellement (2 appels), 0 et 1 ne sont pas retraduits.
+    assert len(appels) - appels_run1 == 2
+    contenu = open(sortie, encoding="utf-8").read().upper()
+    for i in range(4):
+        assert f"SECTION {i}" in contenu
+
+
+def test_recuperer_jobs_interrompus_bascule_en_pause(tmp_path, monkeypatch):
+    """Un .state.json resté `en_cours` (serveur tué en plein run) est basculé
+    `en_pause` au démarrage, pour redevenir reprenable."""
+    from app.services import bibliotheque
+    from app.models.schemas import EtatJob
+
+    # Redirige le registre de la Bibliothèque vers un fichier temporaire.
+    faux_registre = str(tmp_path / "bibliotheque.json")
+    monkeypatch.setattr(bibliotheque, "_FICHIER_BIBLIO", faux_registre)
+
+    sortie = tmp_path / "doc_traduit_ll.md"
+    sortie.write_text("<!-- entête -->\n", encoding="utf-8")
+    state = EtatJob(
+        job_id="fige", chemin_pdf=str(tmp_path / "doc.md"), chemin_sortie=str(sortie),
+        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS, modele_ollama="llama3.1",
+        statut=StatutJob.EN_COURS, derniere_section_completee=2, total_sections=5,
+        total_pages=0, total_mots=100, mots_traduits=40, temps_debut=time.time(),
+    )
+    sauvegarder_etat(state)
+    bibliotheque.enregistrer_document(
+        chemin_source=str(tmp_path / "doc.md"), chemin_sortie=str(sortie),
+        modele="llama3.1", langue_source="anglais", langue_cible="français",
+    )
+
+    recuperes = translation_runner.recuperer_jobs_interrompus()
+    assert recuperes == 1
+
+    etat = charger_etat(str(sortie))
+    assert etat.statut == StatutJob.EN_PAUSE
 
 
 def test_annexe_liens_ajoutee_une_seule_fois(tmp_path, monkeypatch):

@@ -70,6 +70,22 @@ def enregistrer_document(
         _sauvegarder(documents)
 
 
+def retirer_document(chemin_sortie: str) -> bool:
+    """
+    Retire une entrée du registre, identifiée par son fichier de sortie.
+    NE TOUCHE PAS aux fichiers sur disque (_traduit.md, .state.json, .errors.log,
+    dossier upload) — c'est un simple nettoyage de la liste, réversible en
+    relançant une traduction. Retourne True si une entrée a été retirée.
+    """
+    with _lock:
+        documents = _charger()
+        restants = [d for d in documents if d.get("chemin_sortie") != chemin_sortie]
+        if len(restants) == len(documents):
+            return False
+        _sauvegarder(restants)
+        return True
+
+
 def lister_documents() -> list[dict]:
     """
     Retourne les documents du registre, enrichis du statut et de la progression

@@ -350,6 +350,21 @@ pre { white-space: pre-wrap; font-size: 0.85rem; }
   white-space: pre-wrap;
 }
 
+/* ── Reprendre une traduction ─────────────────────────────────────────────── */
+.reprendre-titre { font-size: 1rem; margin: 0; }
+.liste-reprendre { display: flex; flex-direction: column; gap: 0.6rem; }
+.reprendre-ligne { padding: 0.85rem 1rem; margin-bottom: 0; }
+.reprendre-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 0.6rem;
+}
+.bouton-danger { color: var(--red); }
+.bouton-danger:hover:not(:disabled) {
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .dot-pulse {
   width: 7px;
