@@ -296,10 +296,18 @@ mais **vendoré** (copie locale) car le projet est indépendant et publié sur G
 Pour resynchroniser après une évolution du design system : recopier `tokens.css` et
 réaligner les valeurs de `Theme.swift`.
 
-## Roadmap
+## Source de données bilbao — features & releases
 
-Voir [docs/features-roadmap.md](docs/features-roadmap.md) pour la liste des fonctionnalités
-prévues et leur priorité.
+Les features et la roadmap de ce produit ne sont plus suivies dans un fichier
+local : **bilbao** (`feature-factory`) en est l'unique source de vérité, pour
+tous les produits du portfolio.
+
+- **Lecture** (pas besoin que bilbao tourne) : `../feature-factory/data/toledo/features.json`
+  et `.../releases.json`.
+- **Écriture** (marquer une feature complétée, en ajouter une nouvelle,
+  assembler une release) : nécessite `npm start` dans `feature-factory/`
+  (127.0.0.1:4600) — passer par son API (`GET/POST/PATCH /api/feedbacks`,
+  `POST /api/release-notes`). Ne jamais éditer les JSON à la main.
 
 <!-- bilbao:managed:start -->
 ## Géré par bilbao — ne pas éditer à la main
