@@ -3,6 +3,30 @@
 Application locale de traduction de documents PDF, propulsée par [Ollama](https://ollama.com)
 (modèles LLM open source exécutés 100% sur ta machine — aucune donnée envoyée vers le cloud).
 
+## Démarrage de session — features en attente
+
+Depuis R24 (2026-07-20), **bilbao** (`../feature-factory/`) est l'unique
+source de vérité des features/roadmap de ce produit — pas de
+`docs/features-roadmap.md` local. À chaque nouvelle session sur toledo,
+présenter d'emblée la liste des features/idées/questions dont le statut
+n'est ni `Livre` ni `Rejete`, lue directement dans l'export JSON (pas besoin
+que bilbao tourne) :
+
+```bash
+python3 -c "
+import json
+d = json.load(open('../feature-factory/data/toledo/features.json'))
+for f in d['features']:
+    if f['statut'] not in ('Livre', 'Rejete'):
+        print(f['id'], f['statut'], f['votes'], f['titre'])
+"
+```
+
+Pour marquer une feature complétée, en ajouter une nouvelle, ou assembler une
+release note, passer par l'API de bilbao (`npm start` dans
+`feature-factory/`, 127.0.0.1:4600) — jamais éditer `features.json` à la main
+(régénéré à chaque mutation, toute édition manuelle serait écrasée).
+
 ## Architecture
 
 ```
@@ -16,7 +40,7 @@ traducteur-pdf/
 │   │   └── config/        # Feature flags
 │   └── tests/         # Tests automatisés (pytest)
 ├── frontend/         # Interface web (HTML/CSS/JS), aucune dépendance de build
-└── docs/             # Documentation et roadmap des fonctionnalités
+└── docs/             # Documentation (release notes, décisions) — features/roadmap gérées par bilbao, voir plus bas
 ```
 
 Le frontend ne fait **que** des appels HTTP vers l'API locale — aucune logique métier
