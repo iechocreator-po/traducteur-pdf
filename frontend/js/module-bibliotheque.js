@@ -329,7 +329,9 @@
     const lignes = markdown.split("\n");
     let paragraphe = [];
     let premierTitreSaute = false;
-    const imagesActives = featureFlags.extraction_images_pdf === true;
+    // Extraction d'images = fonctionnalité de mode avancé — flag ET mode avancé requis.
+    const imagesActives = featureFlags.extraction_images_pdf === true
+      && document.documentElement.classList.contains("avance");
 
     const viderParagraphe = () => {
       if (paragraphe.length === 0) return;
@@ -760,10 +762,12 @@
   $("chap-tout-decocher").addEventListener("click", () => coderTousLesChapitres(false));
   document.addEventListener("flags-charges", majBoutonExport);
 
-  // ── Export HTML du document traduit complet (flag extraction_images_pdf) ───
+  // ── Export HTML du document traduit complet (flag extraction_images_pdf,
+  //    fonctionnalité de mode avancé) ─────────────────────────────────────────
 
   function majBoutonExportDocument() {
-    $("doc-exporter").hidden = !(featureFlags.extraction_images_pdf === true && !!docActif);
+    const avance = document.documentElement.classList.contains("avance");
+    $("doc-exporter").hidden = !(featureFlags.extraction_images_pdf === true && avance && !!docActif);
   }
 
   // Convertit une image servie par /api/image en data-URI, pour un export
@@ -809,6 +813,25 @@
     return html;
   }
 
+  // Un chapitre (sous-titre) dont le contenu est déjà inclus dans un chapitre
+  // parent précédent (niveau moins profond, plage de lignes englobante) ne doit
+  // pas être exporté une seconde fois — même règle que le moteur de traduction
+  // (_est_couvert_par_ancetre côté backend) pour ne jamais dupliquer un contenu
+  // déjà présent ailleurs dans le document exporté.
+  function estChapitreImbrique(chap, tous) {
+    for (const autre of tous) {
+      if (autre.index >= chap.index) break;
+      if (
+        autre.niveau < chap.niveau
+        && autre.ligne_debut < chap.ligne_debut
+        && chap.ligne_debut < autre.ligne_fin
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async function construireDocumentHtml() {
     const titre = echapperHtml(docActif.nom || "Document");
     const meta = [
@@ -818,12 +841,17 @@
       docActif.maj_a ? `Traduit le ${echapperHtml(new Date(docActif.maj_a).toLocaleString("fr-CA"))}` : "",
     ].filter(Boolean).join(" · ");
 
-    const toc = chapitres.map((c) =>
+    // Chapitres de sommet uniquement : un sous-titre imbriqué est déjà rendu
+    // dans le contenu de son parent (voir chapitreEnHtml) — l'exporter aussi
+    // comme section séparée dupliquerait sa traduction.
+    const chapitresSommet = chapitres.filter((c) => !estChapitreImbrique(c, chapitres));
+
+    const toc = chapitresSommet.map((c) =>
       `<li style="margin-left:${(Math.max(c.niveau, 1) - 1) * 1.2}rem"><a href="#chap-${c.index}">${echapperHtml(c.titre)}</a></li>`
     ).join("\n");
 
     const sections = [];
-    for (const c of chapitres) {
+    for (const c of chapitresSommet) {
       const data = await apiPost("/chapitres/contenu", { chemin_md: docActif.chemin_sortie, index: c.index });
       const corps = await chapitreEnHtml(data.contenu);
       sections.push(`<section id="chap-${c.index}"><h2>${echapperHtml(c.titre)}</h2>${corps}</section>`);
@@ -895,6 +923,9 @@
 
   $("doc-exporter").addEventListener("click", exporterDocumentHtml);
   document.addEventListener("flags-charges", majBoutonExportDocument);
+  // commun.js bascule la classe "avance" AVANT que ce listener ne s'exécute
+  // (script chargé plus tôt, même clic) — pas besoin de délai.
+  $("switch-avance").addEventListener("click", majBoutonExportDocument);
 
   // ── Rafraîchissements ───────────────────────────────────────────────────────
 

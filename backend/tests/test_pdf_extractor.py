@@ -157,6 +157,39 @@ def test_extraction_images_actif_produit_un_tag_et_le_fichier(pdf_avec_image, mo
     assert not os.path.isabs(chemin_relatif)
 
 
+def test_nettoyage_texte_image_retire_les_marqueurs():
+    """
+    Régression du bug rapporté : quand pymupdf4llm ne parvient pas à capturer
+    l'image elle-même, il laisse un texte de secours entouré de marqueurs
+    (traduits en français par le modèle, d'où le rapport initial) — ils ne
+    doivent jamais fuiter tels quels dans le document traduit/exporté.
+    """
+    from app.services.pdf_extractor import _RE_TEXTE_IMAGE, _nettoyer_texte_image
+
+    brut = (
+        "Texte avant.\n\n"
+        "<!-- Start of picture text -->\n"
+        "Leyden Jar<br>Capacitor<br>\\ ee<br>Metal coating<br>"
+        "<!-- End of picture text -->\n\n"
+        "Texte après."
+    )
+    nettoye = _RE_TEXTE_IMAGE.sub(_nettoyer_texte_image, brut)
+
+    assert "<!-- Start of picture text -->" not in nettoye
+    assert "<!-- End of picture text -->" not in nettoye
+    assert "<br>" not in nettoye
+    assert "Leyden Jar, Capacitor, \\ ee, Metal coating" in nettoye
+    assert "Texte avant." in nettoye and "Texte après." in nettoye
+
+
+def test_nettoyage_texte_image_bloc_vide_ne_laisse_rien():
+    from app.services.pdf_extractor import _RE_TEXTE_IMAGE, _nettoyer_texte_image
+    brut = "Avant.\n\n<!-- Start of picture text -->\n<!-- End of picture text -->\n\nAprès."
+    nettoye = _RE_TEXTE_IMAGE.sub(_nettoyer_texte_image, brut)
+    assert "picture text" not in nettoye
+    assert "Avant." in nettoye and "Après." in nettoye
+
+
 def test_extraction_images_actif_sans_image_ne_cree_pas_de_dossier(pdf_simple, monkeypatch):
     """Un PDF sans image, même avec le flag actif, ne crée aucun dossier _images."""
     from app.services import pdf_extractor

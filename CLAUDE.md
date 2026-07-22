@@ -239,23 +239,64 @@ flag **off par défaut**, à activer via `bilbao.features.json` ou
   traite un tag image comme une frontière protégée, au même titre qu'un
   tableau (`|`) — jamais isolé seul dans un chunk, jamais coupé de son
   paragraphe.
+- **Texte de secours « picture text » nettoyé** (`_RE_TEXTE_IMAGE`,
+  `_nettoyer_texte_image`) : pymupdf4llm essaie, par défaut (`force_text=True`,
+  **déjà le cas flag off**, pas une option qu'on active), d'extraire le texte
+  natif présent dans une zone image (schéma légendé) et l'entoure de
+  `<!-- Start/End of picture text -->` — visible seulement quand l'image
+  elle-même n'a pas pu être capturée. Sans nettoyage, ce marqueur fuit tel
+  quel jusque dans le document traduit (le LLM le traduit même, d'où des
+  `<!-- Début/Fin du texte de l'image -->` observés en français) et l'export
+  HTML. Nettoyé en texte lisible (`, `-joint), **scopé au flag actif**
+  uniquement (le chemin flag off garde le comportement historique, marqueur
+  brut compris — pas notre problème à corriger hors du flag).
 - **Affichage Bibliothèque** : nouvelle route `GET /api/image?chemin=...`
   (même garde que `/tts/audio` — chemin absolu, extension allowlistée dans
   `EXTENSIONS_IMAGE`, `api/validation.py`). `rendreContenu()`
   (`module-bibliotheque.js`) détecte une ligne `![alt](chemin)` et crée un
   `<img>` via `document.createElement` (jamais `innerHTML`), chemin résolu
-  contre `dirname(docActif.chemin_sortie)`.
+  contre `dirname(docActif.chemin_sortie)`. **Fonctionnalité de mode avancé** :
+  gated par `featureFlags.extraction_images_pdf === true` **ET**
+  `document.documentElement.classList.contains("avance")` — pas seulement
+  le flag.
 - **Export HTML du document traduit** (bouton `#doc-exporter` dans
-  `lecture-bandeau`, distinct de `exporterFicheHtml()` qui exporte la fiche
-  IA résumé/quiz) : charge tous les chapitres traduits
-  (`construireDocumentHtml()`), convertit chaque image en data-URI base64
-  (`imageEnDataUri()`, fetch + `FileReader`) pour un fichier 100 % autonome
-  et portable une fois sorti du serveur local — vérifié en l'ouvrant hors
-  serveur.
+  `lecture-bandeau`, même double condition flag+mode avancé, distinct de
+  `exporterFicheHtml()` qui exporte la fiche IA résumé/quiz) : charge tous
+  les chapitres traduits (`construireDocumentHtml()`), convertit chaque
+  image en data-URI base64 (`imageEnDataUri()`, fetch + `FileReader`) pour
+  un fichier 100 % autonome et portable une fois sorti du serveur local —
+  vérifié en l'ouvrant hors serveur. **Chapitres de sommet uniquement**
+  (`estChapitreImbrique()`) : `identifier_chapitres()` liste TOUS les
+  niveaux de titre (`#` à `######`) comme des « chapitres » distincts, y
+  compris les sous-titres dont le contenu est déjà inclus dans celui de leur
+  parent (règle de `_extraire_chapitres`, côté backend). Boucler naïvement
+  sur tous les chapitres pour construire l'export duplique donc le contenu
+  d'un sous-titre : une fois dans la section de son parent, une fois comme
+  section à part. `estChapitreImbrique()` reproduit exactement la règle déjà
+  utilisée par `translation_runner._est_couvert_par_ancetre()` (même
+  algorithme, deux implémentations car un côté Python/backend et l'autre
+  JS/frontend) pour ne garder que les chapitres de sommet dans la table des
+  matières ET les sections exportées. Nécessite `ligne_debut`/`ligne_fin`
+  sur chaque entrée de `POST /chapitres` — ajout **additif** (seul `contenu`,
+  lourd, reste exclu de cette route ; ne change rien pour les consommateurs
+  existants qui ignorent ces deux champs).
 - **Flag unique** `extraction_images_pdf` (`FLAGS_PAR_DEFAUT`, **off par
   défaut** contrairement aux autres flags — touche l'extraction PDF et le
-  chunking envoyé à Ollama, rollout prudent) pilote les trois mécaniques
-  ci-dessus d'un bloc : extraction, persistance auto, bouton d'export.
+  chunking envoyé à Ollama, rollout prudent) pilote l'ensemble ci-dessus
+  d'un bloc : extraction, persistance auto, affichage/export (eux-mêmes
+  soumis en plus au mode avancé).
+- **Piège opérationnel rencontré en validant cette feature** : le backend
+  local (`uvicorn`, voir `.claude/launch.json`) tourne **sans `--reload`** —
+  modifier `pdf_extractor.py`/`routes.py` sans redémarrer le process laisse
+  l'ancien code actif indéfiniment, alors que les tests `pytest` (qui
+  importent le code frais) donnent l'impression que le correctif est en
+  place. Pire, combiné à la persistance automatique ci-dessus : un
+  `_converti_*.md` déjà écrit par un run AVANT un correctif d'extraction
+  reste lu tel quel par les runs suivants, même après redémarrage du
+  serveur — le correctif ne s'applique jamais tant que ce cache précis n'est
+  pas supprimé manuellement. Après toute modif de `pdf_extractor.py` en
+  test manuel : redémarrer le backend **et** vérifier qu'aucun
+  `_converti_*.md` obsolète ne traîne pour le document testé.
 
 ### Clonage vocal (moteur `openvoice`)
 

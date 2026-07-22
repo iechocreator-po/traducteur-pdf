@@ -33,6 +33,23 @@ def extraire_texte(chemin_pdf: str, extracteur: str = "pymupdf4llm") -> str:
 
 _RE_IMAGE_BASE64 = re.compile(r"!\[([^\]]*)\]\(data:image/(\w+);base64,([A-Za-z0-9+/=]+)\)")
 
+# pymupdf4llm essaie d'extraire le texte natif présent DANS une zone image
+# (utile pour un schéma légendé) et l'entoure de ces marqueurs — déjà présent
+# aujourd'hui (flag off compris, force_text=True par défaut dans la librairie),
+# mais invisible tant qu'aucune UI n'affichait le Markdown brut. Visible
+# seulement quand l'image elle-même n'a pas pu être capturée (zone vide au
+# rendu) : sans nettoyage, ce marqueur fuit tel quel jusque dans le document
+# traduit et l'export HTML.
+_RE_TEXTE_IMAGE = re.compile(
+    r"<!-- Start of picture text -->\n?(.*?)<!-- End of picture text -->\n?",
+    re.DOTALL,
+)
+
+
+def _nettoyer_texte_image(m: re.Match) -> str:
+    morceaux = [p.strip() for p in m.group(1).split("<br>") if p.strip()]
+    return ", ".join(morceaux) + "\n\n" if morceaux else ""
+
 
 def _extraire_avec_pymupdf4llm(chemin_pdf: str) -> str:
     """
@@ -46,12 +63,15 @@ def _extraire_avec_pymupdf4llm(chemin_pdf: str) -> str:
     l'extraction (bug vérifié dans pymupdf4llm/helpers/utils.py:md_path).
     On écrit donc les images nous-mêmes, sous un nom qu'on choisit et qu'on
     maîtrise entièrement (<base>_images/img-N.<ext>), référencées dans le
-    Markdown par un chemin relatif court.
+    Markdown par un chemin relatif court. On nettoie aussi le texte de secours
+    « picture text » (voir _RE_TEXTE_IMAGE) — fonctionnalité de mode avancé,
+    ce nettoyage reste scopé au flag et ne touche pas le chemin flag off.
     """
     if not est_active("extraction_images_pdf"):
         return pymupdf4llm.to_markdown(chemin_pdf)
     texte = pymupdf4llm.to_markdown(chemin_pdf, embed_images=True, image_format="png")
-    return _ecrire_images_embarquees(texte, chemin_pdf)
+    texte = _ecrire_images_embarquees(texte, chemin_pdf)
+    return _RE_TEXTE_IMAGE.sub(_nettoyer_texte_image, texte)
 
 
 def _ecrire_images_embarquees(texte: str, chemin_pdf: str) -> str:

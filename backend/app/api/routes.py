@@ -143,8 +143,12 @@ def lister_chapitres(req: ChapitresRequest) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'identification : {e}")
 
+    # ligne_debut/ligne_fin restent exposés (ajout additif, non-destructif) : le
+    # frontend en a besoin pour détecter les sous-titres imbriqués (export du
+    # document complet, cf. construireDocumentHtml) — seul "contenu" est lourd
+    # et retiré de cette liste, le détail par chapitre reste sur /chapitres/contenu.
     chapitres_publics = [
-        {k: v for k, v in c.items() if k not in ("contenu", "ligne_debut", "ligne_fin")}
+        {k: v for k, v in c.items() if k != "contenu"}
         for c in chapitres
     ]
     return {"chapitres": chapitres_publics, "source": "titres_markdown"}

@@ -194,6 +194,21 @@ def test_contenu_chapitre(tmp_path):
     assert "Contenu du chapitre deux." in data["contenu"]
 
 
+def test_lister_chapitres_expose_les_plages_de_lignes(tmp_path):
+    """
+    ligne_debut/ligne_fin doivent être exposés (frontend : détecter les
+    sous-titres imbriqués pour l'export du document complet, sans dupliquer
+    leur contenu). Non-régression : "contenu" (lourd) reste absent.
+    """
+    source = tmp_path / "doc.md"
+    source.write_text("# Un\n\n## Sous-titre\n\nTexte imbriqué.\n\n# Deux\n\nTexte.")
+    reponse = client.post("/api/chapitres", json={"chemin_md": str(source)})
+    assert reponse.status_code == 200
+    chapitres = reponse.json()["chapitres"]
+    assert all("ligne_debut" in c and "ligne_fin" in c for c in chapitres)
+    assert all("contenu" not in c for c in chapitres)
+
+
 def test_contenu_chapitre_index_inconnu(tmp_path):
     source = tmp_path / "doc.md"
     source.write_text("# Un\n\nContenu.")
