@@ -166,6 +166,7 @@
     $("lecture-vide").hidden = true;
     $("barre-audio").hidden = false;
     rendreBandeauEchec();
+    majBoutonExportDocument();
 
     try {
       const data = await apiPost("/chapitres", { chemin_md: doc.chemin_sortie });
@@ -310,13 +311,25 @@
     rendreFiche();
   }
 
-  // Rendu Markdown minimal et sûr (DOM construit en textContent, jamais innerHTML)
+  // Résout un chemin relatif (extrait d'un tag ![]() du markdown, ex.
+  // "MonDoc_images/xxx.png") en absolu — relatif au dossier du document
+  // actif, où l'extraction dépose aussi les images — puis construit l'URL
+  // de la route /image.
+  function urlImage(cheminRelatif) {
+    const dossier = docActif.chemin_sortie.slice(0, docActif.chemin_sortie.lastIndexOf("/"));
+    const absolu = `${dossier}/${cheminRelatif}`;
+    return `${API_BASE}/image?chemin=${encodeURIComponent(absolu)}`;
+  }
+
+  // Rendu Markdown minimal et sûr (DOM construit en textContent/createElement,
+  // jamais innerHTML)
   function rendreContenu(markdown) {
     const zone = $("lecture-texte");
     zone.innerHTML = "";
     const lignes = markdown.split("\n");
     let paragraphe = [];
     let premierTitreSaute = false;
+    const imagesActives = featureFlags.extraction_images_pdf === true;
 
     const viderParagraphe = () => {
       if (paragraphe.length === 0) return;
@@ -327,8 +340,17 @@
     };
 
     for (const ligne of lignes) {
+      const image = imagesActives ? ligne.trim().match(/^!\[([^\]]*)\]\(([^)]+)\)$/) : null;
       const titre = ligne.match(/^(#{1,6})\s+(.*)/);
-      if (titre) {
+      if (image) {
+        viderParagraphe();
+        const img = document.createElement("img");
+        img.src = urlImage(image[2]);
+        img.alt = image[1];
+        img.loading = "lazy";
+        img.className = "lecture-image";
+        zone.appendChild(img);
+      } else if (titre) {
         if (!premierTitreSaute) { premierTitreSaute = true; continue; } // déjà affiché en h2
         viderParagraphe();
         const h = document.createElement(titre[1].length <= 2 ? "h3" : "h4");
@@ -737,6 +759,142 @@
   $("chap-tout-cocher").addEventListener("click", () => coderTousLesChapitres(true));
   $("chap-tout-decocher").addEventListener("click", () => coderTousLesChapitres(false));
   document.addEventListener("flags-charges", majBoutonExport);
+
+  // ── Export HTML du document traduit complet (flag extraction_images_pdf) ───
+
+  function majBoutonExportDocument() {
+    $("doc-exporter").hidden = !(featureFlags.extraction_images_pdf === true && !!docActif);
+  }
+
+  // Convertit une image servie par /api/image en data-URI, pour un export
+  // 100% autonome (portable une fois le fichier sorti du serveur local).
+  async function imageEnDataUri(cheminRelatif) {
+    const rep = await fetch(urlImage(cheminRelatif));
+    const blob = await rep.blob();
+    return new Promise((resolve) => {
+      const lecteur = new FileReader();
+      lecteur.onloadend = () => resolve(lecteur.result);
+      lecteur.readAsDataURL(blob);
+    });
+  }
+
+  // Fragment HTML sûr pour un chapitre : texte en <p> échappé, images en
+  // <img> base64 — même politique « jamais d'innerHTML avec du contenu non
+  // fiable » que rendreContenu()/echapperHtml().
+  async function chapitreEnHtml(markdown) {
+    const lignes = markdown.split("\n");
+    let html = "";
+    let paragraphe = [];
+    const vider = () => {
+      if (paragraphe.length) html += `<p>${echapperHtml(paragraphe.join(" "))}</p>\n`;
+      paragraphe = [];
+    };
+    for (const ligne of lignes) {
+      const image = ligne.trim().match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+      const titre = ligne.match(/^(#{1,6})\s+(.*)/);
+      if (image) {
+        vider();
+        const src = await imageEnDataUri(image[2]);
+        html += `<img src="${src}" alt="${echapperHtml(image[1])}" class="doc-image">\n`;
+      } else if (titre) {
+        vider();
+        html += `<h3>${echapperHtml(titre[2])}</h3>\n`;
+      } else if (ligne.trim() === "") {
+        vider();
+      } else {
+        paragraphe.push(ligne.trim());
+      }
+    }
+    vider();
+    return html;
+  }
+
+  async function construireDocumentHtml() {
+    const titre = echapperHtml(docActif.nom || "Document");
+    const meta = [
+      docActif.langue_source && docActif.langue_cible
+        ? `${echapperHtml(docActif.langue_source)} → ${echapperHtml(docActif.langue_cible)}` : "",
+      docActif.modele ? `Modèle : ${echapperHtml(docActif.modele)}` : "",
+      docActif.maj_a ? `Traduit le ${echapperHtml(new Date(docActif.maj_a).toLocaleString("fr-CA"))}` : "",
+    ].filter(Boolean).join(" · ");
+
+    const toc = chapitres.map((c) =>
+      `<li style="margin-left:${(Math.max(c.niveau, 1) - 1) * 1.2}rem"><a href="#chap-${c.index}">${echapperHtml(c.titre)}</a></li>`
+    ).join("\n");
+
+    const sections = [];
+    for (const c of chapitres) {
+      const data = await apiPost("/chapitres/contenu", { chemin_md: docActif.chemin_sortie, index: c.index });
+      const corps = await chapitreEnHtml(data.contenu);
+      sections.push(`<section id="chap-${c.index}"><h2>${echapperHtml(c.titre)}</h2>${corps}</section>`);
+    }
+
+    return `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${titre}</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; line-height: 1.6; max-width: 820px; margin: 2rem auto; padding: 0 1.2rem; color: #1a1a1a; }
+  h1 { margin-bottom: .2rem; } .meta { color: #666; font-size: .9rem; margin-bottom: 1.5rem; }
+  nav { background: #f4f5f7; border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 2rem; }
+  nav ul { list-style: none; padding: 0; margin: .4rem 0 0; } nav li { margin: .15rem 0; }
+  nav a { color: #2563eb; text-decoration: none; } nav a:hover { text-decoration: underline; }
+  section { border-top: 1px solid #e5e7eb; padding-top: 1rem; margin-top: 2rem; }
+  h2 { margin-bottom: .3rem; } h3 { margin: 1.1rem 0 .3rem; font-size: 1rem; color: #444; }
+  .doc-image { display: block; max-width: 100%; height: auto; border-radius: 8px; margin: 1rem 0; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #16181c; color: #e5e7eb; } .meta { color: #9aa0a6; }
+    nav { background: #22252b; } section { border-color: #33373e; } h3 { color: #b6bcc4; }
+    nav a { color: #6ea8fe; }
+  }
+</style>
+</head>
+<body>
+  <h1>${titre}</h1>
+  <p class="meta">${meta}</p>
+  <nav>
+    <strong>Structure des chapitres</strong>
+    <ul>${toc}</ul>
+  </nav>
+  ${sections.join("\n")}
+</body>
+</html>`;
+  }
+
+  async function exporterDocumentHtml() {
+    if (!docActif) return;
+    const bouton = $("doc-exporter");
+    bouton.disabled = true;
+    bouton.textContent = "Préparation…";
+    try {
+      const html = await construireDocumentHtml();
+      const base = (docActif.nom || "document").replace(/\.[^.]+$/, "");
+      const nomFichier = `${base}_traduit.html`;
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: nomFichier,
+            types: [{ description: "Page HTML", accept: { "text/html": [".html"] } }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(html);
+          await writable.close();
+        } catch (e) {
+          if (e.name !== "AbortError") telechargerHtml(html, nomFichier);
+        }
+      } else {
+        telechargerHtml(html, nomFichier);
+      }
+    } finally {
+      bouton.disabled = false;
+      bouton.textContent = "⬇ Exporter (HTML)…";
+    }
+  }
+
+  $("doc-exporter").addEventListener("click", exporterDocumentHtml);
+  document.addEventListener("flags-charges", majBoutonExportDocument);
 
   // ── Rafraîchissements ───────────────────────────────────────────────────────
 

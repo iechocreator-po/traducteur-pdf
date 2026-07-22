@@ -3,6 +3,10 @@ Tests du service d'extraction PDF.
 On utilise un petit PDF généré à la volée pour ne dépendre d'aucun fichier externe.
 """
 
+import glob
+import os
+import re
+
 import pytest
 from reportlab.pdfgen import canvas
 
@@ -15,6 +19,23 @@ def pdf_simple(tmp_path):
     chemin = tmp_path / "test.pdf"
     c = canvas.Canvas(str(chemin))
     c.drawString(100, 750, "Hello world, this is a test document.")
+    c.showPage()
+    c.save()
+    return str(chemin)
+
+
+@pytest.fixture
+def pdf_avec_image(tmp_path):
+    """Crée un petit PDF de test avec une image intégrée."""
+    from PIL import Image
+
+    chemin_image = tmp_path / "source.png"
+    Image.new("RGB", (200, 200), color=(255, 0, 0)).save(chemin_image)
+
+    chemin = tmp_path / "test_image.pdf"
+    c = canvas.Canvas(str(chemin))
+    c.drawString(100, 750, "Texte avec une image.")
+    c.drawImage(str(chemin_image), 100, 400, width=200, height=200)
     c.showPage()
     c.save()
     return str(chemin)
@@ -109,6 +130,112 @@ def test_relier_toc_apparie_par_mots_distinctifs_sans_grab_du_titre_vide():
     assert par_index[2]["contenu"] == "CONTENU CH6"
     # Half-Title n'a pas de mot distinctif correspondant → contenu vide (pas de grab).
     assert par_index[0]["contenu"] == ""
+
+
+# ── Extraction d'images (flag "extraction_images_pdf") ────────────────────────
+
+def test_extraction_images_off_par_defaut_aucun_tag(pdf_avec_image):
+    """Flag off (défaut) : comportement strictement inchangé, aucun tag image."""
+    texte = extraire_texte(pdf_avec_image)
+    assert "![" not in texte
+    base, _ = os.path.splitext(pdf_avec_image)
+    assert not os.path.isdir(f"{base}_images")
+
+
+def test_extraction_images_actif_produit_un_tag_et_le_fichier(pdf_avec_image, monkeypatch):
+    from app.services import pdf_extractor
+    monkeypatch.setattr(pdf_extractor, "est_active", lambda nom: True)
+
+    texte = pdf_extractor.extraire_texte(pdf_avec_image)
+    m = re.search(r"!\[[^\]]*\]\(([^)]+)\)", texte)
+    assert m, "aucun tag d'image trouvé dans le markdown"
+
+    chemin_relatif = m.group(1)
+    dossier_source = os.path.dirname(pdf_avec_image)
+    assert os.path.isfile(os.path.join(dossier_source, chemin_relatif))
+    # Chemin relatif court, pas le chemin absolu brut renvoyé par la lib.
+    assert not os.path.isabs(chemin_relatif)
+
+
+def test_extraction_images_actif_sans_image_ne_cree_pas_de_dossier(pdf_simple, monkeypatch):
+    """Un PDF sans image, même avec le flag actif, ne crée aucun dossier _images."""
+    from app.services import pdf_extractor
+    monkeypatch.setattr(pdf_extractor, "est_active", lambda nom: True)
+
+    pdf_extractor.extraire_texte(pdf_simple)
+    base, _ = os.path.splitext(pdf_simple)
+    assert not os.path.isdir(f"{base}_images")
+
+
+def test_decouper_en_chunks_ne_scinde_pas_un_bloc_contenant_une_image():
+    """
+    Sans la protection du tag ![]() comme frontière (au même titre que les
+    tableaux), ce texte serait scindé en 3 blocs à la fusion, isolant le tag
+    image tout seul dans son propre chunk.
+    """
+    tag = "![](images/fig.png)"
+    para_avant = "Paragraphe avant l'image, assez long pour dépasser la taille max à lui seul."
+    para_apres = "Paragraphe après l'image, également assez long pour dépasser la taille max."
+    texte = f"{para_avant}\n\n{tag}\n\n{para_apres}"
+
+    chunks = decouper_en_chunks(texte, taille_max=50)
+
+    assert len(chunks) == 1
+    assert tag in chunks[0]
+
+
+def test_decouper_en_chunks_reconnait_le_tag_image():
+    from app.services.pdf_extractor import _est_tag_image
+    assert _est_tag_image("![](images/x.png)")
+    assert _est_tag_image("  ![alt text](chemin/vers/img.png)  ")
+    assert not _est_tag_image("Du texte normal.")
+    assert not _est_tag_image("[un lien](https://example.com)")
+
+
+# ── Persistance automatique (une seule extraction PDF) ─────────────────────────
+
+def _compter_appels_extraction(monkeypatch):
+    from app.services import pdf_extractor
+    compteur = {"n": 0}
+    original = pdf_extractor.pymupdf4llm.to_markdown
+
+    def to_markdown_compte(*args, **kwargs):
+        compteur["n"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(pdf_extractor.pymupdf4llm, "to_markdown", to_markdown_compte)
+    return compteur
+
+
+def test_flag_actif_extraction_pdf_une_seule_fois(pdf_simple, monkeypatch):
+    """
+    Avec le flag actif, le premier appel persiste le _converti_*.md ; les
+    appels suivants le relisent au lieu de rappeler pymupdf4llm.to_markdown().
+    """
+    from app.services import pdf_extractor
+    monkeypatch.setattr(pdf_extractor, "est_active", lambda nom: True)
+    compteur = _compter_appels_extraction(monkeypatch)
+
+    pdf_extractor.identifier_chapitres(pdf_simple)
+    pdf_extractor.identifier_chapitres(pdf_simple)
+    pdf_extractor.identifier_chapitres(pdf_simple)
+
+    assert compteur["n"] == 1
+    base, _ = os.path.splitext(pdf_simple)
+    assert glob.glob(f"{base}_converti*.md")
+
+
+def test_flag_inactif_extrait_a_chaque_appel(pdf_simple, monkeypatch):
+    """Flag off (défaut) : comportement inchangé, aucune persistance automatique."""
+    from app.services import pdf_extractor
+    compteur = _compter_appels_extraction(monkeypatch)
+
+    pdf_extractor.identifier_chapitres(pdf_simple)
+    pdf_extractor.identifier_chapitres(pdf_simple)
+
+    assert compteur["n"] == 2
+    base, _ = os.path.splitext(pdf_simple)
+    assert not glob.glob(f"{base}_converti*.md")
 
 
 def test_relier_toc_progression_monotone():

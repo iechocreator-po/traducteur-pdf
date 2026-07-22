@@ -257,6 +257,31 @@ def test_tts_audio_extension_invalide(tmp_path):
     assert reponse.status_code == 422
 
 
+def test_image_sert_le_fichier(tmp_path):
+    png = tmp_path / "fig.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n----")
+    reponse = client.get("/api/image", params={"chemin": str(png)})
+    assert reponse.status_code == 200
+    assert reponse.content.startswith(b"\x89PNG")
+
+
+def test_image_introuvable():
+    reponse = client.get("/api/image", params={"chemin": "/inexistant.png"})
+    assert reponse.status_code == 404
+
+
+def test_image_extension_invalide(tmp_path):
+    fichier = tmp_path / "notes.pdf"
+    fichier.write_text("x")
+    reponse = client.get("/api/image", params={"chemin": str(fichier)})
+    assert reponse.status_code == 422
+
+
+def test_image_chemin_relatif_refuse():
+    reponse = client.get("/api/image", params={"chemin": "relatif.png"})
+    assert reponse.status_code == 422
+
+
 # ── Voix clonées ──────────────────────────────────────────────────────────────
 
 def _wav_bytes(duree_secondes=3.5, frequence=8000):
@@ -362,6 +387,26 @@ def test_upload_md_puis_reinjectable_dans_chapitres():
     chap = client.post("/api/chapitres", json={"chemin_md": chemin})
     assert chap.status_code == 200
     assert len(chap.json()["chapitres"]) == 2
+
+
+def test_convert_ecrit_le_fichier_et_retourne_nb_caracteres(tmp_path):
+    """
+    Non-régression du refactor /convert → convertir_et_sauvegarder() partagée
+    avec la persistance automatique (extraction d'images) : même contrat API.
+    """
+    chemin_pdf = tmp_path / "cours.pdf"
+    chemin_pdf.write_bytes(_pdf_bytes())
+
+    reponse = client.post("/api/convert", json={"chemin_pdf": str(chemin_pdf)})
+    assert reponse.status_code == 200
+    data = reponse.json()
+    assert data["chemin_sortie"].endswith("_converti_py.md")
+    assert data["nb_caracteres"] > 0
+
+    with open(data["chemin_sortie"], encoding="utf-8") as f:
+        contenu = f.read()
+    assert "<!-- extracteur : pymupdf4llm -->" in contenu
+    assert "Bonjour" in contenu
 
 
 def test_upload_anti_evasion_du_nom():

@@ -3,6 +3,7 @@ Service d'extraction de contenu PDF.
 Logique pure, sans dépendance à une interface ou à Ollama — facile à tester.
 """
 
+import base64
 import glob as _glob
 import os
 import re
@@ -12,11 +13,13 @@ import subprocess
 import pdfplumber
 import pymupdf4llm
 
+from app.config.feature_flags import est_active
+
 
 def extraire_texte(chemin_pdf: str, extracteur: str = "pymupdf4llm") -> str:
     """Extrait tout le texte d'un PDF en utilisant l'extracteur choisi."""
     if extracteur == "pymupdf4llm":
-        return pymupdf4llm.to_markdown(chemin_pdf)
+        return _extraire_avec_pymupdf4llm(chemin_pdf)
     if extracteur == "marker":
         return _extraire_avec_marker(chemin_pdf)
     if extracteur == "tesseract":
@@ -26,6 +29,49 @@ def extraire_texte(chemin_pdf: str, extracteur: str = "pymupdf4llm") -> str:
             f"L'extracteur '{extracteur}' n'est pas encore implémenté."
         )
     raise ValueError(f"Extracteur inconnu : '{extracteur}'")
+
+
+_RE_IMAGE_BASE64 = re.compile(r"!\[([^\]]*)\]\(data:image/(\w+);base64,([A-Za-z0-9+/=]+)\)")
+
+
+def _extraire_avec_pymupdf4llm(chemin_pdf: str) -> str:
+    """
+    Convertit un PDF en Markdown avec pymupdf4llm. Si le flag
+    "extraction_images_pdf" est actif, demande à la librairie d'EMBARQUER les
+    images en base64 (embed_images=True) plutôt que de les écrire elle-même
+    sur disque (write_images=True) : sa propre écriture de fichiers construit
+    le chemin de sauvegarde à partir d'une version assainie (espaces/parenthèses
+    retirés) du nom du PDF source, mais SAUVEGARDE sous le nom d'origine —
+    un PDF au nom contenant un espace (très courant) fait donc planter
+    l'extraction (bug vérifié dans pymupdf4llm/helpers/utils.py:md_path).
+    On écrit donc les images nous-mêmes, sous un nom qu'on choisit et qu'on
+    maîtrise entièrement (<base>_images/img-N.<ext>), référencées dans le
+    Markdown par un chemin relatif court.
+    """
+    if not est_active("extraction_images_pdf"):
+        return pymupdf4llm.to_markdown(chemin_pdf)
+    texte = pymupdf4llm.to_markdown(chemin_pdf, embed_images=True, image_format="png")
+    return _ecrire_images_embarquees(texte, chemin_pdf)
+
+
+def _ecrire_images_embarquees(texte: str, chemin_pdf: str) -> str:
+    """Remplace chaque image base64 embarquée par pymupdf4llm par un fichier
+    écrit dans <base>_images/, référencé par un chemin relatif court."""
+    base, _ = os.path.splitext(chemin_pdf)
+    dossier_images = f"{base}_images"
+    nom_dossier = os.path.basename(dossier_images)
+    compteur = {"n": 0}
+
+    def _remplacer(m: re.Match) -> str:
+        alt, extension, donnees_b64 = m.group(1), m.group(2), m.group(3)
+        os.makedirs(dossier_images, exist_ok=True)
+        nom_fichier = f"img-{compteur['n']}.{extension}"
+        compteur["n"] += 1
+        with open(os.path.join(dossier_images, nom_fichier), "wb") as f:
+            f.write(base64.b64decode(donnees_b64))
+        return f"![{alt}]({nom_dossier}/{nom_fichier})"
+
+    return _RE_IMAGE_BASE64.sub(_remplacer, texte)
 
 
 _MARKER_CONVERTER = None
@@ -43,7 +89,13 @@ def _obtenir_marker_converter():
 
 
 def _extraire_avec_marker(chemin_pdf: str) -> str:
-    """Convertit un PDF en Markdown avec la librairie Marker."""
+    """
+    Convertit un PDF en Markdown avec la librairie Marker.
+    Marker retourne aussi un dict d'images (3e valeur, ignorée ci-dessous) —
+    contrairement à Tesseract, ce n'est pas une limite technique mais un choix
+    de portée délibéré : l'extraction d'images (flag "extraction_images_pdf")
+    ne couvre pour l'instant que l'extracteur pymupdf4llm.
+    """
     from marker.output import text_from_rendered
 
     converter = _obtenir_marker_converter()
@@ -120,10 +172,16 @@ def extraire_urls(chemin_pdf: str) -> list[str]:
     return urls
 
 
+def _est_tag_image(ligne: str) -> bool:
+    """Vrai si la ligne est un tag Markdown d'image ![alt](chemin), seule sur sa ligne."""
+    return bool(re.match(r"^!\[.*\]\(.*\)\s*$", ligne.strip()))
+
+
 def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
     """
     Découpe le Markdown en chunks en respectant les frontières structurelles :
-    - Ne coupe jamais à l'intérieur d'un bloc de code (```) ou d'un tableau (|)
+    - Ne coupe jamais à l'intérieur d'un bloc de code (```), d'un tableau (|)
+      ou d'un tag d'image (![]())
     - Préfère couper avant un titre (#) ou entre deux paragraphes
     - Si un bloc dépasse taille_max seul, il est conservé tel quel (non tronqué)
     """
@@ -154,7 +212,7 @@ def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
     blocs_affines: list[str] = []
     for bloc in blocs:
         contient_code_ou_tableau = "```" in bloc or any(
-            ligne.strip().startswith("|") for ligne in bloc.splitlines()
+            ligne.strip().startswith("|") or _est_tag_image(ligne) for ligne in bloc.splitlines()
         )
         if len(bloc) <= taille_max or contient_code_ou_tableau:
             blocs_affines.append(bloc)
@@ -172,7 +230,9 @@ def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
         separateur = "\n\n" if chunk_actuel else ""
         candidat = chunk_actuel + separateur + bloc
 
-        est_tableau = any(ligne.strip().startswith("|") for ligne in bloc.splitlines())
+        est_tableau = any(
+            ligne.strip().startswith("|") or _est_tag_image(ligne) for ligne in bloc.splitlines()
+        )
 
         if chunk_actuel and len(candidat) > taille_max and not est_tableau:
             chunks.append(chunk_actuel.strip())
@@ -224,6 +284,32 @@ def identifier_chapitres(chemin: str, extracteur: str = "pymupdf4llm") -> list[d
     return _extraire_chapitres(texte)
 
 
+def convertir_et_sauvegarder(chemin_pdf: str, extracteur: str = "pymupdf4llm") -> tuple[str, str]:
+    """
+    Extrait le Markdown d'un PDF et le sauvegarde dans un _converti_*.md à côté
+    de la source (en-tête `<!-- extracteur : ... -->` + annexe des liens
+    cliquables du PDF). Retourne (chemin_sortie, contenu_md_brut).
+    Partagée par POST /convert et la persistance automatique de _lire_source().
+    """
+    contenu_md = extraire_texte(chemin_pdf, extracteur)
+    base, _ = os.path.splitext(chemin_pdf)
+    suffixe = extracteur[:2] if extracteur else ""
+    chemin_sortie = f"{base}_converti_{suffixe}.md" if suffixe else f"{base}_converti.md"
+    with open(chemin_sortie, "w", encoding="utf-8") as f:
+        f.write(f"<!-- extracteur : {extracteur} -->\n\n")
+        f.write(contenu_md)
+        # Annexe les liens cliquables du PDF (souvent perdus par l'extraction texte)
+        try:
+            uniques = list(dict.fromkeys(extraire_urls(chemin_pdf)))
+            if uniques:
+                f.write("\n\n---\n\n## Liens du document original\n\n")
+                for url in uniques:
+                    f.write(f"- <{url}>\n")
+        except Exception:
+            pass  # Non critique — la conversion reste valide sans l'annexe
+    return chemin_sortie, contenu_md
+
+
 def _lire_source(chemin: str, extracteur: str) -> str:
     """Lit le Markdown depuis un .md, cherche un _converti_*.md pour un PDF, ou extrait."""
     if chemin.lower().endswith(".md"):
@@ -234,6 +320,17 @@ def _lire_source(chemin: str, extracteur: str) -> str:
     if candidats:
         with open(candidats[0], "r", encoding="utf-8") as f:
             return f.read()
+    if est_active("extraction_images_pdf"):
+        # Persiste le .md (+ images) au premier appel, comme /convert le fait déjà
+        # manuellement — les appels suivants retombent sur le glob ci-dessus, sans
+        # jamais rappeler l'extraction PDF. Best-effort : une erreur d'écriture ne
+        # doit pas empêcher la lecture, juste renoncer au cache.
+        try:
+            chemin_sortie, _ = convertir_et_sauvegarder(chemin, extracteur)
+            with open(chemin_sortie, "r", encoding="utf-8") as f:
+                return f.read()
+        except OSError:
+            pass
     return extraire_texte(chemin, extracteur)
 
 

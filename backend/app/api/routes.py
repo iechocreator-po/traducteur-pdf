@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.config.feature_flags import charger_flags, EXTRACTEURS_PDF, EXTRACTEUR_PAR_DEFAUT
 from app.models.schemas import DemandeTraduction, EtatJob, EtatJobEtude, ResultatAnalyse
 from app.services.translator import lister_modeles_disponibles
-from app.api.validation import resoudre_source, valider_chemin_source
+from app.api.validation import EXTENSIONS_IMAGE, resoudre_source, valider_chemin_source
 
 router = APIRouter()
 
@@ -73,33 +73,29 @@ def convertir_pdf(req: ConvertRequest) -> dict:
     """Converts a PDF to Markdown using the chosen extractor. Returns the output path."""
     req.chemin_pdf = valider_chemin_source(req.chemin_pdf, extensions=(".pdf",), label="Fichier PDF")
 
-    from app.services.pdf_extractor import extraire_texte
+    from app.services.pdf_extractor import convertir_et_sauvegarder
 
     try:
-        contenu_md = extraire_texte(req.chemin_pdf, req.extracteur_pdf)
+        chemin_sortie, contenu_md = convertir_et_sauvegarder(req.chemin_pdf, req.extracteur_pdf)
     except NotImplementedError as e:
         raise HTTPException(status_code=501, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'extraction : {e}")
 
-    base, _ = os.path.splitext(req.chemin_pdf)
-    suffixe = req.extracteur_pdf[:2] if req.extracteur_pdf else ""
-    chemin_sortie = f"{base}_converti_{suffixe}.md" if suffixe else f"{base}_converti.md"
-    with open(chemin_sortie, "w", encoding="utf-8") as f:
-        f.write(f"<!-- extracteur : {req.extracteur_pdf} -->\n\n")
-        f.write(contenu_md)
-        # Annexe les liens cliquables du PDF (souvent perdus par l'extraction texte)
-        try:
-            from app.services.pdf_extractor import extraire_urls
-            uniques = list(dict.fromkeys(extraire_urls(req.chemin_pdf)))
-            if uniques:
-                f.write("\n\n---\n\n## Liens du document original\n\n")
-                for url in uniques:
-                    f.write(f"- <{url}>\n")
-        except Exception:
-            pass  # Non critique — la conversion reste valide sans l'annexe
-
     return {"chemin_sortie": chemin_sortie, "nb_caracteres": len(contenu_md)}
+
+
+@router.get("/image")
+def servir_image(chemin: str):
+    """
+    Sert un fichier image extrait d'un PDF (Bibliothèque + export HTML du
+    document traduit — le navigateur ne peut pas lire un fichier disque par
+    chemin). Même garde que les autres routes de fichiers (chemin absolu,
+    extension allowlistée, fichier existant).
+    """
+    from fastapi.responses import FileResponse
+    chemin = valider_chemin_source(chemin, extensions=EXTENSIONS_IMAGE, label="Image")
+    return FileResponse(chemin)
 
 
 class ResumeCheckRequest(BaseModel):

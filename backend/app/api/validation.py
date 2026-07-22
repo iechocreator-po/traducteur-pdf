@@ -17,6 +17,7 @@ import os
 from fastapi import HTTPException
 
 EXTENSIONS_SOURCE = (".pdf", ".md")
+EXTENSIONS_IMAGE = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
 # Origines autorisées à écrire via multipart (POST /upload). Doit rester alignée
 # sur la CORS allowlist de main.py — partagée ici pour éviter la dérive.

@@ -203,6 +203,60 @@ document est désormais traité comme une **liste ordonnée de chapitres** ; s'i
   anti-sommeil `caffeinate` (item H). L'ETA O(n²) (G) et le sous-découpage des gros blocs (I) sont
   résolus par cette unification. **v1 web** — parité macOS de la section Reprendre différée.
 
+### Extraction d'images du PDF (flag `extraction_images_pdf`, off par défaut)
+
+En cours de validation (2026-07-21, branche `feat/extraction-images-pdf`) —
+flag **off par défaut**, à activer via `bilbao.features.json` ou
+`feature_flags.json` local une fois validé en usage réel prolongé.
+
+- **Extraction** (`pdf_extractor._extraire_avec_pymupdf4llm`) : demande à
+  `pymupdf4llm.to_markdown()` d'**embarquer** les images en base64
+  (`embed_images=True`) plutôt que de les écrire elle-même sur disque
+  (`write_images=True`) — cette dernière option **plante** dès que le nom du
+  PDF contient un espace, très courant (bug vérifié dans
+  `pymupdf4llm/helpers/utils.py:md_path`, qui sanitize le nom pour la
+  référence Markdown mais sauvegarde sous le nom non sanitisé). Le service
+  décode lui-même le base64 et écrit les fichiers dans
+  `<base>_images/img-N.png`, référencés dans le Markdown par un chemin
+  relatif court — nommage entièrement maîtrisé par nous, sans dépendre du
+  comportement interne (fragile) de la librairie. Marker et Tesseract
+  restent hors scope (dégradation propre = pas d'images).
+- **Persistance automatique** (`pdf_extractor.convertir_et_sauvegarder`,
+  appelée par `_lire_source()`, factorisée avec `/convert`) : jusqu'ici,
+  `_lire_source()`/`_lire_source_markdown()` ne faisaient QUE lire un
+  `_converti_*.md` s'il existait déjà (créé manuellement via `/convert`) —
+  sinon ré-extraction à la volée, jamais sauvegardée. Chaque clic de
+  chapitre en Bibliothèque et chaque `demarrer_traduction()`
+  (reprise/ajout compris) relançait donc l'extraction PDF complète. Avec le
+  flag actif, le premier appel persiste `.md` + images ; les appels
+  suivants retombent sur le `glob` déjà en place, sans jamais rappeler
+  `pymupdf4llm`. Flag off → comportement historique inchangé (aucune
+  persistance, ré-extraction à chaque appel comme avant).
+- **Traduction** : aucune modification de `translation_runner.py` — les
+  tags `![](...)` traversent le moteur unifié comme du texte normal (le
+  prompt système préserve déjà `[ ]`/`( )`, `translator.py:126`, vérifié en
+  conditions réelles). Seule protection ajoutée : `decouper_en_chunks()`
+  traite un tag image comme une frontière protégée, au même titre qu'un
+  tableau (`|`) — jamais isolé seul dans un chunk, jamais coupé de son
+  paragraphe.
+- **Affichage Bibliothèque** : nouvelle route `GET /api/image?chemin=...`
+  (même garde que `/tts/audio` — chemin absolu, extension allowlistée dans
+  `EXTENSIONS_IMAGE`, `api/validation.py`). `rendreContenu()`
+  (`module-bibliotheque.js`) détecte une ligne `![alt](chemin)` et crée un
+  `<img>` via `document.createElement` (jamais `innerHTML`), chemin résolu
+  contre `dirname(docActif.chemin_sortie)`.
+- **Export HTML du document traduit** (bouton `#doc-exporter` dans
+  `lecture-bandeau`, distinct de `exporterFicheHtml()` qui exporte la fiche
+  IA résumé/quiz) : charge tous les chapitres traduits
+  (`construireDocumentHtml()`), convertit chaque image en data-URI base64
+  (`imageEnDataUri()`, fetch + `FileReader`) pour un fichier 100 % autonome
+  et portable une fois sorti du serveur local — vérifié en l'ouvrant hors
+  serveur.
+- **Flag unique** `extraction_images_pdf` (`FLAGS_PAR_DEFAUT`, **off par
+  défaut** contrairement aux autres flags — touche l'extraction PDF et le
+  chunking envoyé à Ollama, rollout prudent) pilote les trois mécaniques
+  ci-dessus d'un bloc : extraction, persistance auto, bouton d'export.
+
 ### Clonage vocal (moteur `openvoice`)
 
 Le TTS local a un troisième moteur, `openvoice`, à côté de Piper et Kokoro : des voix
