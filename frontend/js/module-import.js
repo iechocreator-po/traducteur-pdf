@@ -169,7 +169,7 @@
     const lances = [];
     for (const item of prets) {
       try {
-        await apiPost("/translate", corpsSource(item.chemin, {
+        const data = await apiPost("/translate", corpsSource(item.chemin, {
           langue_source: $("langue-source").value,
           langue_cible: $("langue-cible").value,
           modele_ollama: $("modele").value,
@@ -179,6 +179,8 @@
             ? { chapitres_selectionnes: [...item.chapitresCoches].sort((a, b) => a - b) }
             : {}),
         }));
+        item.jobId = data.job_id;
+        item.cheminSortie = data.chemin_sortie;  // Nécessaire pour la pause après redémarrage
         lances.push(item.id);
       } catch (e) {
         item.stage = "erreur";
@@ -261,7 +263,11 @@
     } else {
       for (const item of actifs) {
         if (!item.jobId) continue;
-        try { await fetch(`${API_BASE}/job/${item.jobId}/pause`, { method: "POST" }); } catch { /* poll détectera */ }
+        try {
+          let url = `${API_BASE}/job/${item.jobId}/pause`;
+          if (item.cheminSortie) url += `?chemin_sortie=${encodeURIComponent(item.cheminSortie)}`;
+          await fetch(url, { method: "POST" });
+        } catch { /* poll détectera */ }
       }
       lotEnPause = true;
     }

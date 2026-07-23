@@ -630,9 +630,13 @@ def demarrer_traduction(
 def recuperer_jobs_interrompus() -> int:
     """
     Appelée au démarrage du backend. Le registre mémoire des jobs est vide après
-    un redémarrage : tout job dont le .state.json est resté `en_cours` a donc été
-    coupé net (serveur tué/crashé en plein run). On le bascule `en_pause` pour
-    qu'il redevienne visible et reprenable depuis « Nouveau document ».
+    un redémarrage : tout job dont le .state.json est resté `en_cours` ou `en_attente`
+    a donc été interrompu. On le bascule `en_pause` pour qu'il redevienne visible
+    et reprenable depuis « Nouveau document ».
+
+    - en_cours : job coupé net en plein run (crash/arrêt serveur)
+    - en_attente : job enfilé mais jamais exécuté (file vidée au redémarrage)
+
     Retourne le nombre de jobs récupérés.
     """
     from app.services.bibliotheque import lister_documents
@@ -644,13 +648,17 @@ def recuperer_jobs_interrompus() -> int:
         return 0
 
     for doc in documents:
-        if doc.get("statut") != StatutJob.EN_COURS.value:
+        statut = doc.get("statut")
+        if statut not in (StatutJob.EN_COURS.value, StatutJob.EN_ATTENTE.value):
             continue
         etat = charger_etat(doc["chemin_sortie"])
-        if etat is None or etat.statut != StatutJob.EN_COURS:
+        if etat is None or etat.statut not in (StatutJob.EN_COURS, StatutJob.EN_ATTENTE):
             continue
         etat.statut = StatutJob.EN_PAUSE
-        _journaliser(etat, "Interrompu par un arrêt du serveur — reprise possible")
+        if statut == StatutJob.EN_COURS.value:
+            _journaliser(etat, "Interrompu par un arrêt du serveur — reprise possible")
+        else:
+            _journaliser(etat, "En attente avant redémarrage — reprise possible")
         sauvegarder_etat(etat)
         recuperes += 1
     return recuperes

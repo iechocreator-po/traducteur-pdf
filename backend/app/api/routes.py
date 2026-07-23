@@ -287,11 +287,11 @@ class TranslateRequest(BaseModel):
 
 @router.post("/translate")
 def translate(req: TranslateRequest) -> dict:
-    """Starts or resumes a translation job (from PDF or Markdown) in background. Returns job_id."""
+    """Starts or resumes a translation job (from PDF or Markdown) in background. Returns job_id and output path."""
     chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
 
     from app.models.schemas import Langue
-    from app.services.translation_runner import demarrer_traduction
+    from app.services.translation_runner import demarrer_traduction, build_output_path
 
     try:
         langue_source = Langue(req.langue_source)
@@ -309,7 +309,8 @@ def translate(req: TranslateRequest) -> dict:
         estimation_temps_total=req.estimation_temps_total,
         chapitres_selectionnes=req.chapitres_selectionnes,
     )
-    return {"job_id": job_id}
+    chemin_sortie = build_output_path(chemin_source, req.modele_ollama)
+    return {"job_id": job_id, "chemin_sortie": chemin_sortie}
 
 
 @router.get("/job/{job_id}/statut")
@@ -322,12 +323,30 @@ def statut_job(job_id: str, chemin_pdf: str) -> EtatJob:
 
 
 @router.post("/job/{job_id}/pause")
-def pause_job(job_id: str) -> dict:
-    from app.services.job_manager import mettre_en_pause
-    ok = mettre_en_pause(job_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Job introuvable ou déjà terminé.")
-    return {"statut": "pause_demandee"}
+def pause_job(job_id: str, chemin_sortie: str | None = None) -> dict:
+    """
+    Demande la mise en pause d'un job en cours ou en file d'attente.
+
+    Deux chemins :
+    - chemin_sortie fourni → charger l'état depuis le disque (résilient après redémarrage)
+    - sinon, chercher le job dans le registre en mémoire (rapide, cas de la pause immédiate)
+    """
+    from app.services.job_manager import mettre_en_pause, charger_etat, sauvegarder_etat
+    from app.models.schemas import StatutJob
+
+    # Essayer d'abord le registre en mémoire (job actif)
+    if mettre_en_pause(job_id):
+        return {"statut": "pause_demandee"}
+
+    # Sinon, chercher sur disque si le chemin est fourni
+    if chemin_sortie:
+        etat = charger_etat(chemin_sortie)
+        if etat and etat.statut in (StatutJob.EN_ATTENTE, StatutJob.EN_COURS):
+            etat.statut = StatutJob.EN_PAUSE
+            sauvegarder_etat(etat)
+            return {"statut": "pause_demandee"}
+
+    raise HTTPException(status_code=404, detail="Job introuvable ou déjà terminé.")
 
 
 @router.post("/job/{job_id}/annuler")
