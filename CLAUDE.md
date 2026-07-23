@@ -235,10 +235,14 @@ flag **off par défaut**, à activer via `bilbao.features.json` ou
 - **Traduction** : aucune modification de `translation_runner.py` — les
   tags `![](...)` traversent le moteur unifié comme du texte normal (le
   prompt système préserve déjà `[ ]`/`( )`, `translator.py:126`, vérifié en
-  conditions réelles). Seule protection ajoutée : `decouper_en_chunks()`
-  traite un tag image comme une frontière protégée, au même titre qu'un
-  tableau (`|`) — jamais isolé seul dans un chunk, jamais coupé de son
-  paragraphe.
+  conditions réelles). `decouper_en_chunks()` **sous-découpe normalement**
+  un bloc contenant un tag image (par paragraphes `\n\n`), et l'étape de
+  fusion garde le tag collé à son paragraphe voisin (jamais isolé seul). ⚠️
+  **Ne PAS** re-traiter un tag image comme une frontière inséparable au même
+  titre qu'un tableau/bloc de code : le tag est une ligne isolée que le
+  découpage ne coupe jamais en deux, alors qu'un tableau/code cassé est
+  irréparable. L'ancienne version le faisait et transformait tout chapitre
+  illustré en un morceau géant (voir le Fix du 2026-07-23 plus bas).
 - **Texte de secours « picture text » nettoyé** (`_RE_TEXTE_IMAGE`,
   `_nettoyer_texte_image`) : pymupdf4llm essaie, par défaut (`force_text=True`,
   **déjà le cas flag off**, pas une option qu'on active), d'extraire le texte
@@ -447,6 +451,47 @@ Trois bugs critiques ont été corrigés pour la robustesse du système de pause
    - Fix : accepte `chemin_sortie` optionnel en query param, charge l'état depuis le disque si job_id absent
    - Impact : bouton Pause fonctionne même après redémarrage
    - Bonus : bug JavaScript dans module-import.js corrigé (`new URL()` avec URL relative)
+
+## Fix — Chapitre illustré = morceau géant → stall Ollama (23/7/2026)
+
+**Symptôme** : avec `extraction_images_pdf` actif, la traduction d'un chapitre
+contenant une image (ex. « Models of the Mind_ Chapter 9 ») restait bloquée à
+`0/N` indéfiniment. Ollama (llama-server) chargé mais figé à ~3 % CPU, ne
+répondant plus à aucune requête (même un « bonjour » manuel). Mac qui « tourne
+pour rien ». `pytest` (code frais) trompeur : chaque appel isolé passait.
+
+**Cause racine** (mesurée) : `decouper_en_chunks()` (`pdf_extractor.py`) traitait
+un tag image `![]()` comme une frontière **inséparable** (au même titre qu'un
+tableau). Un chapitre de 48 Ko avec 2 images devenait donc **un seul morceau de
+45 818 caractères (~13 000 tokens)**. Envoyé à Ollama, il exigeait un contexte
+~26 k tokens ; Ollama 0.32 (mis à jour ce jour) charge par défaut un contexte de
+**32768** → cache KV énorme → sous pression mémoire (~11 % RAM libre : modèle
+8,7 Go + backend + navigateur), llama-server **swappe et se fige** au lieu de
+calculer. Avant l'extraction d'images (flag off), pas de tags → morceaux normaux
+(~1500 chars) → aucun souci : d'où le « ça marchait avant ».
+
+**Correctif (2 volets complémentaires)** :
+1. `decouper_en_chunks()` sous-découpe désormais par paragraphes un bloc
+   contenant une image (seuls code ``` et tableaux `|` restent entiers). Le
+   chapitre 9 passe de 3 morceaux (dont un de 45 818) à **41 morceaux ≤ 1500
+   chars**. L'étape de fusion garde le tag image collé à son paragraphe voisin
+   (jamais isolé).
+2. `translator.py` force `num_ctx = OLLAMA_NUM_CTX` (`settings.py`, **4096**)
+   dans les `options` de l'appel Ollama : suffisant pour des morceaux de ~430
+   tokens, cache KV léger, plus de stall — et rend toledo robuste quel que soit
+   le défaut de contexte d'Ollama. ⚠️ Si `CHAPITRE_SOUS_CHUNK_TAILLE_MAX`
+   augmente un jour, remonter `OLLAMA_NUM_CTX` en conséquence (input+sortie).
+
+**Piège à ne pas retomber dedans** : `num_ctx` **trop petit** tronque un gros
+morceau → le modèle produit un **résumé en anglais** au lieu d'une traduction.
+C'est pourquoi le vrai correctif est le chunking (petits morceaux), `num_ctx`
+seul ne suffit pas.
+
+**Validation** : Chapter 9 traduit **41/41, 0 échec**, sortie en vrai français,
+Markdown préservé, RAM stable ~22-29 % (plus d'effondrement), aucun stall. Suite
+`pytest` : **222 verts** (test chunking mis à jour pour valider « image jamais
+isolée mais bloc découpable » ; 2 tests flag isolés via `monkeypatch` pour ne
+plus dépendre du `feature_flags.json` local qui active le flag).
 
 <!-- bilbao:managed:start -->
 ## Géré par bilbao — ne pas éditer à la main

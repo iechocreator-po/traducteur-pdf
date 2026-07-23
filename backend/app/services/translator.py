@@ -11,6 +11,7 @@ import requests
 
 from app.config.settings import (
     OLLAMA_TIMEOUT,
+    OLLAMA_NUM_CTX,
     OLLAMA_RETRY_DELAI_INITIAL,
     OLLAMA_RETRY_FACTEUR,
     OLLAMA_RETRY_DELAI_MAX,
@@ -138,7 +139,7 @@ def traduire_texte(
             "system": system,
             "prompt": texte,
             "stream": False,
-            "options": {"temperature": 0.3},
+            "options": {"temperature": 0.3, "num_ctx": OLLAMA_NUM_CTX},
         },
         interruption=interruption,
     )

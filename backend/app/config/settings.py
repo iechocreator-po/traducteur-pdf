@@ -12,6 +12,16 @@ OLLAMA_TIMEOUT = 600
 # Modèle utilisé par défaut si aucun n'est spécifié par l'utilisateur.
 OLLAMA_MODELE_DEFAUT = "llama3.1"
 
+# Taille de la fenêtre de contexte (tokens) demandée à Ollama par appel.
+# Les morceaux traduits font ~500 tokens : 4096 laisse 8× de marge. On FORCE
+# cette valeur au lieu de laisser le défaut d'Ollama, car depuis Ollama 0.32 le
+# défaut dérivé du modèle (32768 pour llama3.1) alloue des buffers d'inférence
+# énormes qui, sous pression mémoire (modèle chargé + backend + navigateur),
+# font caler llama-server (chargé mais bloqué à ~3 % CPU, jamais de calcul).
+# Diagnostic 2026-07-23 : contexte 32768 sous ~11 % de RAM libre = job figé ;
+# num_ctx=4096 = traduction en ~20 s. Augmenter seulement si un morceau dépasse.
+OLLAMA_NUM_CTX = 4096
+
 # ── Retry des appels Ollama ───────────────────────────────────────────────────
 # Une panne d'Ollama (arrêt, redémarrage, Mac réveillé après une mise en veille)
 # ne doit jamais faire perdre des sections : on réessaie avec un backoff

@@ -231,8 +231,16 @@ def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
     # sauf s'ils contiennent du code ou un tableau (jamais coupés).
     blocs_affines: list[str] = []
     for bloc in blocs:
+        # Seuls le CODE (```) et les TABLEAUX (|) doivent rester entiers : les
+        # sous-découper casserait leur structure. Un tag image, lui, occupe une
+        # ligne isolée (![](...)) — le découpage par paragraphes (\n\n) ne le
+        # coupe jamais en deux, donc un bloc qui en contient PEUT être sous-
+        # découpé. L'inclure ici gardait tout chapitre illustré en UN SEUL
+        # morceau géant (45 k chars / ~13 k tokens → contexte Ollama 32k →
+        # stall mémoire). Régression corrigée le 2026-07-23. L'étape de fusion
+        # ci-dessous garde quand même le tag image collé à son paragraphe voisin.
         contient_code_ou_tableau = "```" in bloc or any(
-            ligne.strip().startswith("|") or _est_tag_image(ligne) for ligne in bloc.splitlines()
+            ligne.strip().startswith("|") for ligne in bloc.splitlines()
         )
         if len(bloc) <= taille_max or contient_code_ou_tableau:
             blocs_affines.append(bloc)

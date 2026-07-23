@@ -134,8 +134,15 @@ def test_relier_toc_apparie_par_mots_distinctifs_sans_grab_du_titre_vide():
 
 # ── Extraction d'images (flag "extraction_images_pdf") ────────────────────────
 
-def test_extraction_images_off_par_defaut_aucun_tag(pdf_avec_image):
-    """Flag off (défaut) : comportement strictement inchangé, aucun tag image."""
+def test_extraction_images_off_par_defaut_aucun_tag(pdf_avec_image, monkeypatch):
+    """Flag off : comportement strictement inchangé, aucun tag image.
+
+    On force le flag OFF explicitement plutôt que de dépendre du défaut ambiant :
+    un feature_flags.json local (dev/validation) peut activer le flag et ce test
+    doit rester déterministe quel que soit cet override.
+    """
+    from app.services import pdf_extractor
+    monkeypatch.setattr(pdf_extractor, "est_active", lambda nom: False)
     texte = extraire_texte(pdf_avec_image)
     assert "![" not in texte
     base, _ = os.path.splitext(pdf_avec_image)
@@ -200,11 +207,14 @@ def test_extraction_images_actif_sans_image_ne_cree_pas_de_dossier(pdf_simple, m
     assert not os.path.isdir(f"{base}_images")
 
 
-def test_decouper_en_chunks_ne_scinde_pas_un_bloc_contenant_une_image():
+def test_decouper_en_chunks_garde_l_image_avec_du_texte_mais_scinde_par_taille():
     """
-    Sans la protection du tag ![]() comme frontière (au même titre que les
-    tableaux), ce texte serait scindé en 3 blocs à la fusion, isolant le tag
-    image tout seul dans son propre chunk.
+    Un tag ![]() ne doit jamais se retrouver ISOLÉ seul dans son chunk (il perdrait
+    son contexte de traduction). Mais sa présence ne doit PAS empêcher le découpage
+    par taille : sinon un chapitre illustré devient un unique morceau géant
+    (~45 k chars → contexte Ollama 32 k → stall mémoire, régression du 2026-07-23).
+    Comportement attendu : le tag reste collé à un paragraphe voisin, et le texte
+    trop long est bien scindé.
     """
     tag = "![](images/fig.png)"
     para_avant = "Paragraphe avant l'image, assez long pour dépasser la taille max à lui seul."
@@ -213,8 +223,12 @@ def test_decouper_en_chunks_ne_scinde_pas_un_bloc_contenant_une_image():
 
     chunks = decouper_en_chunks(texte, taille_max=50)
 
-    assert len(chunks) == 1
-    assert tag in chunks[0]
+    # Le bloc trop long EST scindé (plus de morceau géant unique).
+    assert len(chunks) > 1
+    # Le tag apparaît dans exactement un chunk, jamais seul (accompagné de texte).
+    chunks_avec_tag = [c for c in chunks if tag in c]
+    assert len(chunks_avec_tag) == 1
+    assert chunks_avec_tag[0].replace(tag, "").strip(), "le tag image ne doit pas être isolé seul"
 
 
 def test_decouper_en_chunks_reconnait_le_tag_image():
@@ -259,8 +273,12 @@ def test_flag_actif_extraction_pdf_une_seule_fois(pdf_simple, monkeypatch):
 
 
 def test_flag_inactif_extrait_a_chaque_appel(pdf_simple, monkeypatch):
-    """Flag off (défaut) : comportement inchangé, aucune persistance automatique."""
+    """Flag off : comportement inchangé, aucune persistance automatique.
+
+    Flag forcé OFF explicitement (indépendant d'un feature_flags.json local).
+    """
     from app.services import pdf_extractor
+    monkeypatch.setattr(pdf_extractor, "est_active", lambda nom: False)
     compteur = _compter_appels_extraction(monkeypatch)
 
     pdf_extractor.identifier_chapitres(pdf_simple)
