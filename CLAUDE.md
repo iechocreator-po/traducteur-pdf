@@ -428,6 +428,26 @@ tous les produits du portfolio.
   (127.0.0.1:4600) — passer par son API (`GET/POST/PATCH /api/feedbacks`,
   `POST /api/release-notes`). Ne jamais éditer les JSON à la main.
 
+## Fixes — Pause et reprise après redémarrage (23/7/2026)
+
+Trois bugs critiques ont été corrigés pour la robustesse du système de pause/reprise :
+
+1. **Jobs enfilés restaient figés après redémarrage** (`recuperer_jobs_interrompus()`)
+   - Cause : fonction ignorait les jobs avec statut `en_attente` (traitait seulement `en_cours`)
+   - Fix : traite maintenant `en_attente` aussi → jobs ré-enfilés correctement au démarrage
+   - Impact : plus de jobs perdus après un redémarrage du backend
+
+2. **Endpoint `/translate` n'exposait pas le chemin de sortie**
+   - Cause : le frontend n'avait pas accès à `chemin_sortie` pour passer au endpoint Pause
+   - Fix : `/translate` retourne maintenant `chemin_sortie` en plus de `job_id`
+   - Impact : Pause résilient après redémarrage (même sans registre en mémoire)
+
+3. **Endpoint `/pause` cassait après redémarrage du serveur**
+   - Cause : cherchait le job_id dans le registre en mémoire (vide après redémarrage) → 404
+   - Fix : accepte `chemin_sortie` optionnel en query param, charge l'état depuis le disque si job_id absent
+   - Impact : bouton Pause fonctionne même après redémarrage
+   - Bonus : bug JavaScript dans module-import.js corrigé (`new URL()` avec URL relative)
+
 <!-- bilbao:managed:start -->
 ## Géré par bilbao — ne pas éditer à la main
 _Bloc régénéré par le cockpit bilbao (2026-07-14). La prose hors marqueurs n'est jamais touchée._
