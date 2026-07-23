@@ -292,12 +292,20 @@ def translate(req: TranslateRequest) -> dict:
 
     from app.models.schemas import Langue
     from app.services.translation_runner import demarrer_traduction, build_output_path
+    from app.services.translator import verifier_ollama_pret
 
     try:
         langue_source = Langue(req.langue_source)
         langue_cible = Langue(req.langue_cible)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+    # Preflight : Ollama doit pouvoir RÉELLEMENT traduire avant qu'on enfile un
+    # job long. Un llama-server figé répond encore à /api/tags mais bloque toute
+    # génération — sans ce garde, le job resterait figé à 0/N pendant 10 min.
+    pret, message = verifier_ollama_pret(req.modele_ollama)
+    if not pret:
+        raise HTTPException(status_code=503, detail=message)
 
     job_id = demarrer_traduction(
         source_path=chemin_source,

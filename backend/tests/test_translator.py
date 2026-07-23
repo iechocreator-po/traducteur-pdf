@@ -157,3 +157,88 @@ def test_lister_modeles_disponibles_retourne_les_noms(mock_get):
 def test_lister_modeles_disponibles_retourne_liste_vide_si_ollama_inaccessible(mock_get):
     modeles = lister_modeles_disponibles()
     assert modeles == []
+
+
+# ── Preflight verifier_ollama_pret ────────────────────────────────────────────
+from app.services.translator import verifier_ollama_pret
+
+
+@patch("app.services.translator.requests.post")
+def test_verifier_ollama_pret_ok_quand_traduction_reelle_repond(mock_post):
+    mock_reponse = MagicMock()
+    mock_reponse.json.return_value = {"response": "Le chat dort."}
+    mock_post.return_value = mock_reponse
+
+    pret, message = verifier_ollama_pret("llama3.1")
+
+    assert pret is True
+    assert message == "ok"
+    # Le preflight envoie bien num_ctx (le garde-fou mémoire), pas un ping nu.
+    _, kwargs = mock_post.call_args
+    assert kwargs["json"]["options"]["num_ctx"] > 0
+
+
+@patch("app.services.translator.requests.post", side_effect=requests.Timeout)
+def test_verifier_ollama_pret_detecte_llama_server_fige(mock_post):
+    """Un llama-server figé ne répond pas au test → not pret + consigne de redémarrage."""
+    pret, message = verifier_ollama_pret("llama3.1", timeout=5)
+    assert pret is False
+    assert "figé" in message and "Redémarrer" in message
+
+
+@patch("app.services.translator.requests.post", side_effect=requests.ConnectionError("refusée"))
+def test_verifier_ollama_pret_detecte_ollama_injoignable(mock_post):
+    pret, message = verifier_ollama_pret("llama3.1")
+    assert pret is False
+    assert "injoignable" in message.lower()
+
+
+@patch("app.services.translator.requests.post")
+def test_verifier_ollama_pret_reponse_vide_est_un_echec(mock_post):
+    mock_reponse = MagicMock()
+    mock_reponse.json.return_value = {"response": "   "}
+    mock_post.return_value = mock_reponse
+
+    pret, message = verifier_ollama_pret("llama3.1")
+
+    assert pret is False
+    assert "vide" in message.lower()
+
+
+# ── Masquage des tags images (jamais envoyés à Ollama) ────────────────────────
+@patch("app.services.translator.appeler_ollama")
+def test_traduire_texte_ne_envoie_jamais_le_chemin_image_a_ollama(mock_appel):
+    # Le modèle voit une sentinelle, pas le chemin ; il la recopie et traduit autour.
+    mock_appel.return_value = {"response": "Voici la figure ⟦IMG0⟧ ci-dessus."}
+
+    texte = "Here is the figure ![schéma](chapitre_images/img-0.png) above."
+    resultat = traduire_texte(texte, modele="llama3.1", langue_source="anglais", langue_cible="français")
+
+    # Ce qui a été ENVOYÉ à Ollama ne contient NI le chemin NI le tag image.
+    payload = mock_appel.call_args[0][0]
+    envoye = payload["prompt"]
+    assert "img-0.png" not in envoye
+    assert "![" not in envoye
+    assert "⟦IMG0⟧" in envoye
+    # Le résultat restaure le tag d'origine à l'identique.
+    assert "![schéma](chapitre_images/img-0.png)" in resultat
+    assert "⟦IMG0⟧" not in resultat
+
+
+@patch("app.services.translator.appeler_ollama")
+def test_traduire_texte_sans_image_inchange(mock_appel):
+    """Aucune image → aucun masquage, aucune règle en plus (pas de régression)."""
+    mock_appel.return_value = {"response": "Bonjour le monde"}
+    traduire_texte("Hello world", modele="llama3.1", langue_source="anglais", langue_cible="français")
+    payload = mock_appel.call_args[0][0]
+    assert payload["prompt"] == "Hello world"
+    assert "MARQUEURS IMAGES" not in payload["system"]
+
+
+@patch("app.services.translator.appeler_ollama")
+def test_traduire_texte_filet_si_le_modele_perd_la_sentinelle(mock_appel):
+    """Si le modèle oublie la sentinelle, l'image n'est jamais perdue."""
+    mock_appel.return_value = {"response": "Traduction sans le marqueur."}
+    texte = "Texte ![x](img/a.png) suite."
+    resultat = traduire_texte(texte, modele="llama3.1", langue_source="anglais", langue_cible="français")
+    assert "![x](img/a.png)" in resultat

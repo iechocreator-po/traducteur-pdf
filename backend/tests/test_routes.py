@@ -518,3 +518,34 @@ def test_supprimer_document_du_registre(tmp_path, monkeypatch):
     # Supprimer un document inconnu → 404.
     manquant = client.request("DELETE", "/api/bibliotheque", json={"chemin_sortie": "/x/inconnu.md"})
     assert manquant.status_code == 404
+
+
+# ── Preflight Ollama sur /translate ───────────────────────────────────────────
+def test_translate_refuse_si_ollama_pas_pret(tmp_path):
+    """Preflight en échec → 503 avec message clair, AUCUN job lancé."""
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nDu texte.", encoding="utf-8")
+
+    with patch("app.services.translator.verifier_ollama_pret",
+               return_value=(False, "llama-server figé. Redémarrer Ollama.")) as prefl, \
+         patch("app.services.translation_runner.demarrer_traduction") as demarrer:
+        reponse = client.post("/api/translate", json={"chemin_md": str(source)})
+
+    assert reponse.status_code == 503
+    assert "Redémarrer Ollama" in reponse.json()["detail"]
+    prefl.assert_called_once()
+    demarrer.assert_not_called()  # on ne lance jamais un job si Ollama n'est pas prêt
+
+
+def test_translate_lance_le_job_si_ollama_pret(tmp_path):
+    """Preflight OK → le job est bien lancé, réponse avec job_id."""
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nDu texte.", encoding="utf-8")
+
+    with patch("app.services.translator.verifier_ollama_pret", return_value=(True, "ok")), \
+         patch("app.services.translation_runner.demarrer_traduction", return_value="job-123") as demarrer:
+        reponse = client.post("/api/translate", json={"chemin_md": str(source)})
+
+    assert reponse.status_code == 200
+    assert reponse.json()["job_id"] == "job-123"
+    demarrer.assert_called_once()

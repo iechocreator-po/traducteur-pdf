@@ -4,6 +4,7 @@ Logique pure d'appel au modèle — pas de gestion d'état ni d'UI ici.
 """
 
 import random
+import re
 import time
 from typing import Callable
 
@@ -103,6 +104,42 @@ def appeler_ollama(
         delai = min(delai * OLLAMA_RETRY_FACTEUR, OLLAMA_RETRY_DELAI_MAX)
 
 
+# Un tag image Markdown : ![alt](chemin). Le chemin est un nom de fichier qu'on
+# ne veut SURTOUT pas envoyer au modèle (gaspillage de tokens + risque qu'il
+# traduise/altère le chemin). On le masque par une sentinelle avant l'appel.
+_RE_TAG_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+
+
+def _masquer_images(texte: str) -> tuple[str, list[str]]:
+    """
+    Remplace chaque tag image par une sentinelle neutre `⟦IMGk⟧`. Ainsi Ollama ne
+    reçoit jamais le chemin de l'image (ni l'alt) : il ne peut ni le traduire ni
+    l'altérer. Retourne (texte_masqué, liste des tags dans l'ordre d'apparition).
+    """
+    tags: list[str] = []
+
+    def _sub(m: re.Match) -> str:
+        tags.append(m.group(0))
+        return f"⟦IMG{len(tags) - 1}⟧"
+
+    return _RE_TAG_IMAGE.sub(_sub, texte), tags
+
+
+def _restaurer_images(traduit: str, tags: list[str]) -> str:
+    """
+    Remet chaque tag image d'origine à la place de sa sentinelle. Filet de
+    sécurité : si le modèle a malgré tout perdu/altéré une sentinelle, le tag
+    correspondant est réinséré en fin de texte — on ne perd JAMAIS une image.
+    """
+    for k, tag in enumerate(tags):
+        sentinelle = f"⟦IMG{k}⟧"
+        if sentinelle in traduit:
+            traduit = traduit.replace(sentinelle, tag)
+        else:
+            traduit = traduit.rstrip() + "\n\n" + tag
+    return traduit
+
+
 def traduire_texte(
     texte: str,
     modele: str,
@@ -115,7 +152,12 @@ def traduire_texte(
     Envoie un texte à Ollama et retourne la traduction.
     termes_a_conserver : termes du glossaire à recopier tels quels (jamais traduits).
     interruption : callback consulté pendant le backoff (pause/annulation).
+
+    Les tags images `![](...)` sont masqués par une sentinelle avant l'appel (le
+    chemin n'est jamais envoyé au modèle) puis restaurés à l'identique.
     """
+    texte_a_traduire, tags_images = _masquer_images(texte)
+
     system = (
         f"You are a professional literal translator. Traduis de {langue_source} vers {langue_cible}.\n"
         f"RÈGLES STRICTES :\n"
@@ -132,18 +174,23 @@ def traduire_texte(
         system += (
             f"\n8. Ne traduis JAMAIS ces termes, recopie-les EXACTEMENT tels quels : {liste}."
         )
+    if tags_images:
+        system += (
+            "\nMARQUEURS IMAGES : recopie EXACTEMENT tout marqueur de la forme "
+            "⟦IMG0⟧, ⟦IMG1⟧, … — ne les traduis pas, ne les déplace pas, ne les supprime pas."
+        )
 
     data = appeler_ollama(
         {
             "model": modele,
             "system": system,
-            "prompt": texte,
+            "prompt": texte_a_traduire,
             "stream": False,
             "options": {"temperature": 0.3, "num_ctx": OLLAMA_NUM_CTX},
         },
         interruption=interruption,
     )
-    return data.get("response", "").strip()
+    return _restaurer_images(data.get("response", "").strip(), tags_images)
 
 
 def lister_modeles_disponibles() -> list[str]:
@@ -155,3 +202,44 @@ def lister_modeles_disponibles() -> list[str]:
         return [m["name"] for m in data.get("models", [])]
     except Exception:
         return []
+
+
+def verifier_ollama_pret(modele: str, timeout: int = 60) -> tuple[bool, str]:
+    """
+    Preflight : Ollama peut-il RÉELLEMENT traduire maintenant ?
+
+    Au-delà d'un simple ping /api/tags, envoie une VRAIE mini-traduction avec les
+    params exacts d'un job (num_ctx compris). Un llama-server figé (modèle chargé
+    mais bloqué, ~3 % CPU) ne répond pas à ceci alors que /api/tags répondrait
+    encore. Appeler ce preflight AVANT de lancer un job évite de figer 10 min sur
+    un Ollama en vrac : on échoue proprement (503) avec une consigne claire.
+
+    Ce premier appel réchauffe aussi le modèle (chargement en mémoire) — d'où le
+    timeout large qui couvre un démarrage à froid.
+
+    Retour : (pret, message). `message` décrit la cause quand pas prêt.
+    """
+    payload = {
+        "model": modele,
+        "system": "Traduis de anglais vers français. Réponds uniquement la traduction.",
+        "prompt": "The cat sleeps.",
+        "stream": False,
+        "options": {"temperature": 0.3, "num_ctx": OLLAMA_NUM_CTX},
+    }
+    try:
+        r = requests.post(OLLAMA_URL, json=payload, timeout=timeout)
+        r.raise_for_status()
+        if r.json().get("response", "").strip():
+            return True, "ok"
+        return False, "Ollama a répondu vide au test de traduction — état anormal."
+    except requests.Timeout:
+        return False, (
+            f"Ollama n'a pas répondu en {timeout}s au test de traduction "
+            "(llama-server probablement figé). Redémarrer Ollama, puis réessayer : "
+            "killall ollama ; open -a Ollama"
+        )
+    except requests.HTTPError as e:
+        code = getattr(e.response, "status_code", "?")
+        return False, f"Ollama a refusé le test (HTTP {code}) — modèle « {modele} » installé ?"
+    except requests.RequestException as e:
+        return False, f"Ollama injoignable ({e}). Est-il lancé ? (open -a Ollama)"

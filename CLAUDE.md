@@ -232,17 +232,23 @@ flag **off par défaut**, à activer via `bilbao.features.json` ou
   suivants retombent sur le `glob` déjà en place, sans jamais rappeler
   `pymupdf4llm`. Flag off → comportement historique inchangé (aucune
   persistance, ré-extraction à chaque appel comme avant).
-- **Traduction** : aucune modification de `translation_runner.py` — les
-  tags `![](...)` traversent le moteur unifié comme du texte normal (le
-  prompt système préserve déjà `[ ]`/`( )`, `translator.py:126`, vérifié en
-  conditions réelles). `decouper_en_chunks()` **sous-découpe normalement**
-  un bloc contenant un tag image (par paragraphes `\n\n`), et l'étape de
-  fusion garde le tag collé à son paragraphe voisin (jamais isolé seul). ⚠️
-  **Ne PAS** re-traiter un tag image comme une frontière inséparable au même
-  titre qu'un tableau/bloc de code : le tag est une ligne isolée que le
-  découpage ne coupe jamais en deux, alors qu'un tableau/code cassé est
-  irréparable. L'ancienne version le faisait et transformait tout chapitre
-  illustré en un morceau géant (voir le Fix du 2026-07-23 plus bas).
+- **Traduction** : aucune modification de `translation_runner.py`.
+  `decouper_en_chunks()` **sous-découpe normalement** un bloc contenant un tag
+  image (par paragraphes `\n\n`), et l'étape de fusion garde le tag collé à son
+  paragraphe voisin (jamais isolé seul). ⚠️ **Ne PAS** re-traiter un tag image
+  comme une frontière inséparable au même titre qu'un tableau/bloc de code : le
+  tag est une ligne isolée que le découpage ne coupe jamais en deux, alors qu'un
+  tableau/code cassé est irréparable. L'ancienne version le faisait et
+  transformait tout chapitre illustré en un morceau géant (voir le Fix du
+  2026-07-23 plus bas).
+- **Les tags images ne sont JAMAIS envoyés à Ollama** (`translator.py`,
+  `_masquer_images`/`_restaurer_images`) : avant l'appel, chaque `![](chemin)`
+  est remplacé par une sentinelle neutre `⟦IMGk⟧`, puis restauré à l'identique
+  après traduction. Ollama ne voit donc jamais le chemin de fichier — zéro
+  token gaspillé, zéro risque qu'il traduise/altère le chemin. Filet de
+  sécurité : une sentinelle perdue par le modèle réinsère le tag en fin de
+  texte (l'image n'est jamais perdue). Sans image dans le morceau, comportement
+  strictement inchangé (pas de masquage, pas de règle système en plus).
 - **Texte de secours « picture text » nettoyé** (`_RE_TEXTE_IMAGE`,
   `_nettoyer_texte_image`) : pymupdf4llm essaie, par défaut (`force_text=True`,
   **déjà le cas flag off**, pas une option qu'on active), d'extraire le texte
@@ -492,6 +498,24 @@ Markdown préservé, RAM stable ~22-29 % (plus d'effondrement), aucun stall. Sui
 `pytest` : **222 verts** (test chunking mis à jour pour valider « image jamais
 isolée mais bloc découpable » ; 2 tests flag isolés via `monkeypatch` pour ne
 plus dépendre du `feature_flags.json` local qui active le flag).
+
+**Durcissements ajoutés dans la foulée (23/7/2026)** :
+- **Preflight Ollama avant chaque job** (`translator.verifier_ollama_pret`,
+  appelé dans la route `/translate`) : au-delà d'un ping `/api/tags`, une VRAIE
+  mini-traduction avec les params exacts (num_ctx compris), plafonnée à 60 s. Un
+  `llama-server` figé ne répond pas à ce test alors que `/api/tags` répondrait
+  encore → `/translate` renvoie **503** avec la consigne de redémarrer Ollama,
+  au lieu de figer 10 min à `0/N`. C'est le garde qui aurait évité toute la
+  séance de debug.
+- **Tags images jamais envoyés à Ollama** (voir la section extraction d'images) :
+  masquage `⟦IMGk⟧` avant l'appel, restauration après.
+- **Validation end-to-end réelle** (`tests/validate_translation.py` +
+  `tests/reference/Chapter9_*_reference.md`, hors suite `pytest`) : compare une
+  vraie sortie à une référence golden sur des invariants robustes au
+  non-déterminisme d'Ollama (taille dans [50 %,200 %], tags images identiques,
+  français vs résumé anglais, 0 échec). Prouvé : accepte la bonne sortie, rejette
+  un résumé anglais tronqué. Régénérer la référence via `--save-reference` après
+  toute amélioration volontaire de la qualité. `pytest` final : **231 verts**.
 
 <!-- bilbao:managed:start -->
 ## Géré par bilbao — ne pas éditer à la main
