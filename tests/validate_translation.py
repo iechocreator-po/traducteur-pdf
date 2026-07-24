@@ -64,7 +64,9 @@ MOTS_EN = {"the", "and", "of", "to", "is", "are", "that", "this", "which",
 def _curl_json(url, data=None, max_time=120):
     cmd = ["curl", "-s", "--max-time", str(max_time), url]
     if data is not None:
-        cmd += ["-d", json.dumps(data)]
+        # Content-Type explicite : FastAPI refuse un corps JSON sans cet en-tête
+        # (Ollama, lui, est tolérant — d'où un bug qui ne se voyait que côté backend).
+        cmd += ["-H", "Content-Type: application/json", "-d", json.dumps(data)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not r.stdout.strip():
         return None
@@ -147,10 +149,11 @@ def preflight():
 # Lancement + attente d'un vrai job de traduction via le backend
 # ─────────────────────────────────────────────────────────────────────────────
 def lancer_et_attendre(pdf, chapitres, timeout=900):
+    pdf = str(Path(pdf).resolve())  # le backend exige un chemin absolu
     print(f"\n▶️  TRADUCTION : {Path(pdf).name} chapitres={chapitres}")
     rep = _curl_json(f"{BACKEND}/api/translate", {
         "chemin_pdf": pdf, "chapitres_selectionnes": chapitres, "modele_ollama": "llama3.1",
-    }, max_time=30)
+    }, max_time=90)
     if not rep or "chemin_sortie" not in rep:
         print(f"  ❌ /translate a échoué : {rep}")
         return None
