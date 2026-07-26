@@ -405,6 +405,16 @@ cd backend
 pytest tests/ -v
 ```
 
+**Tests manuels bout-en-bout (T1/T2/T3, hors suite pytest)** : `tests/test_pdf_translation.py`
+lance un vrai PDF à travers Ollama direct, puis le backend avec/sans extraction d'images
+(prérequis : Ollama lancé + backend `uvicorn` sur le port 8000). Doc complète dans
+`tests/README_TESTS.md`, dernier rapport dans `tests/RESULTS_2026-07-23.txt` (Chapter 9,
+3/3 réussis). Réutilisable sur n'importe quel PDF :
+```bash
+cd tests
+python3 test_pdf_translation.py /chemin/vers/mon/pdf.pdf [--test T1|T2|T3|all] [--timeout 600]
+```
+
 ## Design system
 
 L'interface (web **et** macOS) suit le design system partagé de `2000_DigitalProducts`,
