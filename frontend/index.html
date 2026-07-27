@@ -318,6 +318,23 @@
       <button id="bouton-export-pdf" class="bouton-lien accent">📄 Exporter en PDF</button>
       <span id="export-statut" class="aide"></span>
     </section>
+
+    <!-- Documentation technique. Le fichier vit sous frontend/docs/ (et non
+         docs/ à la racine) parce que le serveur du frontend a pour racine
+         frontend/ : un ../docs/ serait refusé par python -m http.server. -->
+    <section class="carte">
+      <h2>Documentation technique</h2>
+      <p class="aide">
+        Audit de la messagerie backend ↔ frontends (web et macOS), épreuve de durabilité
+        sur 12 scénarios d'interruption, et architecture cible. Document autonome, lisible
+        hors ligne.
+      </p>
+      <a id="lien-doc-architecture"
+         class="bouton-secondaire"
+         href="docs/architecture-messagerie.html"
+         target="_blank"
+         rel="noopener">📐 Messagerie, durabilité, architecture cible</a>
+    </section>
   </main>
 
   <script src="js/commun.js?v=3"></script>

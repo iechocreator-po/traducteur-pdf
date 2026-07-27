@@ -1,0 +1,1178 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>toledo — Messagerie, durabilité, architecture cible</title>
+<style>
+  /* Réinitialisation minimale — la version publiée en artefact la reçoit de la
+     plateforme ; cette copie autonome doit la porter elle-même. */
+  *, *::before, *::after { box-sizing: border-box; }
+  body, h1, h2, h3, h4, p, ul, ol, dl, dd, figure { margin: 0; padding: 0; }
+  ul, ol { list-style-position: outside; }
+  img, svg { max-width: 100%; }
+
+  :root {
+    --paper: #EFF1F5;
+    --surface: #FFFFFF;
+    --surface-2: #F7F8FA;
+    --ink: #141922;
+    --ink-2: #59616F;
+    --ink-3: #858C99;
+    --rule: #DBDFE7;
+    --rule-2: #C6CCD8;
+    --accent: #3D3AC4;
+    --accent-soft: #EAE9FB;
+    --ok: #1B7A4C;
+    --ok-soft: #E2F2E9;
+    --warn: #9C5F06;
+    --warn-soft: #FAEEDC;
+    --bad: #AF2B2B;
+    --bad-soft: #FAE6E5;
+    --shadow: 0 1px 2px rgba(20, 25, 34, .06), 0 8px 24px -12px rgba(20, 25, 34, .18);
+
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0E1117;
+      --surface: #161A22;
+      --surface-2: #1C212B;
+      --ink: #E4E8EF;
+      --ink-2: #98A1B1;
+      --ink-3: #6E7787;
+      --rule: #262C38;
+      --rule-2: #333B4A;
+      --accent: #9290FF;
+      --accent-soft: #201F3D;
+      --ok: #4FBF85;
+      --ok-soft: #12291E;
+      --warn: #E0A040;
+      --warn-soft: #2B2110;
+      --bad: #F2716D;
+      --bad-soft: #2E1616;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .7);
+    }
+  }
+
+  :root[data-theme="light"] {
+    --paper: #EFF1F5; --surface: #FFFFFF; --surface-2: #F7F8FA;
+    --ink: #141922; --ink-2: #59616F; --ink-3: #858C99;
+    --rule: #DBDFE7; --rule-2: #C6CCD8;
+    --accent: #3D3AC4; --accent-soft: #EAE9FB;
+    --ok: #1B7A4C; --ok-soft: #E2F2E9;
+    --warn: #9C5F06; --warn-soft: #FAEEDC;
+    --bad: #AF2B2B; --bad-soft: #FAE6E5;
+    --shadow: 0 1px 2px rgba(20, 25, 34, .06), 0 8px 24px -12px rgba(20, 25, 34, .18);
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #0E1117; --surface: #161A22; --surface-2: #1C212B;
+    --ink: #E4E8EF; --ink-2: #98A1B1; --ink-3: #6E7787;
+    --rule: #262C38; --rule-2: #333B4A;
+    --accent: #9290FF; --accent-soft: #201F3D;
+    --ok: #4FBF85; --ok-soft: #12291E;
+    --warn: #E0A040; --warn-soft: #2B2110;
+    --bad: #F2716D; --bad-soft: #2E1616;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .7);
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 40px 24px 96px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+
+  @media (min-width: 1040px) {
+    .shell { grid-template-columns: 220px minmax(0, 1fr); align-items: start; }
+    .rail { position: sticky; top: 32px; }
+  }
+
+  /* ── Rail ────────────────────────────────────────────── */
+  .rail { display: none; }
+  @media (min-width: 1040px) { .rail { display: block; } }
+  .rail nav { display: flex; flex-direction: column; gap: 2px; }
+  .rail a {
+    color: var(--ink-2); text-decoration: none;
+    font-size: 13px; padding: 5px 10px; border-radius: 5px;
+    border-left: 2px solid transparent;
+  }
+  .rail a:hover { color: var(--ink); background: var(--surface); border-left-color: var(--accent); }
+  .rail a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .rail .rail-title {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-3);
+    padding: 14px 10px 5px;
+  }
+  .rail .rail-title:first-child { padding-top: 0; }
+
+  /* ── Type ────────────────────────────────────────────── */
+  main { min-width: 0; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 14px;
+  }
+  h1 {
+    font-family: var(--display); font-weight: 600;
+    font-size: clamp(30px, 4.6vw, 46px); line-height: 1.12;
+    letter-spacing: -.015em; text-wrap: balance; margin-bottom: 14px;
+  }
+  .standfirst {
+    font-size: 18px; line-height: 1.55; color: var(--ink-2);
+    max-width: 64ch; margin-bottom: 28px;
+  }
+  h2 {
+    font-family: var(--display); font-weight: 600;
+    font-size: clamp(23px, 2.6vw, 30px); line-height: 1.2;
+    letter-spacing: -.01em; text-wrap: balance;
+    margin: 0 0 6px; padding-top: 8px;
+  }
+  h3 {
+    font-size: 17px; font-weight: 650; letter-spacing: -.005em;
+    margin: 0 0 8px; text-wrap: balance;
+  }
+  h4 {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .13em;
+    text-transform: uppercase; color: var(--ink-3);
+    margin: 0 0 10px; font-weight: 500;
+  }
+  p { max-width: 68ch; margin: 0 0 14px; }
+  p:last-child { margin-bottom: 0; }
+  ul, ol { max-width: 68ch; margin: 0 0 14px; padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  li:last-child { margin-bottom: 0; }
+  strong { font-weight: 650; color: var(--ink); }
+  a { color: var(--accent); }
+  code {
+    font-family: var(--mono); font-size: .855em;
+    background: var(--surface-2); border: 1px solid var(--rule);
+    padding: 1px 5px; border-radius: 4px; white-space: nowrap;
+  }
+  .sec { margin-bottom: 52px; }
+  .sec > .lede { color: var(--ink-2); margin-bottom: 22px; max-width: 68ch; }
+  hr.div {
+    border: 0; border-top: 1px solid var(--rule);
+    margin: 0 0 26px;
+  }
+
+  /* ── Scorecard ───────────────────────────────────────── */
+  .verdict {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 10px; padding: 22px 24px; box-shadow: var(--shadow);
+    margin-bottom: 44px;
+  }
+  .verdict p { margin-bottom: 0; }
+  .tiles {
+    display: grid; gap: 1px; background: var(--rule);
+    border: 1px solid var(--rule); border-radius: 8px; overflow: hidden;
+    grid-template-columns: repeat(2, 1fr); margin-top: 20px;
+  }
+  @media (min-width: 620px) { .tiles { grid-template-columns: repeat(4, 1fr); } }
+  .tile { background: var(--surface); padding: 14px 16px; }
+  .tile .n {
+    font-family: var(--display); font-size: 30px; font-weight: 600;
+    line-height: 1; font-variant-numeric: tabular-nums; display: block;
+  }
+  .tile .l {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-3); margin-top: 7px; display: block;
+  }
+  .tile.ok .n { color: var(--ok); }
+  .tile.warn .n { color: var(--warn); }
+  .tile.bad .n { color: var(--bad); }
+
+  /* ── Pills ───────────────────────────────────────────── */
+  .pill {
+    display: inline-block; font-family: var(--mono);
+    font-size: 10px; letter-spacing: .07em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 4px; white-space: nowrap;
+    font-weight: 500; vertical-align: middle;
+  }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  .pill.neutral { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--rule); }
+  .pill.accent { background: var(--accent-soft); color: var(--accent); }
+
+  /* ── Tables ──────────────────────────────────────────── */
+  .tw { overflow-x: auto; margin-bottom: 20px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 560px; }
+  th, td { text-align: left; padding: 9px 13px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-3); font-weight: 500;
+    background: var(--surface-2); white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td code { white-space: nowrap; }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+  .c { text-align: center; }
+
+  /* ── Findings ────────────────────────────────────────── */
+  .find {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-left: 3px solid var(--rule-2);
+    border-radius: 8px; padding: 18px 20px; margin-bottom: 14px;
+    box-shadow: var(--shadow);
+  }
+  .find.sev-1 { border-left-color: var(--bad); }
+  .find.sev-2 { border-left-color: var(--warn); }
+  .find.sev-3 { border-left-color: var(--ink-3); }
+  .find-head {
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    gap: 10px; margin-bottom: 10px;
+  }
+  .find-id {
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    color: var(--ink-3); letter-spacing: .04em;
+  }
+  .find-head h3 { margin: 0; flex: 1 1 260px; }
+  .find dl { margin: 12px 0 0; display: grid; gap: 8px; }
+  @media (min-width: 640px) { .find dl { grid-template-columns: 92px minmax(0,1fr); gap: 8px 14px; } }
+  .find dt {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-3); padding-top: 3px;
+  }
+  .find dd { margin: 0; font-size: 14.5px; color: var(--ink-2); }
+  .find dd strong { color: var(--ink); }
+  .find > p { font-size: 14.5px; }
+
+  /* ── Cards / callouts ────────────────────────────────── */
+  .card {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 8px; padding: 18px 20px; box-shadow: var(--shadow);
+  }
+  .grid2 { display: grid; gap: 14px; margin-bottom: 20px; }
+  @media (min-width: 720px) { .grid2 { grid-template-columns: 1fr 1fr; } }
+  .note {
+    background: var(--accent-soft); border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: 15px 18px; margin-bottom: 20px; font-size: 14.5px;
+  }
+  .note p { margin-bottom: 8px; }
+  .note p:last-child { margin-bottom: 0; }
+  .note-t {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 7px; font-weight: 500;
+  }
+
+  /* ── Target principles ───────────────────────────────── */
+  .prin {
+    display: grid; gap: 14px 18px; padding: 18px 0;
+    border-top: 1px solid var(--rule);
+  }
+  @media (min-width: 720px) { .prin { grid-template-columns: 44px minmax(0,1fr); } }
+  .prin:last-of-type { border-bottom: 1px solid var(--rule); }
+  .prin-n {
+    font-family: var(--display); font-size: 26px; font-weight: 600;
+    color: var(--accent); line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .prin p:last-child { margin-bottom: 0; }
+  .prin .fixes { font-size: 13px; color: var(--ink-3); margin-top: 8px; font-family: var(--mono); }
+
+  /* ── Flux séquentiel (remplace le diagramme mermaid) ──── */
+  .sr-caption {
+    caption-side: top; text-align: left; padding: 9px 13px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-3);
+    background: var(--surface-2); border-bottom: 1px solid var(--rule);
+  }
+  ol.flow {
+    counter-reset: step; list-style: none; padding: 0;
+    max-width: none; margin-bottom: 20px;
+    border: 1px solid var(--rule); border-radius: 8px;
+    background: var(--surface); overflow: hidden;
+  }
+  ol.flow li {
+    counter-increment: step; margin: 0; padding: 11px 16px 11px 46px;
+    border-bottom: 1px solid var(--rule); position: relative;
+    font-size: 14.5px;
+  }
+  ol.flow li:last-child { border-bottom: 0; }
+  ol.flow li::before {
+    content: counter(step); position: absolute; left: 14px; top: 12px;
+    font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums;
+    color: var(--ink-3); font-weight: 600;
+  }
+  ol.flow .who {
+    display: inline-block; font-family: var(--mono);
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--accent); margin-right: 8px;
+  }
+  ol.flow li.branch { background: var(--warn-soft); }
+  ol.flow li.branch .who { color: var(--warn); }
+  ol.flow li.loop { background: var(--surface-2); }
+  ol.flow li.loop::before { content: "↻"; font-size: 13px; }
+
+  .cap { font-size: 13px; color: var(--ink-3); margin: -10px 0 24px; max-width: 68ch; }
+
+  footer {
+    margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--rule);
+    font-size: 13.5px; color: var(--ink-3);
+  }
+  footer p { max-width: 68ch; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside class="rail">
+    <nav aria-label="Sommaire">
+      <span class="rail-title">Partie 1</span>
+      <a href="#contrat">Le contrat d'API</a>
+      <a href="#statuts">Statuts &amp; machine à états</a>
+      <a href="#familles">Les 4 familles de jobs</a>
+      <a href="#verite">Où vit la vérité</a>
+      <a href="#flux">Flux type</a>
+      <a href="#web">Client web</a>
+      <a href="#macos">Client macOS</a>
+      <a href="#parite">Parité web ↔ macOS</a>
+      <span class="rail-title">Partie 2</span>
+      <a href="#scenarios">Épreuve des 12 scénarios</a>
+      <a href="#findings">Les 12 défauts</a>
+      <span class="rail-title">Partie 3</span>
+      <a href="#cible">Architecture cible</a>
+      <a href="#conformite">Conformité</a>
+      <a href="#chemin">Par où commencer</a>
+    </nav>
+  </aside>
+
+  <main>
+    <p class="eyebrow">toledo · traducteur-pdf · audit du 27 juillet 2026</p>
+    <h1>La messagerie de toledo, et ce qu'elle promet vraiment</h1>
+    <p class="standfirst">
+      Inventaire complet des échanges backend ↔ frontends (web <em>et</em> macOS), mise à
+      l'épreuve de la promesse « on conserve le travail peu importe ce qui arrive », et
+      architecture cible si le projet était à refaire.
+    </p>
+
+    <div class="verdict">
+      <h4>Verdict</h4>
+      <p>
+        <strong>Le moteur de traduction tient sa promesse ; l'infrastructure autour ne la
+        tient pas.</strong> Le travail lui-même est bien protégé — un chapitre n'est jamais
+        écrit à moitié, <code>termine</code> est une promesse honnête, le cache indexé par
+        contenu rend la reprise quasi gratuite. Mais tout ce qui <em>donne accès</em> à ce
+        travail — les fichiers d'état, l'index de la Bibliothèque, la liste de reprise sur
+        macOS — est fragile ou absent. Le scénario le plus probable n'est pas « je perds ma
+        traduction », c'est <strong>« ma traduction est intacte sur le disque et je n'ai plus
+        aucun moyen d'y revenir »</strong>.
+      </p>
+      <div class="tiles">
+        <div class="tile ok"><span class="n">5</span><span class="l">Scénarios tenus</span></div>
+        <div class="tile warn"><span class="n">4</span><span class="l">Partiels</span></div>
+        <div class="tile bad"><span class="n">3</span><span class="l">Non tenus</span></div>
+        <div class="tile"><span class="n">12</span><span class="l">Défauts identifiés</span></div>
+      </div>
+    </div>
+
+    <!-- ═══════════ PARTIE 1 ═══════════ -->
+
+    <section class="sec" id="contrat">
+      <h2>Partie 1 — La messagerie actuelle</h2>
+      <p class="lede">
+        Un seul backend FastAPI (<code>127.0.0.1:8000</code>), deux clients écrits à la main
+        et sans code partagé : du HTML/JS vanilla, et une app SwiftUI. Tout passe par du
+        HTTP <em>request/response</em> — aucun WebSocket, aucun SSE, aucun push.
+      </p>
+      <hr class="div">
+
+      <h3>Le contrat d'API, endpoint par endpoint</h3>
+      <p>
+        29 routes exposées. La colonne « clients » est ce qui compte : elle rend visible la
+        dérive entre les deux frontends et les routes que plus personne n'appelle.
+      </p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Route</th><th>Rôle</th><th>Web</th><th>macOS</th><th>Note</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>GET /health</code></td><td>Backend + Ollama joignables</td><td class="c">✓</td><td class="c">✓</td><td>Pas de heartbeat périodique</td></tr>
+            <tr><td><code>GET /modeles</code></td><td>Modèles Ollama installés</td><td class="c">✓</td><td class="c">✓</td><td></td></tr>
+            <tr><td><code>GET /feature-flags</code></td><td>Flags (fusion bilbao)</td><td class="c">✓</td><td class="c">✓</td><td></td></tr>
+            <tr><td><code>GET /config/extracteurs</code></td><td>Extracteurs PDF</td><td class="c">✓</td><td class="c">✓</td><td></td></tr>
+            <tr><td><code>POST /upload</code></td><td>Octets → chemin serveur</td><td class="c">✓</td><td class="c">—</td><td>macOS a les chemins natifs</td></tr>
+            <tr><td><code>POST /analyser</code></td><td>Qualité / durée / chapitres</td><td class="c">✓</td><td class="c">✓</td><td></td></tr>
+            <tr><td><code>POST /convert</code></td><td>PDF → Markdown</td><td class="c">✓</td><td class="c">✓</td><td>Laboratoire</td></tr>
+            <tr><td><code>POST /chapitres</code></td><td>Liste des chapitres</td><td class="c">✓</td><td class="c">✓</td><td></td></tr>
+            <tr><td><code>POST /chapitres/contenu</code></td><td>Contenu d'un chapitre</td><td class="c">✓</td><td class="c">✓</td><td>Lecture Bibliothèque</td></tr>
+            <tr><td><code>POST /translate</code></td><td><strong>Démarrer / reprendre / ajouter</strong></td><td class="c">✓</td><td class="c">✓</td><td>Preflight Ollama, peut bloquer 60 s</td></tr>
+            <tr><td><code>POST /check-resume</code></td><td>État du job pour un fichier</td><td class="c">✗</td><td class="c">✓</td><td>Web : code mort (F8)</td></tr>
+            <tr><td><code>POST /job/{id}/pause</code></td><td>Mise en pause</td><td class="c">✓</td><td class="c">✓</td><td>macOS n'envoie pas <code>chemin_sortie</code> (F4)</td></tr>
+            <tr><td><code>POST /job/{id}/annuler</code></td><td>Annulation</td><td class="c">✗</td><td class="c">✗</td><td><span class="pill bad">aucun client</span></td></tr>
+            <tr><td><code>GET /job/{id}/statut</code></td><td>État par job_id</td><td class="c">✗</td><td class="c">✗</td><td><span class="pill bad">aucun client</span></td></tr>
+            <tr><td><code>POST /job/{id}/reprendre</code></td><td>—</td><td class="c">✗</td><td class="c">✗</td><td><span class="pill bad">renvoie toujours 400</span></td></tr>
+            <tr><td><code>GET /jobs/reprenables</code></td><td>Documents non terminés</td><td class="c">✗</td><td class="c">✗</td><td><span class="pill bad">aucun client</span></td></tr>
+            <tr><td><code>GET /bibliotheque</code></td><td>Registre + statut + progression</td><td class="c">✓</td><td class="c">✓</td><td>Web : sert aussi « Vos traductions »</td></tr>
+            <tr><td><code>DELETE /bibliotheque</code></td><td>Retirer du registre</td><td class="c">✓</td><td class="c">—</td><td>Fichiers disque conservés</td></tr>
+            <tr><td><code>POST /schedule</code> · <code>/schedule/batch</code></td><td>Planifier</td><td class="c">✓</td><td class="c">✓</td><td></td></tr>
+            <tr><td><code>GET /scheduled</code> · <code>/scheduled/tous</code></td><td>Lister les planifiées</td><td class="c">✓</td><td class="c">✓</td><td>Web : poll fixe 10 s</td></tr>
+            <tr><td><code>DELETE /scheduled/{id}</code></td><td>Retirer une planification</td><td class="c">✓</td><td class="c">✓</td><td></td></tr>
+            <tr><td><code>POST /etude</code> · <code>GET /etude/statut</code></td><td>Fiche résumé + quiz</td><td class="c">✓</td><td class="c">✓</td><td>Aucune récupération au démarrage (F7)</td></tr>
+            <tr><td><code>POST /tts</code> · <code>GET /tts/statut</code> · <code>/tts/audio</code></td><td>Génération audio</td><td class="c">✓</td><td class="c">✓</td><td>Ni pause ni reprise</td></tr>
+            <tr><td><code>GET /tts/moteurs</code> · <code>POST /tts/extrait</code></td><td>Moteurs et écoute</td><td class="c">✓</td><td class="c">✓</td><td>macOS n'envoie pas <code>langue</code></td></tr>
+            <tr><td><code>/voix-clonees/*</code> <span class="pill neutral">5 routes</span></td><td>Capture &amp; clonage vocal</td><td class="c">✓</td><td class="c">—</td><td>Parité macOS différée</td></tr>
+            <tr><td><code>GET</code>/<code>PUT /glossaire</code></td><td>Termes jamais traduits</td><td class="c">✓</td><td class="c">✓</td><td></td></tr>
+            <tr><td><code>GET /image</code></td><td>Image extraite d'un PDF</td><td class="c">✓</td><td class="c">—</td><td>Flag + mode avancé</td></tr>
+            <tr><td><code>POST /interet</code></td><td>Capture d'intérêt (teasers)</td><td class="c">✓</td><td class="c">✓</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <div class="note-t">Ce que ce tableau révèle</div>
+        <p>
+          <strong>Quatre routes n'ont plus aucun client.</strong> Toute la machinerie
+          d'annulation existe côté backend — <code>demander_annulation()</code>,
+          <code>est_annule()</code>, l'exception <code>AnnulationDemandee</code>, le statut
+          <code>annule</code>, les branches de rendu dans les deux frontends — et
+          <strong>aucun bouton « Annuler » n'existe dans aucune des deux interfaces</strong>.
+          Les deux UI savent <em>afficher</em> un job annulé, aucune ne sait en
+          <em>provoquer</em> un.
+        </p>
+      </div>
+    </section>
+
+    <section class="sec" id="statuts">
+      <h3>Les statuts et la machine à états</h3>
+      <p>
+        Six statuts (<code>StatutJob</code>, <a href="backend/app/models/schemas.py:18">schemas.py:18</a>),
+        partagés par la traduction et l'étude. Le TTS utilise les mêmes chaînes mais dans un
+        dictionnaire libre, sans énumération.
+      </p>
+
+      <div class="tw">
+        <table>
+          <caption class="sr-caption">Transitions de la machine à états d'un job de traduction</caption>
+          <thead>
+            <tr><th>Départ</th><th>Arrivée</th><th>Déclencheur</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr><td><em>(néant)</em></td><td><code>en_attente</code></td><td><code>POST /translate</code></td><td></td></tr>
+            <tr><td><code>en_attente</code></td><td><code>en_cours</code></td><td>le worker dépile</td><td></td></tr>
+            <tr><td><code>en_attente</code></td><td><code>en_pause</code></td><td>Pause depuis la file</td><td></td></tr>
+            <tr><td><code>en_cours</code></td><td><code>en_pause</code></td><td>Pause</td><td></td></tr>
+            <tr><td><code>en_cours</code></td><td><code>annule</code></td><td>Annuler</td><td><span class="pill bad">aucune UI ne déclenche</span></td></tr>
+            <tr><td><code>en_cours</code></td><td><code>termine</code></td><td>0 chapitre en échec</td><td><span class="pill ok">promesse honnête</span></td></tr>
+            <tr><td><code>en_cours</code></td><td><code>erreur</code></td><td>≥ 1 chapitre en échec</td><td></td></tr>
+            <tr><td><code>en_cours</code></td><td><code>erreur</code></td><td>Ollama indisponible</td><td>reprenable, sans placeholder</td></tr>
+            <tr><td><code>en_pause</code></td><td><code>en_attente</code></td><td><code>resume=true</code></td><td></td></tr>
+            <tr><td><code>erreur</code></td><td><code>en_attente</code></td><td><code>resume=true</code></td><td>rejeu à cache chaud</td></tr>
+            <tr><td><code>annule</code></td><td><code>en_attente</code></td><td><code>resume=true</code></td><td></td></tr>
+            <tr><td><code>en_attente</code></td><td><code>en_pause</code></td><td><strong>redémarrage backend</strong></td><td><span class="pill warn">traduction seulement</span></td></tr>
+            <tr><td><code>en_cours</code></td><td><code>en_pause</code></td><td><strong>redémarrage backend</strong></td><td><span class="pill warn">traduction seulement</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        Les deux transitions <code>redémarrage backend</code> sont assurées par
+        <code>recuperer_jobs_interrompus()</code> — <strong>pour la traduction uniquement</strong>.
+        L'étude, le TTS et le clonage vocal n'ont pas cette flèche : leur état reste figé
+        à <code>en_cours</code> pour toujours (F7).
+      </p>
+
+      <div class="grid2">
+        <div class="card">
+          <h4>Ce qui est bien fait</h4>
+          <ul>
+            <li><strong><code>termine</code> est honnête</strong> — un seul chapitre en échec bascule le job en <code>erreur</code>, jamais en <code>termine</code>. Le test porte sur <code>chapitres_echoues</code> seul, pas sur <code>erreurs</code>/<code>avertissements</code> qui contiennent aussi des avertissements qualité inoffensifs.</li>
+            <li><strong><code>erreur</code> et <code>annule</code> sont reprenables</strong> — ils figurent dans <code>STATUTS_REPRENABLES</code>, la sortie est propre (aucun placeholder), donc reprendre a un sens.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Ce qui manque</h4>
+          <ul>
+            <li><strong>Aucune transition validée</strong> — les statuts sont assignés par affectation directe un peu partout ; rien n'empêche un <code>termine</code> de repasser <code>en_cours</code>.</li>
+            <li><strong>Aucun numéro de version ni horodatage</strong> sur <code>EtatJob</code> — un client ne peut pas savoir si sa lecture est périmée, ni deux clients se départager.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="familles">
+      <h3>Quatre familles de jobs, une seule file, quatre implémentations</h3>
+      <p>
+        Toutes les tâches longues passent par le même worker unique
+        (<code>job_manager._boucle_worker</code>) : un thread, une <code>queue.Queue</code>,
+        un travail à la fois — parce que deux appels Ollama simultanés se sérialisent de
+        toute façon. C'est le bon choix. Mais chaque famille a ensuite réimplémenté sa
+        persistance, sa reprise et sa récupération à sa façon.
+      </p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Famille</th><th>État persisté</th><th>Pause</th><th>Reprise</th><th>Cache</th><th>Récup. au démarrage</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Traduction</strong><br><code>translation_runner</code></td>
+              <td><code>&lt;base&gt;.state.json</code><br>Pydantic <code>EtatJob</code></td>
+              <td class="c"><span class="pill ok">oui</span></td>
+              <td class="c"><span class="pill ok">3 modes</span></td>
+              <td class="c"><span class="pill ok">oui</span></td>
+              <td class="c"><span class="pill ok">oui</span></td>
+            </tr>
+            <tr>
+              <td><strong>Étude</strong><br><code>study_runner</code></td>
+              <td><code>&lt;base&gt;_fiche.state.json</code><br>Pydantic <code>EtatJobEtude</code></td>
+              <td class="c"><span class="pill ok">oui</span></td>
+              <td class="c"><span class="pill warn">par chapitre</span></td>
+              <td class="c"><span class="pill bad">non</span></td>
+              <td class="c"><span class="pill bad">non</span></td>
+            </tr>
+            <tr>
+              <td><strong>TTS</strong><br><code>tts_runner</code></td>
+              <td><code>&lt;wav&gt;.tts.state.json</code><br><em>dict libre</em></td>
+              <td class="c"><span class="pill bad">non</span></td>
+              <td class="c"><span class="pill bad">non</span></td>
+              <td class="c"><span class="pill bad">non</span></td>
+              <td class="c"><span class="pill bad">non</span></td>
+            </tr>
+            <tr>
+              <td><strong>Clonage vocal</strong><br><code>voix_clonage_runner</code></td>
+              <td><code>registre.json</code></td>
+              <td class="c"><span class="pill bad">non</span></td>
+              <td class="c"><span class="pill bad">non</span></td>
+              <td class="c">—</td>
+              <td class="c"><span class="pill bad">non</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        C'est la racine de la moitié des défauts listés plus bas : <strong>chaque correctif
+        de robustesse appliqué à la traduction doit être réappliqué trois fois à la
+        main</strong>, et ne l'a pas été. C'est exactement le problème que l'unification du
+        moteur de traduction avait résolu <em>à l'intérieur</em> de la traduction, le
+        2026-07-18 — mais qui subsiste <em>entre</em> les familles.
+      </p>
+    </section>
+
+    <section class="sec" id="verite">
+      <h3>Où vit la vérité — et ce qui arrive si ce fichier est abîmé</h3>
+      <p>
+        Six emplacements de persistance, tous en JSON, tous réécrits intégralement, tous
+        sans écriture atomique.
+      </p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Emplacement</th><th>Contient</th><th>Fréquence d'écriture</th><th>Si abîmé</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>&lt;base&gt;.state.json</code></td>
+              <td>Statut, progression, chapitres faits/échoués, journal</td>
+              <td>≈ 1× par sous-morceau<br><span class="pill neutral">41× pour Chapter 9</span></td>
+              <td><span class="pill bad">500 sur toute la Bibliothèque</span></td>
+            </tr>
+            <tr>
+              <td><code>&lt;base&gt;.cache.json</code></td>
+              <td><strong>Les traductions elles-mêmes</strong>, indexées par contenu</td>
+              <td>1× par sous-morceau, <em>fichier entier</em></td>
+              <td><span class="pill bad">perte silencieuse</span> → <code>{}</code></td>
+            </tr>
+            <tr>
+              <td><code>&lt;base&gt;_traduit.md</code></td>
+              <td>La sortie visible</td>
+              <td>append, 1× par chapitre réussi</td>
+              <td><span class="pill ok">append = robuste</span></td>
+            </tr>
+            <tr>
+              <td><code>bibliotheque.json</code></td>
+              <td>Index des documents connus</td>
+              <td>1× par lancement de traduction</td>
+              <td><span class="pill warn">liste vide</span> (avalé)</td>
+            </tr>
+            <tr>
+              <td><code>scheduled_jobs.json</code></td>
+              <td>Planifications</td>
+              <td>1× par mutation</td>
+              <td><span class="pill bad">exception non gardée</span></td>
+            </tr>
+            <tr>
+              <td><em>registre mémoire</em> <code>_jobs</code></td>
+              <td>Drapeaux pause / annulation</td>
+              <td>volatile</td>
+              <td>vidé à chaque redémarrage <span class="pill neutral">assumé</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <div class="note-t">Vérifié en exécutant le code</div>
+        <p>
+          Un <code>.state.json</code> tronqué (un seul, sur un seul document) fait remonter un
+          <code>JSONDecodeError</code> depuis <code>charger_etat</code> jusqu'à
+          <code>lister_documents</code>, sans être attrapé nulle part.
+          <strong><code>GET /api/bibliotheque</code> renvoie alors 500 et
+          <em>tous</em> les documents disparaissent — de la Bibliothèque, de « Vos
+          traductions », des deux frontends à la fois.</strong> Le travail est intact sur
+          le disque et devient invisible.
+        </p>
+      </div>
+    </section>
+
+    <section class="sec" id="flux">
+      <h3>Le flux type : lancer une traduction</h3>
+      <ol class="flow">
+        <li><span class="who">Interface → API</span> <code>POST /translate</code></li>
+        <li><span class="who">API → Ollama</span> preflight : une <em>vraie</em> mini-traduction, plafonnée à 60 s</li>
+        <li class="branch"><span class="who">si Ollama figé</span> <strong>503</strong> + consigne de redémarrage — le job n'est jamais créé <span class="pill warn">invisible sur macOS (F4)</span></li>
+        <li><span class="who">API → Disque</span> <code>enregistrer_document()</code> dans <code>bibliotheque.json</code></li>
+        <li><span class="who">API → Disque</span> en-tête du <code>.md</code> + <code>.state.json</code> à <code>en_attente</code></li>
+        <li><span class="who">API → File</span> <code>soumettre_travail()</code>, puis réponse <code>{job_id, chemin_sortie}</code></li>
+        <li class="loop"><span class="who">boucle client, 2–2,5 s</span> <code>GET /bibliotheque</code> (web) · <code>POST /check-resume</code> (macOS) → lecture du <code>.state.json</code></li>
+        <li class="loop"><span class="who">boucle worker, par sous-morceau</span> appel Ollama (<code>num_ctx=4096</code>), puis <code>cache.json</code> <strong>réécrit en entier</strong>, puis <code>.state.json</code> <strong>réécrit en entier</strong> <span class="pill bad">F1 · F2</span></li>
+        <li><span class="who">Worker → Disque</span> append du chapitre — <em>seulement</em> si tous ses sous-morceaux ont réussi <span class="pill ok">unité atomique</span></li>
+      </ol>
+      <p class="cap">
+        Le poll est la <strong>seule</strong> voie de retour : rien n'est poussé vers le
+        client. Une action utilisateur (Pause) est un appel séparé qui pose un drapeau en
+        mémoire ; le client ne le sait qu'au tick suivant.
+      </p>
+    </section>
+
+    <section class="sec" id="web">
+      <h3>Client web — cartographie des boucles</h3>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Boucle</th><th>Fichier</th><th>Cadence</th><th>Condition d'arrêt</th><th>État</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>« Vos traductions »</td><td><code>module-import.js:659</code></td><td>2,5 s</td><td>plus de <code>en_cours</code>/<code>en_attente</code></td><td><span class="pill ok">active</span></td></tr>
+            <tr><td>Planifications</td><td><code>module-import.js:607</code></td><td>10 s</td><td><em>aucune</em> — tourne toujours</td><td><span class="pill warn">jamais arrêtée</span></td></tr>
+            <tr><td>Fiche d'étude</td><td><code>module-bibliotheque.js:544</code></td><td>2 s</td><td>termine / erreur / annule</td><td><span class="pill bad">peut tourner à l'infini</span></td></tr>
+            <tr><td>Audio TTS</td><td><code>module-bibliotheque.js:446</code></td><td>2 s</td><td>termine / erreur</td><td><span class="pill bad">peut tourner à l'infini</span></td></tr>
+            <tr><td>Lot d'import</td><td><code>module-import.js:234</code></td><td>2 s</td><td>—</td><td><span class="pill bad">code mort (F8)</span></td></tr>
+            <tr><td>Reconnexion santé</td><td><code>commun.js:147</code></td><td>30 s</td><td>backend revenu</td><td><span class="pill warn">armée seulement si déjà en panne</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Aucune de ces boucles n'a de <code>AbortController</code>, de timeout, ni de recul
+        exponentiel. Si le backend ralentit à 5 s par réponse, <code>setInterval</code>
+        continue d'empiler une requête toutes les 2 s.
+      </p>
+    </section>
+
+    <section class="sec" id="macos">
+      <h3>Client macOS — cartographie des boucles</h3>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Boucle</th><th>Fichier</th><th>Cadence</th><th>Portée</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Lot d'import</td><td><code>ImportModuleView.swift:133</code></td><td>2 s</td><td><strong>en mémoire seulement</strong> — perdu à la fermeture</td></tr>
+            <tr><td>Fiche d'étude</td><td><code>BibliothequeModuleView.swift:159</code></td><td>2 s</td><td>document actif</td></tr>
+            <tr><td>Audio TTS</td><td><code>BibliothequeModuleView.swift:220</code></td><td>2 s</td><td>document actif</td></tr>
+            <tr><td>Curseur de lecture</td><td><code>BibliothequeModuleView.swift:284</code></td><td>400 ms</td><td>AVAudioPlayer local</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Les boucles Swift sont mieux construites que celles du web (des <code>Task</code>
+        annulables, correctement <code>cancel()</code>-és), mais elles alimentent une vue
+        qui n'existe qu'en mémoire.
+      </p>
+      <div class="note">
+        <div class="note-t">Le nœud du problème macOS</div>
+        <p>
+          <code>APIService.swift</code> écrit <code>let (data, _) = try await
+          URLSession.shared.data(...)</code> dans <strong>chacun</strong> de ses appels : le
+          code de statut HTTP est systématiquement jeté. Conséquence directe — le
+          <strong>preflight Ollama qui renvoie 503 avec la consigne exacte
+          (<code>killall ollama ; open -a Ollama</code>) arrive sur macOS comme une erreur de
+          décodage JSON générique</strong>. Le garde le plus utile ajouté le 23 juillet est
+          invisible sur ce client.
+        </p>
+      </div>
+    </section>
+
+    <section class="sec" id="parite">
+      <h3>Parité web ↔ macOS</h3>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Capacité</th><th>Web</th><th>macOS</th><th>Écart</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Liste persistante des traductions en cours</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td>macOS : lot en mémoire uniquement</td></tr>
+            <tr><td>Reprendre après fermeture de l'app</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td>macOS : chemin à taper à la main, en mode avancé</td></tr>
+            <tr><td>Sélection de chapitres au lancement</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td><code>lancer()</code> n'envoie jamais <code>chapitres_selectionnes</code></td></tr>
+            <tr><td>Ajout de chapitres à un document existant</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td>Flux additif absent de macOS</td></tr>
+            <tr><td>Retirer un document du registre</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td></td></tr>
+            <tr><td>Pause résiliente après redémarrage backend</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td>macOS n'envoie pas <code>chemin_sortie</code></td></tr>
+            <tr><td>Message d'erreur actionnable du backend</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td>Statut HTTP ignoré (F4)</td></tr>
+            <tr><td>Reprise avec le modèle d'origine</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td>macOS utilise le menu courant (F6)</td></tr>
+            <tr><td>Import par glisser-déposer</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill ok">✓</span></td><td>Natif des deux côtés</td></tr>
+            <tr><td>Images extraites du PDF</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td>Flag + mode avancé, web seulement</td></tr>
+            <tr><td>Export HTML autonome</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td></td></tr>
+            <tr><td>Clonage vocal</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td>Parité annoncée comme différée</td></tr>
+            <tr><td>Langue de synthèse TTS</td><td class="c"><span class="pill ok">✓</span></td><td class="c"><span class="pill bad">✗</span></td><td>macOS n'envoie pas <code>langue</code></td></tr>
+            <tr><td>Annuler un job</td><td class="c"><span class="pill bad">✗</span></td><td class="c"><span class="pill bad">✗</span></td><td>Backend prêt, aucune UI</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <strong>macOS est en retard sur onze capacités, dont sept touchent directement la
+        récupération du travail.</strong> Ce n'est pas un retard cosmétique : c'est le client
+        sur lequel la promesse de durabilité est la plus faible.
+      </p>
+    </section>
+
+    <!-- ═══════════ PARTIE 2 ═══════════ -->
+
+    <section class="sec" id="scenarios">
+      <h2>Partie 2 — « On conserve le travail peu importe ce qui arrive ». Vraiment ?</h2>
+      <p class="lede">
+        Douze scénarios d'interruption, confrontés au code. Verdict par scénario, avec ce
+        qui se passe réellement.
+      </p>
+      <hr class="div">
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Scénario</th><th>Verdict</th><th>Ce qui se passe réellement</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="num">S1</td>
+              <td>Ollama tué en plein vol</td>
+              <td><span class="pill ok">tenu</span></td>
+              <td>Erreur classée transitoire → recul exponentiel, budget mural de 30 min. Si épuisé : <code>OllamaIndisponible</code> → job <code>erreur</code>, aucun placeholder écrit, reprise à cache chaud. <strong>Zéro perte.</strong></td>
+            </tr>
+            <tr>
+              <td class="num">S2</td>
+              <td>Ollama <em>figé</em> (llama-server à 3 % CPU)</td>
+              <td><span class="pill ok">tenu</span></td>
+              <td>Le preflight sur <code>/translate</code> fait une vraie mini-traduction et échoue en 60 s → 503 avec la consigne. C'est le garde qui manquait le 23/7. <span class="pill warn">Sauf sur macOS (F4) et sauf pour le scheduler (F9)</span></td>
+            </tr>
+            <tr>
+              <td class="num">S3</td>
+              <td>Ctrl-C sur le backend en pleine traduction</td>
+              <td><span class="pill ok">tenu</span></td>
+              <td>Au redémarrage, <code>recuperer_jobs_interrompus()</code> rebascule <code>en_cours</code>/<code>en_attente</code> → <code>en_pause</code>. Le document réapparaît dans « Vos traductions », reprenable. <span class="pill warn">Web seulement (F5)</span></td>
+            </tr>
+            <tr>
+              <td class="num">S4</td>
+              <td>Chapitre à moitié traduit puis interruption</td>
+              <td><span class="pill ok">tenu</span></td>
+              <td>Le chapitre est l'unité atomique d'écriture : rien n'est écrit tant que tous ses sous-morceaux n'ont pas réussi. Aucun trou au milieu du fichier, le chapitre reste sélectionnable.</td>
+            </tr>
+            <tr>
+              <td class="num">S5</td>
+              <td>Reprise d'un document troué</td>
+              <td><span class="pill ok">tenu</span></td>
+              <td><code>_a_des_trous()</code> déclenche le rejeu ordonné à cache chaud : le bon travail revient du cache instantanément, seuls les trous repartent chez Ollama, et l'ordre des chapitres est préservé.</td>
+            </tr>
+            <tr>
+              <td class="num">S6</td>
+              <td><code>kill -9</code> / panne de courant / disque plein</td>
+              <td><span class="pill bad">non tenu</span></td>
+              <td><strong>Le cache est réécrit intégralement à chaque sous-morceau, sans écriture atomique.</strong> Une coupure dans cette fenêtre laisse un JSON tronqué que <code>charger_cache</code> avale en retournant <code>{}</code> : tout le travail pas encore écrit dans le <code>.md</code> disparaît sans un mot. Et un <code>.state.json</code> tronqué fait tomber toute la Bibliothèque en 500. <span class="pill bad">F1 · F2</span></td>
+            </tr>
+            <tr>
+              <td class="num">S7</td>
+              <td>Le Mac s'endort pendant un job long</td>
+              <td><span class="pill warn">partiel</span></td>
+              <td>Bonne nouvelle vérifiée : <code>time.monotonic()</code> vaut <code>mach_absolute_time()</code> sur macOS, qui <strong>ne compte pas</strong> le temps de veille — le budget de 30 min survit à une nuit. Au réveil, la socket morte est classée transitoire et retentée. <strong>Mais aucune assertion d'énergie n'existe nulle part</strong> : le job s'arrête simplement dès que la machine s'endort, et l'ETA (basée sur <code>time.time()</code>) devient absurde. <span class="pill warn">F12</span></td>
+            </tr>
+            <tr>
+              <td class="num">S8</td>
+              <td>Crash entre l'écriture du chapitre et celle de l'état</td>
+              <td><span class="pill warn">partiel</span></td>
+              <td>Fenêtre étroite mais réelle : le chapitre est <em>append</em> dans le <code>.md</code> avant que <code>chapitres_traduits</code> ne soit persisté. À la reprise additive, ce chapitre est réécrit une seconde fois à la suite. Pas de perte — une duplication silencieuse. <span class="pill warn">F3</span></td>
+            </tr>
+            <tr>
+              <td class="num">S9</td>
+              <td>Redémarrage backend pendant une fiche d'étude</td>
+              <td><span class="pill bad">non tenu</span></td>
+              <td>Aucune récupération pour l'étude. L'état reste <code>en_cours</code> pour toujours, le poll ne s'arrête jamais et garde le bouton « Générer » désactivé — <strong>y compris après rechargement de la page</strong>. Le panneau Résumé &amp; Quiz de ce document est bloqué définitivement, jusqu'à suppression manuelle du <code>.state.json</code>. Le travail déjà généré est intact dans le <code>.md</code>. <span class="pill bad">F7</span></td>
+            </tr>
+            <tr>
+              <td class="num">S10</td>
+              <td>Redémarrage backend pendant une génération audio</td>
+              <td><span class="pill bad">non tenu</span></td>
+              <td>Même absence de récupération, et en plus : ni pause, ni reprise, ni cache. Le WAV partiel reste sur le disque, l'état reste <code>en_cours</code>, et relancer <strong>repart de zéro</strong>.</td>
+            </tr>
+            <tr>
+              <td class="num">S11</td>
+              <td>Fermeture de l'app macOS pendant une traduction</td>
+              <td><span class="pill warn">partiel</span></td>
+              <td>Le backend continue (processus séparé) et le travail arrive bien sur le disque. Mais macOS n'a <strong>aucune liste de reprise</strong> : le seul retour possible est Laboratoire → Outils document → taper le chemin absolu à la main, et le Laboratoire est derrière le mode avancé. Le travail survit ; l'accès au travail, non. <span class="pill warn">F5</span></td>
+            </tr>
+            <tr>
+              <td class="num">S12</td>
+              <td>Deux onglets, ou web + macOS ouverts ensemble</td>
+              <td><span class="pill warn">partiel</span></td>
+              <td>Le worker unique empêche l'écriture concurrente — c'est ce qui sauve la mise. Mais <code>POST /translate</code> n'a aucune clé d'idempotence : deux lancements sur le même document créent deux jobs enfilés, le second parti d'un état lu avant le premier. <span class="pill warn">F10</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <div class="note-t">La réponse en une phrase</div>
+        <p>
+          <strong>Le moteur ne perd pas de travail ; la couche de persistance et la couche
+          d'accès peuvent le rendre inatteignable.</strong> Les trois scénarios non tenus
+          (S6, S9, S10) ont tous la même cause : un état écrit par troncature-puis-réécriture,
+          et une récupération au démarrage qui n'a été construite que pour une des quatre
+          familles de jobs.
+        </p>
+      </div>
+    </section>
+
+    <section class="sec" id="findings">
+      <h3>Les douze défauts, du plus grave au plus mineur</h3>
+
+      <div class="find sev-1">
+        <div class="find-head"><span class="find-id">F1</span><h3>Un seul fichier d'état tronqué rend invisible <em>tout</em> le travail</h3><span class="pill bad">critique</span></div>
+        <p><code>sauvegarder_etat()</code> ouvre en <code>"w"</code> — troncature puis
+        écriture — et est appelée environ une fois par sous-morceau (41 fois pour Chapter 9,
+        des centaines pour un livre). Chaque appel est une fenêtre de corruption.
+        <code>charger_etat()</code> ne garde rien, <code>lister_documents()</code> non plus.</p>
+        <dl>
+          <dt>Preuve</dt><dd>Exécuté : un <code>.state.json</code> tronqué → <code>JSONDecodeError</code> propagé → <strong><code>GET /api/bibliotheque</code> renvoie 500</strong>. Tous les documents disparaissent des deux frontends.</dd>
+          <dt>Correctif</dt><dd>Écriture <code>tmp</code> + <code>os.replace()</code> (atomique sur APFS) ; <code>charger_etat</code> tolérant qui retourne <code>None</code> et journalise, plutôt que de lever ; garde <code>try/except</code> par document dans <code>lister_documents</code>.</dd>
+        </dl>
+      </div>
+
+      <div class="find sev-1">
+        <div class="find-head"><span class="find-id">F2</span><h3>Le cache — qui <em>est</em> le travail — se perd en silence</h3><span class="pill bad">critique</span></div>
+        <p>Le cache indexé par contenu est le vrai porteur de la traduction entre deux
+        écritures de chapitre. Il est réécrit <strong>en entier</strong> après chaque
+        sous-morceau, sans atomicité, et <code>charger_cache()</code> <em>avale</em> la
+        corruption en retournant <code>{}</code>.</p>
+        <dl>
+          <dt>Effet</dt><dd>Après une coupure brutale, la reprise repart chez Ollama pour du travail déjà payé, <strong>sans jamais signaler la perte</strong>. Coût annexe : réécriture O(n²) en octets sur un livre.</dd>
+          <dt>Correctif</dt><dd><code>tmp</code> + <code>os.replace()</code>, ou mieux : journal append-only (<code>.jsonl</code>, une ligne par morceau traduit) — une ligne tronquée se détecte et se jette, les précédentes restent valides.</dd>
+        </dl>
+      </div>
+
+      <div class="find sev-1">
+        <div class="find-head"><span class="find-id">F4</span><h3>macOS jette tous les codes de statut HTTP</h3><span class="pill bad">critique</span></div>
+        <p>Chaque appel de <code>APIService.swift</code> s'écrit <code>let (data, _) = try
+        await URLSession.shared.data(...)</code>. La réponse HTTP est systématiquement
+        ignorée.</p>
+        <dl>
+          <dt>Effet</dt><dd>Le <strong>503 du preflight Ollama</strong> — avec sa consigne exacte de redémarrage — devient une erreur de décodage générique. <code>pauseJob()</code> et <code>annulerJob()</code> jettent la réponse entière : un 404 est avalé, le bouton paraît fonctionner alors que rien ne s'est passé.</dd>
+          <dt>Correctif</dt><dd>Un seul point d'entrée qui vérifie <code>(response as? HTTPURLResponse)?.statusCode</code> et décode <code>{detail}</code> en erreur typée. Une trentaine de lignes, sur un fichier.</dd>
+        </dl>
+      </div>
+
+      <div class="find sev-1">
+        <div class="find-head"><span class="find-id">F5</span><h3>macOS n'a aucun chemin de retour vers un travail interrompu</h3><span class="pill bad">critique</span></div>
+        <p>Le lot d'import macOS vit <strong>en mémoire seulement</strong>. Ni
+        <code>GET /jobs/reprenables</code> ni <code>GET /bibliotheque</code> ne sont appelés
+        pour reconstruire une liste de reprise.</p>
+        <dl>
+          <dt>Effet</dt><dd>Quitter l'app efface la seule vue sur les jobs en cours. Le seul retour est Laboratoire → Outils document → <strong>saisir le chemin absolu à la main</strong>, et le Laboratoire est masqué hors mode avancé.</dd>
+          <dt>Correctif</dt><dd>Porter « Vos traductions » sur macOS. Le backend est déjà prêt : la route existe et n'a aucun client.</dd>
+        </dl>
+      </div>
+
+      <div class="find sev-2">
+        <div class="find-head"><span class="find-id">F7</span><h3>Étude, TTS et clonage ne sont jamais récupérés au démarrage</h3><span class="pill warn">majeur</span></div>
+        <p><code>recuperer_jobs_interrompus()</code> ne connaît que la traduction.</p>
+        <dl>
+          <dt>Effet</dt><dd>Un job d'étude coupé reste <code>en_cours</code> pour toujours. Le poll ne s'arrête jamais et garde « Générer » désactivé, <strong>y compris après rechargement</strong> — le panneau Résumé &amp; Quiz de ce document est mort jusqu'à suppression manuelle du fichier d'état. Idem TTS.</dd>
+          <dt>Correctif</dt><dd>Généraliser la récupération à toutes les familles — ce que fait naturellement un modèle de job unique (voir cible ①).</dd>
+        </dl>
+      </div>
+
+      <div class="find sev-2">
+        <div class="find-head"><span class="find-id">F6</span><h3>Sur macOS, reprendre peut écrire dans le mauvais fichier</h3><span class="pill warn">majeur</span></div>
+        <p><code>reprendre()</code> et <code>basculerPause()</code> passent
+        <code>env.modeleChoisi</code> — le menu <em>actuel</em> — au lieu du modèle d'origine
+        du document. Or <code>build_output_path()</code> dérive le nom du fichier de sortie
+        de <code>modele[:2]</code>.</p>
+        <dl>
+          <dt>Effet</dt><dd>Si le menu a changé : l'en-tête est écrite dans un fichier neuf et le document est enregistré sous ce nouveau chemin dans la Bibliothèque, pendant que le moteur continue d'écrire dans l'ancien (<code>state.chemin_sortie</code>). Un fichier fantôme vide apparaît dans la liste.</dd>
+          <dt>Correctif</dt><dd>Renvoyer le modèle du document, comme le fait déjà le web (<code>doc.modele</code>).</dd>
+        </dl>
+      </div>
+
+      <div class="find sev-2">
+        <div class="find-head"><span class="find-id">F3</span><h3>Fenêtre de duplication entre l'append du chapitre et l'état</h3><span class="pill warn">majeur</span></div>
+        <p>Le chapitre est ajouté au <code>.md</code> avant que <code>chapitres_traduits</code>
+        ne soit persisté. Un crash dans cet intervalle fait réécrire le chapitre à la reprise.</p>
+        <dl>
+          <dt>Effet</dt><dd>Duplication silencieuse d'un chapitre. Fenêtre étroite, mais elle s'ouvre à chaque chapitre de chaque document.</dd>
+          <dt>Correctif</dt><dd>Faire du <code>.md</code> un <em>export dérivé</em> plutôt que la source de vérité (voir cible ②) — l'append disparaît, la fenêtre aussi.</dd>
+        </dl>
+      </div>
+
+      <div class="find sev-2">
+        <div class="find-head"><span class="find-id">F9</span><h3>Le planificateur contourne le preflight Ollama</h3><span class="pill warn">majeur</span></div>
+        <p><code>_lancer_job()</code> appelle <code>demarrer_traduction()</code> en direct,
+        sans passer par la route <code>/translate</code> ni son garde 503.</p>
+        <dl>
+          <dt>Effet</dt><dd>Un lot planifié à 23 h sur un Ollama figé brûle 30 minutes de recul puis finit <code>erreur</code> — la nuit de traduction est perdue. Et un crash entre le marquage <code>declenche</code> et le lancement effectif perd le job définitivement : rien ne récupère les <code>declenche</code>.</dd>
+          <dt>Correctif</dt><dd>Un seul point d'entrée « soumettre un job » que route <em>et</em> planificateur empruntent tous les deux.</dd>
+        </dl>
+      </div>
+
+      <div class="find sev-2">
+        <div class="find-head"><span class="find-id">F12</span><h3>Rien n'empêche le Mac de s'endormir pendant un job long</h3><span class="pill warn">majeur</span></div>
+        <p>Aucun <code>caffeinate</code>, aucune <code>IOPMAssertion</code>, aucun
+        <code>ProcessInfo.beginActivity</code> dans tout le dépôt — vérifié.</p>
+        <dl>
+          <dt>Nuance</dt><dd>Le budget de retry, lui, <strong>survit</strong> à la veille : <code>time.monotonic()</code> = <code>mach_absolute_time()</code> sur macOS, qui ne compte pas le sommeil. C'est correct par accident, pas par conception. En revanche l'ETA utilise <code>time.time()</code> et devient absurde après une veille.</dd>
+          <dt>Correctif</dt><dd>Prendre une assertion d'énergie à l'entrée du worker, la relâcher quand la file se vide. C'est l'item H, toujours ouvert.</dd>
+        </dl>
+      </div>
+
+      <div class="find sev-3">
+        <div class="find-head"><span class="find-id">F10</span><h3>Aucune protection contre la double soumission</h3><span class="pill neutral">mineur</span></div>
+        <p><code>POST /translate</code> n'a pas de clé d'idempotence. Un double-clic, deux
+        onglets, ou web + macOS ensemble créent deux jobs sur le même fichier de sortie, le
+        second parti d'un état lu avant le premier. Le worker unique empêche l'écriture
+        concurrente ; il n'empêche pas l'incohérence.</p>
+      </div>
+
+      <div class="find sev-3">
+        <div class="find-head"><span class="find-id">F11</span><h3>Ni heartbeat, ni timeout, ni recul côté client</h3><span class="pill neutral">mineur</span></div>
+        <p><code>apiGet</code>/<code>apiPost</code> n'ont ni <code>AbortController</code> ni
+        timeout. Les pastilles de statut ne sont rafraîchies que sur action ou reconnexion —
+        le timer n'est armé <em>que si c'est déjà en panne</em>. Le backend peut mourir
+        pendant que la pastille reste verte.</p>
+      </div>
+
+      <div class="find sev-3">
+        <div class="find-head"><span class="find-id">F8</span><h3>Quatre-vingts lignes de code mort dans le module Import web</h3><span class="pill neutral">mineur</span></div>
+        <p>Depuis que les fichiers lancés quittent le lot, <code>stage = "lance"</code> n'est
+        plus jamais assigné : <code>pollLot</code>, <code>demarrerPolling</code>,
+        <code>arreterPolling</code>, <code>basculerPauseLot</code> et le bouton
+        <code>#bouton-pause-lot</code> sont tous inatteignables. S'y ajoutent quatre routes
+        backend sans aucun client.</p>
+        <dl>
+          <dt>Risque</dt><dd>Nul aujourd'hui. Réel demain : c'est exactement le résidu de dérive qui fait croire à la prochaine lecture que ce chemin existe encore.</dd>
+        </dl>
+      </div>
+    </section>
+
+    <!-- ═══════════ PARTIE 3 ═══════════ -->
+
+    <section class="sec" id="cible">
+      <h2>Partie 3 — L'architecture cible</h2>
+      <p class="lede">
+        Rien d'inventé ici : ce sont les patrons standards d'un système de tâches durables.
+        Ce qui compte, c'est lesquels toledo a implicitement adoptés, et lesquels il a
+        contournés.
+      </p>
+      <hr class="div">
+
+      <div class="prin">
+        <div class="prin-n">1</div>
+        <div>
+          <h3>Un seul modèle de job, pas quatre</h3>
+          <p>Une table de jobs, une machine à états, une reprise, une récupération au
+          démarrage — traduction, étude, TTS et clonage n'en sont que des <em>types</em>.
+          Aujourd'hui, chaque correctif de robustesse doit être appliqué quatre fois et ne
+          l'a été qu'une.</p>
+          <p class="fixes">→ résout F7, F9 · atténue F3</p>
+        </div>
+      </div>
+
+      <div class="prin">
+        <div class="prin-n">2</div>
+        <div>
+          <h3>Le contenu vit dans un store transactionnel ; le <code>.md</code> est un export</h3>
+          <p>SQLite en mode WAL, une ligne par morceau traduit. Écrire le contenu et avancer
+          la progression devient <strong>une seule transaction</strong> : la fenêtre de
+          duplication n'existe plus, la corruption partielle non plus. Le fichier Markdown
+          est régénéré à la demande — donc jamais la source de vérité, donc jamais à recoudre.</p>
+          <p class="fixes">→ résout F1, F2, F3 · SQLite est déjà le patron de valencia et bilbao</p>
+        </div>
+      </div>
+
+      <div class="prin">
+        <div class="prin-n">3</div>
+        <div>
+          <h3>Toute écriture d'état est atomique, ou append-only</h3>
+          <p>Si l'on garde des fichiers plutôt qu'une base : <code>tmp</code> +
+          <code>os.replace()</code>, jamais <code>open("w")</code>. Et pour le journal de
+          progression, du <code>.jsonl</code> en append — une ligne tronquée se jette, les
+          précédentes restent bonnes. C'est le correctif minimal si la cible ② est jugée
+          trop lourde.</p>
+          <p class="fixes">→ résout F1, F2 sans réécrire l'architecture</p>
+        </div>
+      </div>
+
+      <div class="prin">
+        <div class="prin-n">4</div>
+        <div>
+          <h3>Le client ne détient jamais d'état de job</h3>
+          <p>Toute vue est une projection de <code>GET /jobs</code>. Le « lot en mémoire »
+          disparaît par construction, et avec lui l'écart le plus coûteux entre web et macOS :
+          les deux clients affichent la même liste parce qu'ils n'ont pas le choix.</p>
+          <p class="fixes">→ résout F5 · rend F8 impossible</p>
+        </div>
+      </div>
+
+      <div class="prin">
+        <div class="prin-n">5</div>
+        <div>
+          <h3>Les clients sont générés depuis le contrat, pas écrits à la main</h3>
+          <p>FastAPI publie déjà <code>/openapi.json</code>. Générer le client TypeScript et
+          le client Swift depuis ce schéma élimine par construction les divergences
+          d'appel — F4 et F6 sont des bugs de client écrit à la main, pas des bugs de
+          conception.</p>
+          <p class="fixes">→ résout F4, F6 · verrouille la parité web ↔ macOS</p>
+        </div>
+      </div>
+
+      <div class="prin">
+        <div class="prin-n">6</div>
+        <div>
+          <h3>Le serveur pousse, le client ne devine pas</h3>
+          <p>Un flux SSE <code>GET /jobs/events</code> remplace six boucles
+          <code>setInterval</code> divergentes. Le poll reste en repli, avec recul
+          exponentiel et <code>AbortController</code>. Bénéfice secondaire : la progression
+          devient instantanée au lieu d'être en retard de deux secondes.</p>
+          <p class="fixes">→ résout F11 · supprime quatre boucles sur six</p>
+        </div>
+      </div>
+
+      <div class="prin">
+        <div class="prin-n">7</div>
+        <div>
+          <h3>Les erreurs sont typées, pas des chaînes</h3>
+          <p><code>{code, message, remediation}</code> au lieu de <code>detail: str</code>.
+          Le 503 du preflight porte alors sa consigne dans un champ que les deux clients
+          savent afficher, au lieu d'un texte que seul le web sait lire.</p>
+          <p class="fixes">→ rend F4 visible plutôt que silencieux</p>
+        </div>
+      </div>
+
+      <div class="prin">
+        <div class="prin-n">8</div>
+        <div>
+          <h3>Soumettre est idempotent</h3>
+          <p>Une clé dérivée de <code>(source, options, portée)</code>. Rejouer la même
+          requête retourne le même job au lieu d'en créer un second. C'est aussi ce qui rend
+          un retry client sûr — et donc ce qui rend le point ⑥ implémentable sans risque.</p>
+          <p class="fixes">→ résout F10</p>
+        </div>
+      </div>
+
+      <div class="prin">
+        <div class="prin-n">9</div>
+        <div>
+          <h3>Un seul point d'entrée pour soumettre</h3>
+          <p>Route HTTP, planificateur, reprise : tous passent par la même fonction, donc par
+          le même preflight, la même validation, le même audit. Aujourd'hui le planificateur
+          contourne le garde le plus important du système.</p>
+          <p class="fixes">→ résout F9</p>
+        </div>
+      </div>
+
+      <div class="prin">
+        <div class="prin-n">10</div>
+        <div>
+          <h3>Le système tient la machine éveillée pendant qu'il travaille</h3>
+          <p>Assertion d'énergie prise à l'entrée du worker, relâchée quand la file se vide.
+          Sur une app locale qui traduit des livres pendant des heures, c'est une exigence
+          fonctionnelle, pas un détail.</p>
+          <p class="fixes">→ résout F12</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="conformite">
+      <h3>Conformité de l'existant</h3>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Principe cible</th><th>Statut</th><th>Où on en est</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>① Modèle de job unique</td><td><span class="pill bad">non conforme</span></td><td>Quatre implémentations. La file est partagée, tout le reste est dupliqué et divergent.</td></tr>
+            <tr><td>② Store transactionnel, <code>.md</code> dérivé</td><td><span class="pill bad">non conforme</span></td><td>Le <code>.md</code> est la source de vérité, construit par append. Six fichiers JSON séparés.</td></tr>
+            <tr><td>③ Écritures atomiques</td><td><span class="pill bad">non conforme</span></td><td>Aucune. Six emplacements en <code>open("w")</code>, dont deux dans la boucle chaude.</td></tr>
+            <tr><td>④ Client sans état de job</td><td><span class="pill warn">partiel</span></td><td>Web : conforme depuis « Vos traductions ». macOS : lot en mémoire.</td></tr>
+            <tr><td>⑤ Clients générés</td><td><span class="pill bad">non conforme</span></td><td>Deux clients écrits à la main, sans code partagé. Onze écarts de parité.</td></tr>
+            <tr><td>⑥ Push serveur</td><td><span class="pill bad">non conforme</span></td><td>Six boucles de poll, cadences et conditions d'arrêt différentes, aucun timeout.</td></tr>
+            <tr><td>⑦ Erreurs typées</td><td><span class="pill warn">partiel</span></td><td>Les codes HTTP sont justes et les messages actionnables — mais macOS les jette.</td></tr>
+            <tr><td>⑧ Soumission idempotente</td><td><span class="pill bad">non conforme</span></td><td>Aucune clé. Le worker unique masque le symptôme.</td></tr>
+            <tr><td>⑨ Point d'entrée unique</td><td><span class="pill warn">partiel</span></td><td><code>demarrer_traduction()</code> est bien unique — mais le preflight est <em>au-dessus</em>, dans la route, donc contournable.</td></tr>
+            <tr><td>⑩ Assertion d'énergie</td><td><span class="pill bad">non conforme</span></td><td>Absente. Item H, toujours ouvert.</td></tr>
+            <tr><td class="c">—</td><td><span class="pill ok">conforme</span></td><td><strong>Chapitre = unité atomique</strong> — un chapitre n'est jamais écrit à moitié.</td></tr>
+            <tr><td class="c">—</td><td><span class="pill ok">conforme</span></td><td><strong>Cache indexé par contenu</strong> — la bonne façon de rendre une reprise gratuite.</td></tr>
+            <tr><td class="c">—</td><td><span class="pill ok">conforme</span></td><td><strong>Statut honnête</strong> — <code>termine</code> ne ment jamais.</td></tr>
+            <tr><td class="c">—</td><td><span class="pill ok">conforme</span></td><td><strong>Erreurs classées transitoire / définitive</strong> — recul exponentiel avec budget mural, interruptible.</td></tr>
+            <tr><td class="c">—</td><td><span class="pill ok">conforme</span></td><td><strong>Preflight par sonde réelle</strong> — pas un ping, une vraie mini-traduction. Peu de systèmes font ça.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Trois conformités sur dix pour l'infrastructure, mais <strong>cinq propriétés du
+        moteur sont exactement ce qu'on écrirait dans une architecture cible</strong>. Ce
+        n'est pas un système mal conçu — c'est un bon moteur posé sur une persistance et une
+        couche client qui n'ont pas suivi.
+      </p>
+    </section>
+
+    <section class="sec" id="chemin">
+      <h3>Par où commencer, si l'on ne recommence pas</h3>
+      <p>
+        Les quatre défauts critiques se corrigent <strong>sans toucher à l'architecture</strong>,
+        et couvrent les trois scénarios non tenus :
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Ordre</th><th>Geste</th><th>Corrige</th><th>Ampleur</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td>Écriture atomique (<code>tmp</code> + <code>os.replace</code>) pour l'état, le cache, la Bibliothèque et le planificateur</td><td>F1, F2 — <strong>S6</strong></td><td>~30 lignes, 4 fichiers</td></tr>
+            <tr><td class="num">2</td><td><code>charger_etat</code> tolérant + garde par document dans <code>lister_documents</code></td><td>F1 — la Bibliothèque ne tombe plus</td><td>~10 lignes</td></tr>
+            <tr><td class="num">3</td><td>Étendre <code>recuperer_jobs_interrompus()</code> à l'étude et au TTS</td><td>F7 — <strong>S9, S10</strong></td><td>~40 lignes</td></tr>
+            <tr><td class="num">4</td><td>Vérifier le statut HTTP dans <code>APIService.swift</code>, un seul point d'entrée</td><td>F4 — le 503 devient lisible</td><td>~30 lignes, 1 fichier</td></tr>
+            <tr><td class="num">5</td><td>Porter « Vos traductions » sur macOS</td><td>F5 — <strong>S11</strong></td><td>Une vue ; le backend est prêt</td></tr>
+            <tr><td class="num">6</td><td>Supprimer le code mort (F8) et les quatre routes sans client</td><td>La dérive future</td><td>Suppression pure</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Les points ① et ② de la cible — modèle de job unique, SQLite — sont les seuls qui
+        justifieraient un vrai chantier. Ils règlent F3, F7 et F9 d'un coup, mais ils ne sont
+        pas nécessaires pour tenir la promesse de durabilité. Les six gestes ci-dessus le sont.
+      </p>
+    </section>
+
+    <footer>
+      <p>
+        Audit établi le 27 juillet 2026 par lecture du code de la branche
+        <code>feat/extraction-images-pdf</code>. Les verdicts F1 (500 sur la Bibliothèque),
+        F8 (code mort), F12 (sémantique de <code>time.monotonic()</code> sur macOS) et les
+        quatre routes sans client ont été vérifiés en exécutant le code, pas seulement en le
+        lisant. Le reste provient d'une lecture directe des sources citées.
+      </p>
+    </footer>
+  </main>
+</div>
+
+</body>
+</html>

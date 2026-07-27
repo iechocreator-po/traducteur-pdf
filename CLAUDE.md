@@ -515,6 +515,72 @@ plus dépendre du `feature_flags.json` local qui active le flag).
   toute amélioration volontaire de la qualité. `pytest` final : **231 verts**.
 
 <!-- bilbao:managed:start -->
+## Pièges vérifiés — durabilité et messagerie (audit du 27/7/2026)
+
+Audit complet de la messagerie backend ↔ frontends (web **et** macOS), de la
+durabilité sur 12 scénarios d'interruption et de l'architecture cible :
+[frontend/docs/architecture-messagerie.html](frontend/docs/architecture-messagerie.html)
+(document autonome, lisible hors ligne, accessible depuis le **Laboratoire →
+Documentation technique**). Les quatre pièges ci-dessous ont été **vérifiés en
+exécutant le code**, pas seulement par lecture — ne pas les traiter comme des
+hypothèses.
+
+- **Un `.state.json` tronqué rend TOUT le travail invisible.** `sauvegarder_etat()`
+  (`job_manager.py`) ouvre en `"w"` — troncature puis réécriture — et est appelée
+  ≈1× par sous-morceau (41× pour Chapter 9, des centaines pour un livre). Chaque
+  appel est une fenêtre de corruption. `charger_etat()` ne garde rien et
+  `lister_documents()` (`bibliotheque.py`) non plus : le `JSONDecodeError` remonte
+  et **`GET /api/bibliotheque` renvoie 500 — tous les documents disparaissent des
+  deux frontends à la fois**. Le travail est intact sur le disque, il devient
+  inatteignable. Même exposition non atomique pour `bibliotheque.json`,
+  `scheduled_jobs.json` et le cache.
+- **Le cache — qui *est* le travail — se perd en silence.** `cache_traduction.py`
+  réécrit le fichier **entier** après chaque sous-morceau, et `charger_cache()`
+  *avale* la corruption en retournant `{}`. Après une coupure brutale, la reprise
+  repart chez Ollama pour du travail déjà payé, **sans jamais signaler la perte**.
+  C'est le cache qui porte la traduction entre deux écritures de chapitre : le
+  correctif minimal est `tmp` + `os.replace()` (atomique sur APFS), ou un journal
+  append-only `.jsonl`.
+- **Étude, TTS et clonage ne sont JAMAIS récupérés au démarrage.**
+  `recuperer_jobs_interrompus()` (appelée dans `main.py`) ne connaît que la
+  traduction. Un job d'étude coupé par un redémarrage reste `en_cours` pour
+  toujours : `pollStatutFiche` (`module-bibliotheque.js`) ne s'arrête que sur
+  `termine`/`erreur`/`annule` et `majBoutonGenerer` désactive « Générer » tant que
+  le poll tourne — **le panneau Résumé & Quiz de ce document est bloqué
+  définitivement, y compris après rechargement de page** (`chargerFicheExistante`
+  relance le poll). Seule sortie : supprimer le `_fiche_*.state.json` à la main.
+  Le TTS a la même absence de récupération, et en plus ni pause ni reprise ni
+  cache — relancer repart de zéro.
+- **Code mort et routes sans client — la dérive à ne pas rouvrir.** Depuis que les
+  fichiers lancés quittent le lot (`module-import.js`), `stage = "lance"` n'est
+  **plus jamais assigné** : `pollLot`, `demarrerPolling`, `arreterPolling`,
+  `basculerPauseLot` et le bouton `#bouton-pause-lot` sont tous inatteignables
+  (~80 lignes). Côté backend, **4 routes n'ont aucun client** :
+  `GET /jobs/reprenables`, `GET /job/{id}/statut`, `POST /job/{id}/annuler` et
+  `POST /job/{id}/reprendre` (qui renvoie toujours 400). Conséquence notable :
+  toute la machinerie d'annulation existe (`demander_annulation`, `est_annule`,
+  `AnnulationDemandee`, statut `annule`, branches de rendu) et **aucun bouton
+  « Annuler » n'existe dans aucune des deux interfaces** — les deux savent
+  afficher un job annulé, aucune ne sait en provoquer un.
+
+**Correct par accident, à ne pas « corriger » :** `time.monotonic()` vaut
+`mach_absolute_time()` sur macOS, qui **ne compte pas** le temps de veille — le
+budget mural de 30 min d'`OLLAMA_RETRY_BUDGET_SECONDES` survit donc à une nuit de
+sommeil (vérifié). En revanche `temps_ecoule_secondes`/ETA utilisent `time.time()`
+et deviennent absurdes après une veille, et **aucune assertion d'énergie**
+(`caffeinate`/`IOPMAssertion`) n'existe nulle part : un job long s'arrête dès que
+le Mac s'endort. C'est l'item H, toujours ouvert.
+
+**Écarts web ↔ macOS touchant la récupération du travail** (détail dans l'audit) :
+`APIService.swift` jette systématiquement le code de statut HTTP
+(`let (data, _) = ...`), donc le **503 du preflight Ollama et sa consigne de
+redémarrage arrivent sur macOS comme une erreur de décodage générique** ; macOS
+n'a **aucune liste de reprise** (lot en mémoire seulement, seul retour = taper le
+chemin absolu dans le Laboratoire, lui-même en mode avancé) ; et `reprendre()`
+passe `env.modeleChoisi` — le menu *courant* — au lieu du modèle du document, or
+`build_output_path()` dérive le nom de sortie de `modele[:2]`, d'où un fichier
+fantôme si le menu a changé. Le web ne l'a pas : il renvoie `doc.modele`.
+
 ## Géré par bilbao — ne pas éditer à la main
 _Bloc régénéré par le cockpit bilbao (2026-07-14). La prose hors marqueurs n'est jamais touchée._
 
