@@ -30,20 +30,73 @@ function corpsSource(chemin, extra = {}) {
     : { chemin_pdf: chemin, ...extra };
 }
 
+// Délai au-delà duquel une requête est abandonnée (principe cible ⑥, défaut F11).
+// Sans timeout, un backend qui ralentit à 5 s par réponse laissait `setInterval`
+// empiler une requête toutes les 2 s, indéfiniment.
+const API_TIMEOUT_MS = 15000;
+
+/**
+ * Erreur d'API portant l'erreur TYPÉE du backend (principe cible ⑦).
+ *
+ * Le backend répond `{detail, erreur: {code, message, remediation}}`. `message`
+ * reste affichable tel quel ; `code` permet de brancher un bouton (« Redémarrer
+ * Ollama ») sans faire de correspondance de chaînes fragile ; `remediation` dit
+ * à l'utilisateur ce qu'il peut FAIRE.
+ */
+class ErreurApi extends Error {
+  constructor(statut, corps) {
+    const typee = (corps && corps.erreur) || null;
+    // `detail` EN PREMIER, volontairement : le backend y met déjà « message +
+    // remédiation », et tous les appelants existants affichent `e.message`.
+    // Prendre `erreur.message` seul ici ferait DISPARAÎTRE la consigne de
+    // redémarrage d'Ollama des écrans qui l'affichaient — une régression
+    // silencieuse en croyant améliorer les choses.
+    super(
+      (corps && corps.detail) ||
+      (typee && typee.message) ||
+      `Erreur HTTP ${statut}`
+    );
+    this.name = "ErreurApi";
+    this.statut = statut;
+    this.code = (typee && typee.code) || `http_${statut}`;
+    this.cause_ = typee ? typee.message : null;
+    this.remediation = (typee && typee.remediation) || null;
+  }
+
+  get estOllamaIndisponible() {
+    return this.code === "ollama_indisponible";
+  }
+}
+
+async function _fetchAvecTimeout(url, options = {}) {
+  // AbortController : une requête qui ne revient pas ne doit pas retenir une
+  // boucle de poll pour toujours (F11).
+  const controleur = new AbortController();
+  const minuteur = setTimeout(() => controleur.abort(), API_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controleur.signal });
+  } finally {
+    clearTimeout(minuteur);
+  }
+}
+
 async function apiPost(route, body) {
-  const rep = await fetch(`${API_BASE}${route}`, {
+  const rep = await _fetchAvecTimeout(`${API_BASE}${route}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const data = await rep.json().catch(() => ({}));
-  if (!rep.ok) throw new Error(data.detail || `Erreur HTTP ${rep.status}`);
+  if (!rep.ok) throw new ErreurApi(rep.status, data);
   return data;
 }
 
 async function apiGet(route) {
-  const rep = await fetch(`${API_BASE}${route}`);
-  if (!rep.ok) throw new Error(`Erreur HTTP ${rep.status}`);
+  const rep = await _fetchAvecTimeout(`${API_BASE}${route}`);
+  if (!rep.ok) {
+    const data = await rep.json().catch(() => ({}));
+    throw new ErreurApi(rep.status, data);
+  }
   return rep.json();
 }
 

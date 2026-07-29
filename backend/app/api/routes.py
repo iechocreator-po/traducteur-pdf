@@ -490,6 +490,86 @@ def liste_tous_jobs_planifies() -> dict:
     return {"jobs": lister_tous_jobs()}
 
 
+@router.get("/jobs/events")
+async def flux_evenements_jobs(request: Request):
+    """
+    Flux SSE de l'état des jobs (principe cible ⑥).
+
+    Remplace six boucles `setInterval` aux cadences et conditions d'arrêt
+    divergentes, dont deux pouvaient tourner indéfiniment. Le serveur pousse, le
+    client ne devine plus.
+
+    Deux choix à ne pas « optimiser » par erreur :
+
+    - **On n'émet que sur CHANGEMENT.** Un flux qui répète le même état chaque
+      seconde coûterait plus cher que le poll qu'il remplace.
+    - **On garde un battement régulier** (`: keep-alive`) même sans changement.
+      Sans lui, un proxy ou le navigateur ferme une connexion inactive, et le
+      client croit le backend mort alors qu'il n'a simplement rien à dire.
+
+    Le poll reste en repli côté client : SSE indisponible ne doit jamais priver
+    l'utilisateur de sa progression.
+    """
+    import asyncio
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    from app.services.bibliotheque import lister_documents
+
+    async def flux():
+        dernier = None
+        battements = 0
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                documents = lister_documents()
+            except Exception as e:
+                # La garde par document rend ce cas très improbable, mais un flux
+                # qui meurt en silence serait pire que le poll qu'il remplace.
+                yield f"event: erreur\ndata: {_json.dumps({'message': str(e)})}\n\n"
+                await asyncio.sleep(5)
+                continue
+
+            # Empreinte de ce qui intéresse l'interface : inutile de repousser un
+            # document dont seule une date de mise à jour a bougé.
+            instantane = [
+                {
+                    "chemin_sortie": d.get("chemin_sortie"),
+                    "nom": d.get("nom"),
+                    "statut": d.get("statut"),
+                    "sections_completees": d.get("sections_completees"),
+                    "total_sections": d.get("total_sections"),
+                    "job_id": d.get("job_id"),
+                    "nb_sections_echouees": d.get("nb_sections_echouees"),
+                }
+                for d in documents
+            ]
+            if instantane != dernier:
+                dernier = instantane
+                yield f"event: documents\ndata: {_json.dumps(instantane)}\n\n"
+                battements = 0
+            else:
+                battements += 1
+                if battements >= 10:  # ~20 s sans changement
+                    yield ": keep-alive\n\n"
+                    battements = 0
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        flux(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # Désactive la mise en tampon d'un éventuel proxy : sans ça le flux
+            # arrive par paquets et perd tout son intérêt.
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.get("/scheduler/sante")
 def sante_planificateur() -> dict:
     """

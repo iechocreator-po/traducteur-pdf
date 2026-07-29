@@ -653,11 +653,70 @@
     liste.innerHTML = "";
     for (const doc of docs) liste.appendChild(rendreLigne(doc));
 
-    // Poll tant qu'un document bouge, MAIS pas pendant qu'un sélecteur est ouvert
-    // (on ne veut pas reconstruire le sélecteur sous les doigts de l'utilisateur).
+    // Le serveur pousse (principe cible ⑥) : tant que le flux SSE vit, aucun
+    // poll n'est armé. Le poll ne sert plus que de REPLI si SSE est indisponible.
     const actif = docs.some(d => d.statut === "en_cours" || d.statut === "en_attente");
+    if (fluxVivant()) {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      return;
+    }
     if (actif && !pollTimer) pollTimer = setInterval(() => { if (!selecteurOuvert()) rafraichir(); }, 2500);
     if (!actif && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  // ── Flux SSE (principe cible ⑥) ────────────────────────────────────────────
+  // Remplace le poll à 2,5 s : la progression devient instantanée au lieu d'être
+  // en retard de deux secondes, et une seule connexion remplace N requêtes.
+  //
+  // Le repli par poll est NON NÉGOCIABLE : SSE peut être coupé par un proxy, un
+  // navigateur exotique ou un backend redémarré. Perdre le flux ne doit jamais
+  // priver l'utilisateur de sa progression.
+
+  let flux = null;
+  let fluxOuvertA = 0;
+  let reconnexions = 0;
+
+  function fluxVivant() {
+    return flux !== null && flux.readyState === EventSource.OPEN;
+  }
+
+  function ouvrirFlux() {
+    if (flux) return;
+    try {
+      flux = new EventSource(`${API_BASE}/jobs/events`);
+    } catch {
+      flux = null;
+      return; // repli par poll
+    }
+
+    flux.addEventListener("open", () => {
+      fluxOuvertA = Date.now();
+      reconnexions = 0;
+    });
+
+    flux.addEventListener("documents", () => {
+      // On ne consomme pas la charge utile : `rafraichir()` refait l'appel
+      // complet, qui applique la déduplication avec le lot et le rendu. Le flux
+      // sert de DÉCLENCHEUR, pas de source de vérité — une seule façon de
+      // construire la liste, donc pas de divergence possible entre les deux.
+      if (!selecteurOuvert()) rafraichir();
+    });
+
+    flux.addEventListener("error", () => {
+      // EventSource se reconnecte seul, mais en boucle serrée si le backend est
+      // mort. On ferme et on programme un recul exponentiel (F11), en laissant
+      // le poll prendre le relais entre-temps.
+      const vecuMs = Date.now() - fluxOuvertA;
+      flux.close();
+      flux = null;
+      // Une connexion qui a tenu longtemps puis tombe = incident isolé : on
+      // repart vite. Une qui meurt aussitôt = backend absent : on ralentit.
+      if (vecuMs > 30000) reconnexions = 0;
+      const delai = Math.min(30000, 1000 * Math.pow(2, reconnexions));
+      reconnexions = Math.min(reconnexions + 1, 5);
+      setTimeout(ouvrirFlux, delai);
+      rafraichir();
+    });
   }
 
   function rendreLigne(doc) {
@@ -931,8 +990,10 @@
     rafraichir();
   }
 
-  document.addEventListener("backend-connecte", rafraichir);
+  document.addEventListener("backend-connecte", () => { ouvrirFlux(); rafraichir(); });
   document.addEventListener("module-affiche", (e) => { if (e.detail === "import") rafraichir(); });
   document.addEventListener("traduction-terminee", rafraichir);
   document.addEventListener("traductions-relancer", rafraichir);
+
+  ouvrirFlux();
 })();
