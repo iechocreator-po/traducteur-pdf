@@ -302,13 +302,82 @@ def extraire_toc_pdf(chemin_pdf: str) -> list[dict] | None:
         return None
 
 
+# Marqueur écrit par translation_runner au début de chaque chapitre traduit.
+# Il porte l'index ET le titre de la SOURCE — c'est ce qui permet à la
+# Bibliothèque de présenter exactement la même liste que « Nouveau document ».
+_RE_MARQUEUR_CHAPITRE = re.compile(
+    r"^<!--\s*===\s*chapitre\s+(\d+)\s*:\s*(.*?)\s*===\s*-->\s*$", re.MULTILINE
+)
+
+
+def chapitres_depuis_marqueurs(texte: str) -> list[dict]:
+    """
+    Découpe un document TRADUIT sur les marqueurs posés par le moteur.
+
+    Pourquoi cette fonction existe (feature bilbao 327) : « Nouveau document »
+    liste les chapitres de la SOURCE — donc les signets du PDF quand il y en a,
+    qui donnent des titres propres. La Bibliothèque, elle, lisait le fichier
+    TRADUIT et y re-détectait des titres Markdown. Les deux listes divergeaient
+    forcément :
+
+      source  (signets PDF) : 1 chapitre — « Chapter 9: From Structure to Function »
+      traduit (titres bruts): 4 entrées  — dont « * * * », un simple séparateur
+                                            qu'Ollama avait préfixé d'un « # »
+
+    Le moteur écrivant déjà `<!-- === chapitre N : titre === -->` avec l'index et
+    le titre de la source, on découpe là-dessus : la correspondance est EXACTE,
+    sans heuristique de rapprochement de titres.
+
+    Retourne [] si le document n'a aucun marqueur (chapitre implicite « Document
+    entier », ou fichier produit avant l'introduction des marqueurs) — l'appelant
+    retombe alors sur la détection historique.
+    """
+    marques = list(_RE_MARQUEUR_CHAPITRE.finditer(texte))
+    if not marques:
+        return []
+
+    lignes_avant = texte[: marques[0].start()].count("\n")
+    chapitres = []
+    for i, m in enumerate(marques):
+        debut = m.end()
+        fin = marques[i + 1].start() if i + 1 < len(marques) else len(texte)
+        contenu = texte[debut:fin].strip("\n")
+
+        # Le niveau n'est pas dans le marqueur : on le déduit du premier titre du
+        # corps, pour conserver l'indentation de la liste. Défaut 1.
+        niveau = 1
+        for ligne in contenu.splitlines():
+            if ligne.startswith("#"):
+                niveau = len(ligne) - len(ligne.lstrip("#"))
+                break
+
+        ligne_debut = texte[: m.start()].count("\n")
+        ligne_fin = texte[:fin].count("\n")
+        chapitres.append({
+            "index": int(m.group(1)),
+            "titre": m.group(2),
+            "niveau": max(1, min(niveau, 6)),
+            "contenu": contenu,
+            "ligne_debut": ligne_debut,
+            "ligne_fin": ligne_fin,
+        })
+    _ = lignes_avant  # en-tête du document, hors de tout chapitre
+    return chapitres
+
+
 def identifier_chapitres(chemin: str, extracteur: str = "pymupdf4llm") -> list[dict]:
     """
     Identifie tous les chapitres (titres # à ######) dans un PDF ou Markdown.
     Si chemin est un PDF et qu'un fichier _converti_*.md existe, l'utilise pour éviter
     une re-extraction. Retourne une liste de dicts {index, titre, niveau, contenu}.
+
+    Un document TRADUIT porte les marqueurs du moteur : on les préfère, ce qui
+    aligne la Bibliothèque sur « Nouveau document » (feature 327).
     """
     texte = _lire_source(chemin, extracteur)
+    depuis_marqueurs = chapitres_depuis_marqueurs(texte)
+    if depuis_marqueurs:
+        return depuis_marqueurs
     return _extraire_chapitres(texte)
 
 
