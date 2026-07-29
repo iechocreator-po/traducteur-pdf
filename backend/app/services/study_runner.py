@@ -17,6 +17,7 @@ import time
 import uuid
 
 from app.config.settings import ETUDE_CONTEXTE_MAX, ETUDE_CONDENSE_CHUNK
+from app.services.persistance import ecrire_texte_atomique, lire_json_tolerant
 from app.models.schemas import EtatJobEtude, FicheChapitre, StatutJob
 from app.services.etude import generer_points, generer_questions, condenser_texte
 from app.services.pdf_extractor import chapitres_avec_contenu, decouper_en_chunks
@@ -57,8 +58,10 @@ def _chemin_etat(chemin_sortie: str) -> str:
 
 
 def _sauvegarder_etat(etat: EtatJobEtude) -> None:
-    with open(_chemin_etat(etat.chemin_sortie), "w", encoding="utf-8") as f:
-        f.write(etat.model_dump_json(indent=2))
+    """Écriture atomique — même exposition que la traduction (principe cible ③)."""
+    ecrire_texte_atomique(
+        _chemin_etat(etat.chemin_sortie), etat.model_dump_json(indent=2)
+    )
 
 
 def _charger_etat(chemin_etat: str) -> EtatJobEtude | None:

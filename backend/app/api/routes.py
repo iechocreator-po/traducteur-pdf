@@ -290,24 +290,22 @@ def translate(req: TranslateRequest) -> dict:
     """Starts or resumes a translation job (from PDF or Markdown) in background. Returns job_id and output path."""
     chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
 
+    from app.api.erreurs import source_invalide
     from app.models.schemas import Langue
-    from app.services.translation_runner import demarrer_traduction, build_output_path
-    from app.services.translator import verifier_ollama_pret
+    from app.services.soumission import soumettre_traduction
+    from app.services.translation_runner import build_output_path
 
     try:
         langue_source = Langue(req.langue_source)
         langue_cible = Langue(req.langue_cible)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise source_invalide(str(e))
 
-    # Preflight : Ollama doit pouvoir RÉELLEMENT traduire avant qu'on enfile un
-    # job long. Un llama-server figé répond encore à /api/tags mais bloque toute
-    # génération — sans ce garde, le job resterait figé à 0/N pendant 10 min.
-    pret, message = verifier_ollama_pret(req.modele_ollama)
-    if not pret:
-        raise HTTPException(status_code=503, detail=message)
-
-    job_id = demarrer_traduction(
+    # Point d'entrée UNIQUE (principe cible ⑨) : le preflight Ollama et la clé
+    # d'idempotence vivent dans `soumettre_traduction`, que le planificateur
+    # emprunte aussi. Ne jamais rappeler `demarrer_traduction` directement ici —
+    # c'est ainsi que le planificateur avait fini par contourner le garde (F9).
+    job_id, deja_soumis = soumettre_traduction(
         source_path=chemin_source,
         langue_source=langue_source,
         langue_cible=langue_cible,
@@ -318,7 +316,13 @@ def translate(req: TranslateRequest) -> dict:
         chapitres_selectionnes=req.chapitres_selectionnes,
     )
     chemin_sortie = build_output_path(chemin_source, req.modele_ollama)
-    return {"job_id": job_id, "chemin_sortie": chemin_sortie}
+    return {
+        "job_id": job_id,
+        "chemin_sortie": chemin_sortie,
+        # Permet à l'interface de dire « déjà en cours » au lieu de laisser croire
+        # à un second lancement (F10).
+        "deja_soumis": deja_soumis,
+    }
 
 
 @router.get("/job/{job_id}/statut")
@@ -484,6 +488,29 @@ def liste_tous_jobs_planifies() -> dict:
     """Tous les jobs planifiés (y compris déclenchés/annulés), pour la vue liste."""
     from app.services.scheduler import lister_tous_jobs
     return {"jobs": lister_tous_jobs()}
+
+
+@router.get("/scheduler/sante")
+def sante_planificateur() -> dict:
+    """
+    Santé du planificateur (principe cible ⑫).
+
+    Un composant qui travaille quand personne ne regarde doit pouvoir dire qu'il
+    ne travaille plus. Sans cette route, une boucle de surveillance morte n'avait
+    pour seul signe qu'une ligne sur stdout toutes les 60 s, et l'interface
+    affichait une liste vide indiscernable d'un « rien à faire » (F13).
+
+    `en_panne` et `echeances_depassees` sont les deux champs à afficher : une
+    échéance passée alors que le thread est vivant est une anomalie.
+    """
+    from app.services.persistance import corruptions_rencontrees
+    from app.services.scheduler import sante
+
+    etat = sante()
+    # Les corruptions rencontrées depuis le démarrage : c'est ici qu'une perte de
+    # cache autrefois silencieuse (F2) devient constatable.
+    etat["corruptions"] = corruptions_rencontrees()
+    return etat
 
 
 @router.delete("/scheduled/{job_id}")

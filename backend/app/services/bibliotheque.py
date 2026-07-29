@@ -6,11 +6,11 @@ les fichiers .state.json des jobs (source de vérité), jamais dupliqués ici.
 """
 
 import datetime
-import json
 import os
 import threading
 
 from app.services.job_manager import charger_etat
+from app.services.persistance import ecrire_json_atomique, lire_json_tolerant
 
 _FICHIER_BIBLIO = os.path.join(os.path.dirname(__file__), "..", "..", "bibliotheque.json")
 _FICHIER_BIBLIO = os.path.normpath(_FICHIER_BIBLIO)
@@ -19,18 +19,15 @@ _lock = threading.Lock()
 
 
 def _charger() -> list[dict]:
-    if not os.path.exists(_FICHIER_BIBLIO):
+    donnees = lire_json_tolerant(_FICHIER_BIBLIO, defaut={})
+    if not isinstance(donnees, dict):
         return []
-    try:
-        with open(_FICHIER_BIBLIO, "r", encoding="utf-8") as f:
-            return json.load(f).get("documents", [])
-    except (json.JSONDecodeError, OSError):
-        return []
+    documents = donnees.get("documents", [])
+    return documents if isinstance(documents, list) else []
 
 
 def _sauvegarder(documents: list[dict]) -> None:
-    with open(_FICHIER_BIBLIO, "w", encoding="utf-8") as f:
-        json.dump({"documents": documents}, f, indent=2, ensure_ascii=False)
+    ecrire_json_atomique(_FICHIER_BIBLIO, {"documents": documents})
 
 
 def enregistrer_document(
@@ -98,34 +95,60 @@ def lister_documents() -> list[dict]:
 
     resultats = []
     for doc in documents:
-        etat = charger_etat(doc["chemin_sortie"])
-        sortie_existe = os.path.exists(doc["chemin_sortie"])
-        if etat is None and not sortie_existe:
+        try:
+            enrichi = _enrichir(doc)
+        except Exception as e:
+            # Garde PAR DOCUMENT (F1) : une entrée abîmée fait disparaître cette
+            # ligne, jamais la liste entière. Avant ce garde, un seul .state.json
+            # tronqué faisait renvoyer 500 à `GET /api/bibliotheque` et vidait la
+            # Bibliothèque des DEUX frontends à la fois, alors que le travail
+            # était intact sur le disque.
+            print(
+                f"[bibliotheque] entrée ignorée ({doc.get('chemin_sortie', '?')}) : {e}",
+                flush=True,
+            )
             continue
-
-        enrichi = dict(doc)
-        if etat is not None:
-            enrichi["statut"] = etat.statut.value
-            enrichi["sections_completees"] = etat.derniere_section_completee
-            enrichi["total_sections"] = etat.total_sections
-            # job_id du run courant : permet de mettre en pause un job en cours
-            # directement depuis « Reprendre une traduction ».
-            enrichi["job_id"] = etat.job_id
-            # Chapitres déjà traduits : le sélecteur de « ➕ Chapitres » les marque
-            # (✓ désactivés) pour que l'utilisateur coche uniquement les NOUVEAUX.
-            enrichi["chapitres_traduits"] = etat.chapitres_traduits
-            # Portée du run courant : sert au compteur « N/M chapitres » de la barre.
-            enrichi["chapitres_selectionnes"] = etat.chapitres_selectionnes
-            # Permet à la Bibliothèque de proposer « Reprendre » sur un document
-            # lisible mais troué, plutôt que de le déclarer inaccessible.
-            enrichi["nb_sections_echouees"] = len(etat.sections_echouees) + len(etat.chapitres_echoues)
-        else:
-            # Sortie présente sans état : traduction d'avant le registre — jugée finie
-            enrichi["statut"] = "termine"
-            enrichi["sections_completees"] = 0
-            enrichi["total_sections"] = 0
-            enrichi["nb_sections_echouees"] = 0
-        resultats.append(enrichi)
+        if enrichi is not None:
+            resultats.append(enrichi)
 
     resultats.sort(key=lambda d: d.get("maj_a", ""), reverse=True)
     return resultats
+
+
+def _enrichir(doc: dict) -> dict | None:
+    """
+    Enrichit une entrée du registre du statut et de la progression lus dans son
+    .state.json. Retourne None si le document n'existe plus du tout sur disque.
+    """
+    chemin_sortie = doc.get("chemin_sortie")
+    if not chemin_sortie:
+        raise ValueError("entrée sans chemin_sortie")
+
+    etat = charger_etat(chemin_sortie)
+    sortie_existe = os.path.exists(chemin_sortie)
+    if etat is None and not sortie_existe:
+        return None
+
+    enrichi = dict(doc)
+    if etat is not None:
+        enrichi["statut"] = etat.statut.value
+        enrichi["sections_completees"] = etat.derniere_section_completee
+        enrichi["total_sections"] = etat.total_sections
+        # job_id du run courant : permet de mettre en pause un job en cours
+        # directement depuis « Reprendre une traduction ».
+        enrichi["job_id"] = etat.job_id
+        # Chapitres déjà traduits : le sélecteur de « ➕ Chapitres » les marque
+        # (✓ désactivés) pour que l'utilisateur coche uniquement les NOUVEAUX.
+        enrichi["chapitres_traduits"] = etat.chapitres_traduits
+        # Portée du run courant : sert au compteur « N/M chapitres » de la barre.
+        enrichi["chapitres_selectionnes"] = etat.chapitres_selectionnes
+        # Permet à la Bibliothèque de proposer « Reprendre » sur un document
+        # lisible mais troué, plutôt que de le déclarer inaccessible.
+        enrichi["nb_sections_echouees"] = len(etat.sections_echouees) + len(etat.chapitres_echoues)
+    else:
+        # Sortie présente sans état : traduction d'avant le registre — jugée finie
+        enrichi["statut"] = "termine"
+        enrichi["sections_completees"] = 0
+        enrichi["total_sections"] = 0
+        enrichi["nb_sections_echouees"] = 0
+    return enrichi
