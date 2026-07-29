@@ -228,6 +228,43 @@ nonisolated struct APIDetailErreur: Codable {
     let detail: String
 }
 
+/// Erreur typée renvoyée par le backend (principe cible ⑦).
+///
+/// Le backend répond `{"detail": "...", "erreur": {"code", "message", "remediation"}}`.
+/// `detail` reste là pour compatibilité ; `erreur` est le champ structuré.
+nonisolated struct APIErreurCorps: Codable {
+    let code: String
+    let message: String
+    let remediation: String?
+}
+
+nonisolated struct APIReponseErreur: Codable {
+    let detail: String?
+    let erreur: APIErreurCorps?
+}
+
+/// Erreur d'API exploitable côté interface.
+///
+/// Corrige F4 : `APIService` jetait systématiquement le code de statut HTTP
+/// (`let (data, _) = ...`), donc le **503 du preflight Ollama et sa consigne de
+/// redémarrage arrivaient comme une erreur de décodage JSON générique**. Le garde
+/// le plus utile du backend était invisible sur ce client.
+nonisolated struct APIErreur: LocalizedError {
+    let statut: Int
+    let code: String
+    let message: String
+    let remediation: String?
+
+    var errorDescription: String? {
+        guard let remediation, !remediation.isEmpty else { return message }
+        return "\(message)\n\n\(remediation)"
+    }
+
+    /// `true` quand Ollama est injoignable ou figé — l'interface peut alors
+    /// proposer directement la marche à suivre plutôt qu'un message générique.
+    var estOllamaIndisponible: Bool { code == "ollama_indisponible" }
+}
+
 // MARK: - Bibliothèque (refonte Workflow)
 
 nonisolated struct DocumentBiblio: Codable, Identifiable {
