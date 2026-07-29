@@ -277,14 +277,32 @@ nonisolated struct DocumentBiblio: Codable, Identifiable {
     let statut: String
     let sectionsCompletees: Int
     let totalSections: Int
+    /// job_id du run courant — permet de mettre en pause depuis la liste.
+    /// Absent quand le document n'a plus d'état sur disque (traduction d'avant
+    /// le registre), d'où l'optionnel.
+    let jobId: String?
 
     var id: String { cheminSortie }
     var estTermine: Bool { statut == "termine" }
+
+    /// Un job qu'on peut relancer : ni terminé, ni en cours de traitement.
+    var estReprenable: Bool {
+        ["en_pause", "erreur", "annule"].contains(statut)
+    }
+
+    var estActif: Bool {
+        ["en_cours", "en_attente"].contains(statut)
+    }
+
+    var progression: Double {
+        totalSections > 0 ? Double(sectionsCompletees) / Double(totalSections) : 0
+    }
 
     enum CodingKeys: String, CodingKey {
         case cheminSource = "chemin_source"
         case cheminSortie = "chemin_sortie"
         case nom, modele, statut
+        case jobId = "job_id"
         case langueSource = "langue_source"
         case langueCible = "langue_cible"
         case sectionsCompletees = "sections_completees"

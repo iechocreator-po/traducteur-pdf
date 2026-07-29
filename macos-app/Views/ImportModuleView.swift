@@ -258,6 +258,13 @@ struct ImportModuleView: View {
                         ligneFichier(fichier)
                     }
                 }
+                // Liste PERSISTANTE, lue du registre backend (F5, principe ④).
+                // Distincte du lot ci-dessus, qui n'existe qu'en mémoire : c'est
+                // elle qui permet de retrouver une traduction après fermeture de
+                // l'app — ce que macOS ne savait pas faire jusqu'ici.
+                Divider()
+                VosTraductionsView()
+
                 HStack {
                     Spacer()
                     Button("🕐 Voir les traductions planifiées") { afficherJobsPlanifies = true }
