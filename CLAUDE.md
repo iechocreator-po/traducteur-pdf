@@ -515,15 +515,21 @@ plus dépendre du `feature_flags.json` local qui active le flag).
   toute amélioration volontaire de la qualité. `pytest` final : **231 verts**.
 
 <!-- bilbao:managed:start -->
-## Pièges vérifiés — durabilité et messagerie (audit du 27/7/2026)
+## Pièges vérifiés — durabilité et messagerie (audit du 27/7/2026, addendum différé du 28/7)
 
 Audit complet de la messagerie backend ↔ frontends (web **et** macOS), de la
-durabilité sur 12 scénarios d'interruption et de l'architecture cible :
+durabilité sur 12 scénarios d'interruption et de l'architecture cible (12 principes,
+13 défauts) :
 [frontend/docs/architecture-messagerie.html](frontend/docs/architecture-messagerie.html)
 (document autonome, lisible hors ligne, accessible depuis le **Laboratoire →
-Documentation technique**). Les quatre pièges ci-dessous ont été **vérifiés en
+Documentation technique**). Les cinq pièges ci-dessous ont été **vérifiés en
 exécutant le code**, pas seulement par lecture — ne pas les traiter comme des
 hypothèses.
+
+⚠️ **Le traitement différé est la zone la moins couverte du système** — c'est la
+seule partie qui travaille quand personne ne regarde, et celle qui a le moins de
+moyens de signaler qu'elle a échoué (voir le 5ᵉ piège et la section « Le différé
+intégré » du document).
 
 - **Un `.state.json` tronqué rend TOUT le travail invisible.** `sauvegarder_etat()`
   (`job_manager.py`) ouvre en `"w"` — troncature puis réécriture — et est appelée
@@ -563,13 +569,39 @@ hypothèses.
   « Annuler » n'existe dans aucune des deux interfaces** — les deux savent
   afficher un job annulé, aucune ne sait en provoquer un.
 
+- **Le planificateur est une 5ᵉ famille de jobs, hors de tout le reste** (addendum
+  du 28/7/2026). Il n'est pas sur la file du `job_manager` : il a son propre thread
+  (`scheduler._boucle_surveillance`, tick de 60 s), son propre fichier
+  (`scheduled_jobs.json`, **toutes** les planifications dans un seul fichier, en
+  `open("w")`) et trois statuts sans aucun lien avec `StatutJob`
+  (`planifie`/`declenche`/`annule`). Deux pièges **vérifiés en exécutant le code** :
+  (1) un `scheduled_jobs.json` tronqué fait lever `_charger()` — `GET /scheduled`,
+  `GET /scheduled/tous` **et** le tick de surveillance ; la boucle attrape
+  l'exception, l'imprime et **continue de tourner**, donc **plus aucun job planifié
+  ne se déclenche jamais**, avec pour seul signe une ligne sur stdout toutes les
+  60 s et un 500 côté interface (qui ressemble à un bug d'affichage, pas à un
+  planificateur mort) ; (2) `_lancer_job()` marque `declenche` **avant** de lancer,
+  et **toute** exception de `demarrer_traduction()` — pas seulement un crash —
+  laisse le job dans cet état : ni retenté, ni supprimé (la suppression n'a lieu
+  qu'en cas de succès), et **rien ne récupère les `declenche` au démarrage**. Un lot
+  planifié à 23 h sur un Ollama figé meurt donc en silence, d'autant que
+  `_lancer_job()` appelle le moteur en direct et **contourne le preflight** de la
+  route `/translate`. Ce qui est correct et à conserver : le rattrapage
+  (`executer_a <= maintenant` → un job dont l'heure est passée pendant un arrêt part
+  au démarrage) et l'auto-purge après déclenchement réussi.
+
 **Correct par accident, à ne pas « corriger » :** `time.monotonic()` vaut
 `mach_absolute_time()` sur macOS, qui **ne compte pas** le temps de veille — le
 budget mural de 30 min d'`OLLAMA_RETRY_BUDGET_SECONDES` survit donc à une nuit de
 sommeil (vérifié). En revanche `temps_ecoule_secondes`/ETA utilisent `time.time()`
 et deviennent absurdes après une veille, et **aucune assertion d'énergie**
 (`caffeinate`/`IOPMAssertion`) n'existe nulle part : un job long s'arrête dès que
-le Mac s'endort. C'est l'item H, toujours ouvert.
+le Mac s'endort. C'est l'item H, toujours ouvert. ⚠️ Pour le **différé**, l'item H
+ne suffira pas : une assertion d'énergie empêche l'endormissement *pendant* le
+travail, elle ne réveille pas une machine déjà endormie *pour atteindre* l'heure
+planifiée (il faut un réveil programmé, `pmset schedule`/`IOPMSchedulePowerEvent`).
+Tant que ça n'existe pas, une traduction programmée la nuit sur un portable ne
+partira pas — et l'interface laisse croire le contraire.
 
 **Écarts web ↔ macOS touchant la récupération du travail** (détail dans l'audit) :
 `APIService.swift` jette systématiquement le code de statut HTTP

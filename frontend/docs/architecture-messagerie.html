@@ -340,7 +340,7 @@
       <span class="rail-title">Partie 1</span>
       <a href="#contrat">Le contrat d'API</a>
       <a href="#statuts">Statuts &amp; machine à états</a>
-      <a href="#familles">Les 4 familles de jobs</a>
+      <a href="#familles">Les 5 familles de jobs</a>
       <a href="#verite">Où vit la vérité</a>
       <a href="#flux">Flux type</a>
       <a href="#web">Client web</a>
@@ -348,22 +348,39 @@
       <a href="#parite">Parité web ↔ macOS</a>
       <span class="rail-title">Partie 2</span>
       <a href="#scenarios">Épreuve des 12 scénarios</a>
-      <a href="#findings">Les 12 défauts</a>
+      <a href="#findings">Les 13 défauts</a>
       <span class="rail-title">Partie 3</span>
       <a href="#cible">Architecture cible</a>
+      <a href="#differe">Le différé intégré</a>
       <a href="#conformite">Conformité</a>
       <a href="#chemin">Par où commencer</a>
     </nav>
   </aside>
 
   <main>
-    <p class="eyebrow">toledo · traducteur-pdf · audit du 27 juillet 2026</p>
+    <p class="eyebrow">toledo · traducteur-pdf · audit du 27 juillet 2026 · addendum « différé » du 28 juillet</p>
     <h1>La messagerie de toledo, et ce qu'elle promet vraiment</h1>
     <p class="standfirst">
       Inventaire complet des échanges backend ↔ frontends (web <em>et</em> macOS), mise à
       l'épreuve de la promesse « on conserve le travail peu importe ce qui arrive », et
       architecture cible si le projet était à refaire.
     </p>
+    <div class="note">
+      <div class="note-t">Addendum du 28 juillet — le traitement différé</div>
+      <p>
+        La première version de cet audit traitait le planificateur comme un détail du
+        moteur de traduction. C'est une erreur de cadrage : <strong>le différé est une
+        cinquième famille de jobs</strong>, avec sa propre persistance, son propre thread et
+        son propre vocabulaire de statuts. L'architecture cible ne le couvrait qu'à travers
+        un seul de ses dix principes.
+      </p>
+      <p>
+        Cette version corrige le cadrage : la <a href="#familles">famille « Planifié »</a> est
+        ajoutée à l'inventaire, un treizième défaut (<a href="#findings">F13</a>) vérifié en
+        exécutant le code s'ajoute à la liste, et la cible passe à douze principes avec une
+        <a href="#differe">section dédiée au différé</a>.
+      </p>
+    </div>
 
     <div class="verdict">
       <h4>Verdict</h4>
@@ -377,11 +394,16 @@
         traduction », c'est <strong>« ma traduction est intacte sur le disque et je n'ai plus
         aucun moyen d'y revenir »</strong>.
       </p>
+      <p style="margin-top:12px">
+        Le <strong>traitement différé</strong> est l'endroit où cet écart est le plus large :
+        c'est la seule partie du système qui travaille quand personne ne regarde, et c'est
+        celle qui a le moins de moyens de dire qu'elle a échoué.
+      </p>
       <div class="tiles">
         <div class="tile ok"><span class="n">5</span><span class="l">Scénarios tenus</span></div>
         <div class="tile warn"><span class="n">4</span><span class="l">Partiels</span></div>
         <div class="tile bad"><span class="n">3</span><span class="l">Non tenus</span></div>
-        <div class="tile"><span class="n">12</span><span class="l">Défauts identifiés</span></div>
+        <div class="tile"><span class="n">13</span><span class="l">Défauts identifiés</span></div>
       </div>
     </div>
 
@@ -509,13 +531,15 @@
     </section>
 
     <section class="sec" id="familles">
-      <h3>Quatre familles de jobs, une seule file, quatre implémentations</h3>
+      <h3>Cinq familles de jobs, une file pour quatre, cinq persistances</h3>
       <p>
-        Toutes les tâches longues passent par le même worker unique
+        Les tâches longues passent par le même worker unique
         (<code>job_manager._boucle_worker</code>) : un thread, une <code>queue.Queue</code>,
         un travail à la fois — parce que deux appels Ollama simultanés se sérialisent de
         toute façon. C'est le bon choix. Mais chaque famille a ensuite réimplémenté sa
-        persistance, sa reprise et sa récupération à sa façon.
+        persistance, sa reprise et sa récupération à sa façon — et la cinquième, le
+        <strong>différé</strong>, ne passe même pas par la file : elle a son propre thread de
+        surveillance et appelle le moteur en direct.
       </p>
       <div class="tw">
         <table>
@@ -555,16 +579,37 @@
               <td class="c">—</td>
               <td class="c"><span class="pill bad">non</span></td>
             </tr>
+            <tr>
+              <td><strong>Planifié</strong><br><code>scheduler</code><br><span class="pill warn">hors file</span></td>
+              <td><code>scheduled_jobs.json</code><br><em>dict libre</em>, statuts <code>planifie</code> / <code>declenche</code> / <code>annule</code></td>
+              <td class="c">—</td>
+              <td class="c"><span class="pill bad">non</span></td>
+              <td class="c">—</td>
+              <td class="c"><span class="pill bad">non</span></td>
+            </tr>
           </tbody>
         </table>
       </div>
       <p>
         C'est la racine de la moitié des défauts listés plus bas : <strong>chaque correctif
-        de robustesse appliqué à la traduction doit être réappliqué trois fois à la
+        de robustesse appliqué à la traduction doit être réappliqué quatre fois à la
         main</strong>, et ne l'a pas été. C'est exactement le problème que l'unification du
         moteur de traduction avait résolu <em>à l'intérieur</em> de la traduction, le
         2026-07-18 — mais qui subsiste <em>entre</em> les familles.
       </p>
+      <div class="note">
+        <div class="note-t">Le différé est la famille la plus à part</div>
+        <p>
+          Les quatre premières familles partagent au moins la file et la notion d'un
+          <code>.state.json</code> par document. La cinquième ne partage rien :
+          <strong>un fichier unique pour tous les jobs</strong> plutôt qu'un fichier par
+          document, <strong>un thread de surveillance à elle</strong> qui se réveille toutes
+          les 60 s (<code>scheduler._boucle_surveillance</code>), et <strong>trois statuts
+          qui n'ont aucun lien avec <code>StatutJob</code></strong>. Un job planifié n'est
+          donc visible dans aucune vue de jobs : il vit dans sa propre liste jusqu'à ce
+          qu'il disparaisse au profit d'une traduction.
+        </p>
+      </div>
     </section>
 
     <section class="sec" id="verite">
@@ -839,14 +884,14 @@
           <strong>Le moteur ne perd pas de travail ; la couche de persistance et la couche
           d'accès peuvent le rendre inatteignable.</strong> Les trois scénarios non tenus
           (S6, S9, S10) ont tous la même cause : un état écrit par troncature-puis-réécriture,
-          et une récupération au démarrage qui n'a été construite que pour une des quatre
+          et une récupération au démarrage qui n'a été construite que pour une des cinq
           familles de jobs.
         </p>
       </div>
     </section>
 
     <section class="sec" id="findings">
-      <h3>Les douze défauts, du plus grave au plus mineur</h3>
+      <h3>Les treize défauts, du plus grave au plus mineur</h3>
 
       <div class="find sev-1">
         <div class="find-head"><span class="find-id">F1</span><h3>Un seul fichier d'état tronqué rend invisible <em>tout</em> le travail</h3><span class="pill bad">critique</span></div>
@@ -926,12 +971,26 @@
       </div>
 
       <div class="find sev-2">
-        <div class="find-head"><span class="find-id">F9</span><h3>Le planificateur contourne le preflight Ollama</h3><span class="pill warn">majeur</span></div>
+        <div class="find-head"><span class="find-id">F9</span><h3>Le planificateur contourne le preflight, et un déclenchement raté n'est jamais retenté</h3><span class="pill warn">majeur</span></div>
         <p><code>_lancer_job()</code> appelle <code>demarrer_traduction()</code> en direct,
-        sans passer par la route <code>/translate</code> ni son garde 503.</p>
+        sans passer par la route <code>/translate</code> ni son garde 503. Le job est marqué
+        <code>declenche</code> et sauvegardé <em>avant</em> le lancement, hors du verrou.</p>
         <dl>
-          <dt>Effet</dt><dd>Un lot planifié à 23 h sur un Ollama figé brûle 30 minutes de recul puis finit <code>erreur</code> — la nuit de traduction est perdue. Et un crash entre le marquage <code>declenche</code> et le lancement effectif perd le job définitivement : rien ne récupère les <code>declenche</code>.</dd>
-          <dt>Correctif</dt><dd>Un seul point d'entrée « soumettre un job » que route <em>et</em> planificateur empruntent tous les deux.</dd>
+          <dt>Effet</dt><dd>Un lot planifié à 23 h sur un Ollama figé brûle 30 minutes de recul puis finit <code>erreur</code> — la nuit de traduction est perdue.</dd>
+          <dt>Plus large</dt><dd>Ce n'est pas seulement une fenêtre de crash. <strong>Toute</strong> exception dans <code>demarrer_traduction()</code> laisse le job à <code>declenche</code> : le <code>except</code> imprime la trace sur stdout et rend la main. Il n'est ni retenté, ni supprimé (la suppression n'a lieu qu'en cas de succès), et <strong>rien ne récupère les <code>declenche</code> au démarrage</strong>. Le job est mort sans qu'aucune interface ne le dise.</dd>
+          <dt>Correctif</dt><dd>Un seul point d'entrée « soumettre un job » que route <em>et</em> planificateur empruntent tous les deux (cible ⑨), plus un état d'échec explicite et retentable (cible ⑪).</dd>
+        </dl>
+      </div>
+
+      <div class="find sev-2">
+        <div class="find-head"><span class="find-id">F13</span><h3>Un <code>scheduled_jobs.json</code> abîmé tue le planificateur en silence, définitivement</h3><span class="pill warn">majeur</span></div>
+        <p><code>_charger()</code> fait un <code>json.load</code> nu, sans garde. Et
+        <code>_sauvegarder()</code> ouvre en <code>"w"</code> — même schéma de
+        troncature-puis-réécriture que F1 et F2.</p>
+        <dl>
+          <dt>Preuve</dt><dd>Exécuté sur un fichier tronqué comme le laisserait une coupure : <code>GET /scheduled</code>, <code>GET /scheduled/tous</code> <em>et</em> le tick de surveillance lèvent tous les trois un <code>JSONDecodeError</code>.</dd>
+          <dt>Effet</dt><dd><code>_boucle_surveillance</code> attrape l'exception, l'imprime et <strong>continue de boucler</strong> : le thread reste vivant, écrit une ligne sur stdout toutes les 60 s, et <strong>plus aucun job planifié ne se déclenchera jamais</strong>. Côté interface, la liste renvoie 500 — ce qui ressemble à un problème d'affichage, pas à un planificateur mort. Aucune planification n'est perdue sur le disque ; elles ne partiront simplement plus.</dd>
+          <dt>Correctif</dt><dd>Écriture atomique (cible ③) pour empêcher la corruption, chargement tolérant pour survivre à celle qui existe déjà, et surtout un <strong>état de santé du planificateur exposé par l'API</strong> (cible ⑫) — sans quoi la panne reste invisible quoi qu'on fasse.</dd>
         </dl>
       </div>
 
@@ -942,6 +1001,7 @@
         <dl>
           <dt>Nuance</dt><dd>Le budget de retry, lui, <strong>survit</strong> à la veille : <code>time.monotonic()</code> = <code>mach_absolute_time()</code> sur macOS, qui ne compte pas le sommeil. C'est correct par accident, pas par conception. En revanche l'ETA utilise <code>time.time()</code> et devient absurde après une veille.</dd>
           <dt>Correctif</dt><dd>Prendre une assertion d'énergie à l'entrée du worker, la relâcher quand la file se vide. C'est l'item H, toujours ouvert.</dd>
+          <dt>Différé</dt><dd>Ce correctif ne suffit pas pour un job planifié. Une assertion prise « à l'entrée du worker » empêche la machine de s'endormir <em>pendant</em> le travail — elle ne la réveille pas pour <em>atteindre</em> 23 h. Un lot programmé sur un Mac endormi à 22 h ne démarre pas : le thread de surveillance dort avec la machine. Il faut un <strong>réveil programmé</strong> à l'échéance (<code>pmset schedule</code> / <code>IOPMSchedulePowerEvent</code>) — voir cible ⑩.</dd>
         </dl>
       </div>
 
@@ -981,19 +1041,28 @@
       <p class="lede">
         Rien d'inventé ici : ce sont les patrons standards d'un système de tâches durables.
         Ce qui compte, c'est lesquels toledo a implicitement adoptés, et lesquels il a
-        contournés.
+        contournés. Douze principes, dont trois portent spécifiquement le
+        <strong>traitement différé</strong> — ⑨, ⑩ et les deux derniers.
       </p>
       <hr class="div">
 
       <div class="prin">
         <div class="prin-n">1</div>
         <div>
-          <h3>Un seul modèle de job, pas quatre</h3>
+          <h3>Un seul modèle de job, pas cinq</h3>
           <p>Une table de jobs, une machine à états, une reprise, une récupération au
           démarrage — traduction, étude, TTS et clonage n'en sont que des <em>types</em>.
-          Aujourd'hui, chaque correctif de robustesse doit être appliqué quatre fois et ne
+          Aujourd'hui, chaque correctif de robustesse doit être appliqué cinq fois et ne
           l'a été qu'une.</p>
-          <p class="fixes">→ résout F7, F9 · atténue F3</p>
+          <p><strong>Le différé n'est pas un sixième type : c'est un champ.</strong> Un job
+          planifié est un job ordinaire porteur d'une échéance <code>run_at</code>, que le
+          worker prend quand elle est atteinte. Il hérite alors gratuitement de tout le
+          reste — persistance, statuts, reprise, récupération au démarrage, visibilité dans
+          <code>GET /jobs</code>. Le fichier séparé, le thread de surveillance et les trois
+          statuts <code>planifie</code>/<code>declenche</code>/<code>annule</code>
+          disparaissent : ils n'existent que parce que le différé a été construit à côté du
+          modèle de job plutôt que dedans.</p>
+          <p class="fixes">→ résout F7, F9, F13 · atténue F3 · absorbe la 5<sup>e</sup> famille</p>
         </div>
       </div>
 
@@ -1018,7 +1087,10 @@
           progression, du <code>.jsonl</code> en append — une ligne tronquée se jette, les
           précédentes restent bonnes. C'est le correctif minimal si la cible ② est jugée
           trop lourde.</p>
-          <p class="fixes">→ résout F1, F2 sans réécrire l'architecture</p>
+          <p>Le planificateur est le cas le plus exposé, parce qu'il concentre
+          <strong>toutes</strong> les planifications dans un seul fichier : une écriture
+          interrompue n'abîme pas un job, elle les emporte tous d'un coup.</p>
+          <p class="fixes">→ résout F1, F2, F13 sans réécrire l'architecture</p>
         </div>
       </div>
 
@@ -1085,7 +1157,8 @@
           <h3>Un seul point d'entrée pour soumettre</h3>
           <p>Route HTTP, planificateur, reprise : tous passent par la même fonction, donc par
           le même preflight, la même validation, le même audit. Aujourd'hui le planificateur
-          contourne le garde le plus important du système.</p>
+          contourne le garde le plus important du système — et c'est précisément lui qui en
+          aurait le plus besoin, puisqu'il déclenche sans personne devant l'écran.</p>
           <p class="fixes">→ résout F9</p>
         </div>
       </div>
@@ -1093,12 +1166,125 @@
       <div class="prin">
         <div class="prin-n">10</div>
         <div>
-          <h3>Le système tient la machine éveillée pendant qu'il travaille</h3>
+          <h3>Le système tient la machine éveillée pendant qu'il travaille — et la réveille pour commencer</h3>
           <p>Assertion d'énergie prise à l'entrée du worker, relâchée quand la file se vide.
           Sur une app locale qui traduit des livres pendant des heures, c'est une exigence
           fonctionnelle, pas un détail.</p>
-          <p class="fixes">→ résout F12</p>
+          <p><strong>Le différé exige la moitié inverse.</strong> Une assertion d'énergie
+          empêche l'endormissement pendant le travail ; elle ne réveille pas une machine
+          déjà endormie à l'heure dite. Dès qu'une échéance est enregistrée, le système
+          programme un réveil pour cet instant (<code>IOPMSchedulePowerEvent</code>, ou
+          <code>pmset schedule</code>) et l'annule si l'échéance change. Sans cela, planifier
+          une traduction pour la nuit ne veut rien dire sur un portable — le cas d'usage même
+          de la fonctionnalité.</p>
+          <p class="fixes">→ résout F12 — pendant <em>et</em> avant le travail</p>
         </div>
+      </div>
+
+      <div class="prin">
+        <div class="prin-n">11</div>
+        <div>
+          <h3>Une échéance manquée se rattrape ; un déclenchement raté se retente</h3>
+          <p>Trois règles, qu'aucun des dix principes d'origine ne couvrait :</p>
+          <ul>
+            <li><strong>Rattrapage borné.</strong> Un job dont l'heure est passée pendant que
+            le backend était éteint doit partir au démarrage — c'est déjà le comportement
+            actuel (<code>executer_a &lt;= maintenant</code>), et c'est le bon. Mais il lui
+            manque une borne : au-delà d'un certain retard, on demande plutôt que d'exécuter
+            en silence une planification vieille de trois semaines.</li>
+            <li><strong>Aucun état terminal silencieux.</strong> <code>declenche</code> est
+            aujourd'hui un cul-de-sac : on y entre avant le lancement, on n'en sort qu'en cas
+            de succès. Dans la cible, un déclenchement qui échoue retombe en attente avec un
+            compteur de tentatives et une cause lisible, et n'est abandonné qu'après une
+            limite explicite — abandon lui-même visible.</li>
+            <li><strong>La transition est atomique avec le lancement.</strong> Marquer
+            « parti » puis lancer, c'est se garantir une fenêtre de perte. Marquer et
+            soumettre dans la même transaction (cible ②) la supprime.</li>
+          </ul>
+          <p class="fixes">→ résout la moitié de F9 que ⑨ ne couvre pas</p>
+        </div>
+      </div>
+
+      <div class="prin">
+        <div class="prin-n">12</div>
+        <div>
+          <h3>Le planificateur rend compte de sa propre santé</h3>
+          <p>Un composant qui travaille pendant que personne ne regarde doit pouvoir dire
+          qu'il ne travaille plus. La boucle expose son dernier tick réussi, la prochaine
+          échéance, et le nombre de jobs en attente ; un tick qui lève est un état
+          <em>signalé</em>, pas une ligne sur stdout. Les deux clients affichent une échéance
+          dépassée sans déclenchement comme une anomalie, au lieu de la laisser passer pour
+          une liste vide.</p>
+          <p>C'est le seul principe qui traite la panne <em>silencieuse</em> : F13 reste
+          invisible même une fois l'écriture rendue atomique, parce que rien dans le système
+          n'a pour rôle de dire que le planificateur est mort.</p>
+          <p class="fixes">→ résout F13 · rend F9 constatable</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="differe">
+      <h3>Le différé intégré : ce que ça change concrètement</h3>
+      <p class="lede">
+        Les douze principes appliqués au seul planificateur, avant / après. Rien ici ne
+        demande d'écrire un ordonnanceur : il s'agit de <em>supprimer</em> celui qui existe
+        en le repliant dans le modèle de job.
+      </p>
+
+      <div class="tw">
+        <table>
+          <caption class="sr-caption">Cycle de vie cible d'un job planifié — un seul vocabulaire de statuts, partagé avec les autres jobs</caption>
+          <thead>
+            <tr><th>Départ</th><th>Arrivée</th><th>Déclencheur</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr><td><em>(néant)</em></td><td><code>planifie</code></td><td>soumettre avec <code>run_at</code></td><td>réveil programmé armé</td></tr>
+            <tr><td><code>planifie</code></td><td><code>en_attente</code></td><td>échéance atteinte</td><td>point d'entrée unique, preflight compris</td></tr>
+            <tr><td><code>planifie</code></td><td><code>en_attente</code></td><td>rattrapage au démarrage</td><td>si le retard est sous la borne</td></tr>
+            <tr><td><code>planifie</code></td><td><code>expire</code></td><td>retard au-delà de la borne</td><td><span class="pill warn">terminal, mais dit</span></td></tr>
+            <tr><td><code>en_attente</code></td><td><code>planifie</code></td><td>preflight KO</td><td>nouvelle tentative, compteur incrémenté</td></tr>
+            <tr><td><code>en_attente</code></td><td><code>abandonne</code></td><td>limite de tentatives atteinte</td><td><span class="pill warn">terminal, mais dit</span></td></tr>
+            <tr><td><code>en_attente</code></td><td><code>en_cours</code></td><td>le worker dépile</td><td>identique aux autres jobs</td></tr>
+            <tr><td><code>en_cours</code></td><td><code>termine</code> · <code>erreur</code></td><td>fin du travail</td><td>identique aux autres jobs</td></tr>
+            <tr><td><code>planifie</code></td><td><code>annule</code></td><td>retrait par l'utilisateur</td><td>réveil programmé désarmé</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">
+        <code>declenche</code> disparaît : ce n'était pas un état du travail, c'était un
+        marqueur laissé par un lancement qui n'avait pas de transaction. Les deux états
+        terminaux ajoutés — <code>expire</code> et <code>abandonne</code> — existent pour que
+        rien ne meure sans le dire.
+      </p>
+
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Point</th><th>Aujourd'hui</th><th>Cible</th><th>Principe</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Nature du différé</td><td>Sous-système à part : fichier, thread, statuts</td><td>Un champ <code>run_at</code> sur un job ordinaire</td><td class="c">①</td></tr>
+            <tr><td>Persistance</td><td><code>scheduled_jobs.json</code>, tous les jobs dans un fichier, <code>open("w")</code></td><td>Même store transactionnel que le reste</td><td class="c">②&nbsp;③</td></tr>
+            <tr><td>Visibilité</td><td>Liste séparée ; invisible dans toute vue de jobs</td><td>Une projection de <code>GET /jobs</code>, filtrée sur l'échéance</td><td class="c">④</td></tr>
+            <tr><td>Déclenchement</td><td>Appel direct au moteur, preflight contourné</td><td>Même point d'entrée que la route et la reprise</td><td class="c">⑨</td></tr>
+            <tr><td>Machine endormie</td><td>Le thread dort, le job ne part jamais</td><td>Réveil programmé à l'échéance</td><td class="c">⑩</td></tr>
+            <tr><td>Échec de lancement</td><td><code>declenche</code> définitif, trace sur stdout</td><td>Retour en attente, tentatives comptées, abandon explicite</td><td class="c">⑪</td></tr>
+            <tr><td>Boucle morte</td><td>Invisible — une erreur toutes les 60 s sur stdout</td><td>Santé exposée, échéance dépassée signalée</td><td class="c">⑫</td></tr>
+            <tr><td>Double déclenchement</td><td>Rien ne l'empêche</td><td>Clé d'idempotence sur (source, options, portée)</td><td class="c">⑧</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <div class="note-t">Ce que le différé révèle sur le reste</div>
+        <p>
+          Aucun de ces huit points n'est un problème d'ordonnancement. Ce sont tous des
+          conséquences d'une seule décision : <strong>avoir construit le différé à côté du
+          modèle de job plutôt que dedans</strong>. C'est la même décision qui a produit
+          quatre persistances divergentes pour quatre familles — le planificateur en est la
+          cinquième occurrence, simplement la plus visible, parce que c'est la seule qui
+          travaille quand personne ne regarde.
+        </p>
       </div>
     </section>
 
@@ -1110,29 +1296,34 @@
             <tr><th>Principe cible</th><th>Statut</th><th>Où on en est</th></tr>
           </thead>
           <tbody>
-            <tr><td>① Modèle de job unique</td><td><span class="pill bad">non conforme</span></td><td>Quatre implémentations. La file est partagée, tout le reste est dupliqué et divergent.</td></tr>
+            <tr><td>① Modèle de job unique</td><td><span class="pill bad">non conforme</span></td><td>Cinq implémentations. La file est partagée par quatre, tout le reste est dupliqué et divergent — et le différé n'est même pas sur la file.</td></tr>
             <tr><td>② Store transactionnel, <code>.md</code> dérivé</td><td><span class="pill bad">non conforme</span></td><td>Le <code>.md</code> est la source de vérité, construit par append. Six fichiers JSON séparés.</td></tr>
-            <tr><td>③ Écritures atomiques</td><td><span class="pill bad">non conforme</span></td><td>Aucune. Six emplacements en <code>open("w")</code>, dont deux dans la boucle chaude.</td></tr>
-            <tr><td>④ Client sans état de job</td><td><span class="pill warn">partiel</span></td><td>Web : conforme depuis « Vos traductions ». macOS : lot en mémoire.</td></tr>
+            <tr><td>③ Écritures atomiques</td><td><span class="pill bad">non conforme</span></td><td>Aucune. Six emplacements en <code>open("w")</code>, dont deux dans la boucle chaude et un qui porte <em>toutes</em> les planifications.</td></tr>
+            <tr><td>④ Client sans état de job</td><td><span class="pill warn">partiel</span></td><td>Web : conforme depuis « Vos traductions ». macOS : lot en mémoire. Les planifiées sont une liste à part des deux côtés.</td></tr>
             <tr><td>⑤ Clients générés</td><td><span class="pill bad">non conforme</span></td><td>Deux clients écrits à la main, sans code partagé. Onze écarts de parité.</td></tr>
             <tr><td>⑥ Push serveur</td><td><span class="pill bad">non conforme</span></td><td>Six boucles de poll, cadences et conditions d'arrêt différentes, aucun timeout.</td></tr>
             <tr><td>⑦ Erreurs typées</td><td><span class="pill warn">partiel</span></td><td>Les codes HTTP sont justes et les messages actionnables — mais macOS les jette.</td></tr>
             <tr><td>⑧ Soumission idempotente</td><td><span class="pill bad">non conforme</span></td><td>Aucune clé. Le worker unique masque le symptôme.</td></tr>
             <tr><td>⑨ Point d'entrée unique</td><td><span class="pill warn">partiel</span></td><td><code>demarrer_traduction()</code> est bien unique — mais le preflight est <em>au-dessus</em>, dans la route, donc contournable.</td></tr>
-            <tr><td>⑩ Assertion d'énergie</td><td><span class="pill bad">non conforme</span></td><td>Absente. Item H, toujours ouvert.</td></tr>
+            <tr><td>⑩ Énergie : éveil + réveil</td><td><span class="pill bad">non conforme</span></td><td>Les deux moitiés absentes. Item H, toujours ouvert — et rien ne réveille la machine à l'échéance.</td></tr>
+            <tr><td>⑪ Rattrapage &amp; retry du différé</td><td><span class="pill warn">partiel</span></td><td>Le rattrapage existe et fonctionne (<code>executer_a &lt;= maintenant</code>), sans borne. Le retry n'existe pas : <code>declenche</code> est un cul-de-sac.</td></tr>
+            <tr><td>⑫ Santé du planificateur</td><td><span class="pill bad">non conforme</span></td><td>Rien n'est exposé. Une boucle morte imprime sur stdout et l'interface affiche un 500.</td></tr>
             <tr><td class="c">—</td><td><span class="pill ok">conforme</span></td><td><strong>Chapitre = unité atomique</strong> — un chapitre n'est jamais écrit à moitié.</td></tr>
             <tr><td class="c">—</td><td><span class="pill ok">conforme</span></td><td><strong>Cache indexé par contenu</strong> — la bonne façon de rendre une reprise gratuite.</td></tr>
             <tr><td class="c">—</td><td><span class="pill ok">conforme</span></td><td><strong>Statut honnête</strong> — <code>termine</code> ne ment jamais.</td></tr>
             <tr><td class="c">—</td><td><span class="pill ok">conforme</span></td><td><strong>Erreurs classées transitoire / définitive</strong> — recul exponentiel avec budget mural, interruptible.</td></tr>
             <tr><td class="c">—</td><td><span class="pill ok">conforme</span></td><td><strong>Preflight par sonde réelle</strong> — pas un ping, une vraie mini-traduction. Peu de systèmes font ça.</td></tr>
+            <tr><td class="c">—</td><td><span class="pill ok">conforme</span></td><td><strong>Auto-purge après déclenchement réussi</strong> — un job planifié qui est parti quitte la liste au lieu d'y laisser un « Déclenché » fantôme. Le suivi passe à la Bibliothèque, une seule vue à la fois.</td></tr>
           </tbody>
         </table>
       </div>
       <p>
-        Trois conformités sur dix pour l'infrastructure, mais <strong>cinq propriétés du
-        moteur sont exactement ce qu'on écrirait dans une architecture cible</strong>. Ce
-        n'est pas un système mal conçu — c'est un bon moteur posé sur une persistance et une
-        couche client qui n'ont pas suivi.
+        Quatre conformités partielles sur douze pour l'infrastructure, mais <strong>six
+        propriétés du moteur sont exactement ce qu'on écrirait dans une architecture
+        cible</strong>. Ce n'est pas un système mal conçu — c'est un bon moteur posé sur une
+        persistance et une couche client qui n'ont pas suivi. <strong>Le différé est la zone
+        la moins couverte</strong> : sur les cinq principes qui le portent (③, ⑨, ⑩, ⑪, ⑫),
+        un seul est ne serait-ce que partiellement tenu.
       </p>
     </section>
 
@@ -1142,6 +1333,7 @@
         Les quatre défauts critiques se corrigent <strong>sans toucher à l'architecture</strong>,
         et couvrent les trois scénarios non tenus :
       </p>
+      <h4 style="margin-top:22px">Durabilité du travail</h4>
       <div class="tw">
         <table>
           <thead><tr><th>Ordre</th><th>Geste</th><th>Corrige</th><th>Ampleur</th></tr></thead>
@@ -1155,10 +1347,35 @@
           </tbody>
         </table>
       </div>
+
+      <h4 style="margin-top:28px">Et pour le différé</h4>
+      <p>
+        Trois gestes de plus, du même ordre de grandeur. Ils ne demandent pas non plus de
+        toucher à l'architecture — le premier est d'ailleurs déjà inclus dans le geste 1
+        ci-dessus.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Ordre</th><th>Geste</th><th>Corrige</th><th>Ampleur</th></tr></thead>
+          <tbody>
+            <tr><td class="num">7</td><td><code>_charger()</code> tolérant dans <code>scheduler.py</code> — un fichier illisible se signale au lieu de tuer la boucle en silence</td><td>F13</td><td>~10 lignes</td></tr>
+            <tr><td class="num">8</td><td>Faire passer <code>_lancer_job()</code> par la même fonction que <code>/translate</code>, preflight compris ; en cas d'échec, remettre le job en <code>planifie</code> avec un compteur au lieu de le laisser en <code>declenche</code></td><td>F9 — la nuit de traduction</td><td>~25 lignes</td></tr>
+            <tr><td class="num">9</td><td>Exposer l'état du planificateur (dernier tick, prochaine échéance) et le montrer dans les deux interfaces</td><td>F13 — la panne devient visible</td><td>1 route + 1 pastille</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Le réveil programmé (⑩) est le seul point du différé qui ne soit pas un petit geste :
+        il touche à l'énergie du système et mérite d'être traité avec l'item H, pas avant.
+        Mais tant qu'il n'existe pas, <strong>il faut le dire à l'utilisateur au moment où il
+        planifie</strong> — une traduction programmée pour 23 h sur un portable qui s'endort
+        ne partira pas, et l'interface laisse aujourd'hui croire le contraire.
+      </p>
       <p>
         Les points ① et ② de la cible — modèle de job unique, SQLite — sont les seuls qui
-        justifieraient un vrai chantier. Ils règlent F3, F7 et F9 d'un coup, mais ils ne sont
-        pas nécessaires pour tenir la promesse de durabilité. Les six gestes ci-dessus le sont.
+        justifieraient un vrai chantier. Ils règlent F3, F7, F9 et F13 d'un coup, et
+        absorberaient le planificateur entier au passage, mais ils ne sont pas nécessaires
+        pour tenir la promesse de durabilité. Les neuf gestes ci-dessus le sont.
       </p>
     </section>
 
@@ -1169,6 +1386,16 @@
         F8 (code mort), F12 (sémantique de <code>time.monotonic()</code> sur macOS) et les
         quatre routes sans client ont été vérifiés en exécutant le code, pas seulement en le
         lisant. Le reste provient d'une lecture directe des sources citées.
+      </p>
+      <p style="margin-top:12px">
+        <strong>Addendum du 28 juillet 2026</strong> — reprise du cadrage du traitement
+        différé : ajout de la famille « Planifié » à l'inventaire, du défaut F13, et des
+        principes ⑪ et ⑫ à l'architecture cible, les principes ①, ③, ⑨ et ⑩ étant étendus
+        pour couvrir le différé. F13 (boucle de surveillance morte en silence après
+        corruption) et l'absence de retry sur <code>declenche</code> ont été vérifiés en
+        exécutant <code>scheduler.py</code> sur un fichier tronqué. Le réveil programmé
+        (principe ⑩) est une recommandation, pas une mesure : rien de tel n'a été implémenté
+        ni testé.
       </p>
     </footer>
   </main>
