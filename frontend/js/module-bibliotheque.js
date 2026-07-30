@@ -336,7 +336,18 @@
     const viderParagraphe = () => {
       if (paragraphe.length === 0) return;
       const p = document.createElement("p");
-      p.textContent = paragraphe.join(" ");
+      // Les marques du Markdown sont RENDUES, plus affichées littéralement
+      // (feature 315). Avant, `textContent` faisait lire « _Cyclosa
+      // octotuberculata_ » avec ses tirets bas et « <sup>2</sup> » en toutes
+      // lettres — l'export HTML avait été corrigé, le lecteur non, alors que
+      // c'est ici qu'on passe le plus de temps.
+      //
+      // `innerHTML` est sûr ICI et seulement ici parce que `markdownEnLigne`
+      // ÉCHAPPE d'abord la totalité du texte, puis ne réintroduit qu'une liste
+      // blanche fermée de balises sans attribut (plus `href` restreint à
+      // http(s)/#/mailto). Ne jamais y passer une chaîne qui n'est pas sortie
+      // de cette fonction.
+      p.innerHTML = markdownEnLigne(paragraphe.join(" "));
       zone.appendChild(p);
       paragraphe = [];
     };
@@ -356,7 +367,9 @@
         if (!premierTitreSaute) { premierTitreSaute = true; continue; } // déjà affiché en h2
         viderParagraphe();
         const h = document.createElement(titre[1].length <= 2 ? "h3" : "h4");
-        h.textContent = titre[2];
+        // Même traitement pour les titres : un titre traduit porte souvent du
+        // gras (`**Titre**`), qui s'affichait avec ses astérisques.
+        h.innerHTML = markdownEnLigne(titre[2]);
         zone.appendChild(h);
       } else if (ligne.trim() === "") {
         viderParagraphe();
