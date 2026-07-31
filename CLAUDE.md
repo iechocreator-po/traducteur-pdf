@@ -612,6 +612,86 @@ chemin absolu dans le Laboratoire, lui-même en mode avancé) ; et `reprendre()`
 passe `env.modeleChoisi` — le menu *courant* — au lieu du modèle du document, or
 `build_output_path()` dérive le nom de sortie de `modele[:2]`, d'où un fichier
 fantôme si le menu a changé. Le web ne l'a pas : il renvoie `doc.modele`.
+**F4 et F6 sont corrigés depuis le 29/7** (branche `feat/architecture-cible`,
+voir plus bas) ; la liste de reprise macOS aussi.
+
+## Pertes de données réelles — trois pièges vérifiés (29-30/7/2026)
+
+Ces trois défauts ont **détruit ou amputé du travail pour de vrai**, pas en
+théorie. Tous corrigés sur `feat/architecture-cible`, tous couverts par un test
+de non-régression. À lire avant de toucher à l'extraction ou aux uploads.
+
+- **Un upload rejeté détruisait les traductions déjà présentes**
+  (`services/uploads.py`). Le dossier d'upload est indexé sur le **contenu**
+  (sha256), donc ré-uploader un document déjà traduit retombe forcément sur le
+  dossier qui contient sa sortie, son cache, son état et ses images. En cas
+  d'échec de la validation PDF, le code faisait `shutil.rmtree(dossier)` — il
+  détruisait donc un travail sans rapport avec l'upload en cours, pour un
+  fichier *identique* à celui déjà accepté. Une traduction complète de Chapter 9
+  (9 minutes) a disparu ainsi. ⚠️ **Ne jamais `rmtree` un dossier d'upload** :
+  ne retirer que ce que l'upload courant a écrit, et seulement si le fichier
+  n'existait pas avant (`deja_present`).
+
+- **pymupdf4llm remplaçait le texte réel par de l'OCR** (`pdf_extractor.py`).
+  Depuis la version 1.28, la librairie active Tesseract **d'elle-même** dès
+  qu'elle le détecte (`select_ocr_function` teste `pymupdf.get_tessdata()`, qui
+  trouve le dossier Homebrew même sans `TESSDATA_PREFIX`). Sur une page
+  contenant une figure, elle OCR-ise la page et **remplace son texte**. Mesuré
+  sur Chapter 9 : page 4, 1 495 caractères réels (« …the famous mathematician
+  **Leonhard Euler**, the field of graph theory was born… ») → 148 caractères
+  d'OCR (« Map of K6nigsberg As a graph 35 ®—2 = @ … »). Une page entière du
+  livre disparaissait de la traduction, et le charabia partait chez Ollama.
+  ⚠️ `use_ocr=OCRMode.NEVER` est **obligatoire** et s'applique aux **deux**
+  chemins (flag actif ou non) : c'est une perte de contenu, pas une option
+  d'affichage. Notre extracteur `tesseract` reste disponible séparément et
+  explicitement, pour les PDF scannés — c'est là que l'OCR a sa place.
+
+- **Les images extraites n'étaient pas les figures du PDF.** `embed_images=True`
+  ne rend pas les images du document mais des **rognures de l'analyse de mise en
+  page** : sur Chapter 9, un demi-panneau de la figure 21 (395×311) et le simple
+  fragment de texte « An example hub » (263×33) pris pour une image, tandis que
+  la figure 20 (carte de Königsberg) n'était jamais extraite. On lit désormais
+  les images **réellement embarquées** via PyMuPDF (`page.get_images` +
+  `extract_image`), assemblées page par page — les deux figures complètes, à
+  leur résolution d'origine (500×271 et 500×257).
+
+**Conséquence sur la référence golden** : `tests/reference/Chapter9_*_reference.md`
+encodait ces défauts, donc validait une sortie défectueuse contre une référence
+défectueuse. Régénérée le 31/7 (`RESULTS_2026-07-31.txt`) — source 50 950 octets,
+traduit 60 019. Après tout correctif d'extraction, **régénérer la référence**,
+sinon elle fige le défaut.
+
+## Architecture cible — branche `feat/architecture-cible` (29-31/7/2026)
+
+Mise en œuvre des 12 principes de l'audit. Plan complet dans
+[docs/architecture-cible-plan.md](docs/architecture-cible-plan.md), état dans
+[docs/architecture-cible-etat.md](docs/architecture-cible-etat.md).
+**Phases 1 à 7 livrées** ; restent la génération des clients (⑤) et le store
+transactionnel SQLite (②). `pytest` : 267 verts.
+
+Nouveaux modules backend, à connaître avant d'en écrire un quatrième :
+
+| Module | Rôle |
+|---|---|
+| `services/persistance.py` | Écriture atomique (`tmp` + `fsync` + `os.replace`) et lecture tolérante (quarantaine `.corrompu-<horodatage>` + journal). Les 8 points d'écriture JSON y passent. |
+| `services/soumission.py` | **Point d'entrée UNIQUE** d'une traduction : preflight Ollama + clé d'idempotence. |
+| `services/recuperation.py` | Récupération au démarrage des **quatre** familles de jobs (F7). |
+| `services/energie.py` | `caffeinate` pendant le travail. Le réveil programmé (`pmset`) exige les droits admin : la commande est **rendue, jamais exécutée**. |
+| `api/erreurs.py` | Erreurs typées `{code, message, remediation}`. `detail` est conservé pour compat. |
+
+⚠️ **Ne JAMAIS rappeler `demarrer_traduction()` directement** depuis une route ou
+le planificateur : c'est ainsi que le planificateur avait fini par contourner le
+preflight (F9). Tout passe par `soumettre_traduction()`.
+
+Changements de contrat : le statut `declenche` du planificateur **n'existe plus**
+(`planifie | annule | expire | abandonne`, avec compteur de tentatives et
+rattrapage borné à 24 h) ; `POST /translate` renvoie un champ `deja_soumis` ;
+nouvelle route `GET /api/scheduler/sante` (dernier tick, prochaine échéance,
+échéances dépassées, corruptions rencontrées) ; `GET /api/jobs/events` en SSE.
+
+**Non vérifié sur cette machine** : `xcodebuild` est absent (Command Line Tools
+seulement). Tout le Swift passe `swiftc -typecheck -sdk $(xcrun --show-sdk-path)`,
+ce qui attrape les erreurs de type mais **pas** le build Xcode ni l'exécution.
 
 ## Géré par bilbao — ne pas éditer à la main
 _Bloc régénéré par le cockpit bilbao (2026-07-14). La prose hors marqueurs n'est jamais touchée._
