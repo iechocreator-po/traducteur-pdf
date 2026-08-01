@@ -36,7 +36,7 @@ la mention « groupes synchronisés » du `CLAUDE.md`. `swiftc -typecheck` passa
 être ajouté aux **4 emplacements** de `project.pbxproj` : PBXBuildFile,
 PBXFileReference, `children` du groupe, et phase `Sources`.
 
-## À tester demain matin
+## À tester
 
 ```bash
 cd backend && source venv/bin/activate && uvicorn app.main:app --port 8000
@@ -62,22 +62,23 @@ cd backend && source venv/bin/activate && uvicorn app.main:app --port 8000
 ## Ce qui n'a PAS été vérifié ici
 
 - **Le build macOS.** `xcodebuild` n'est pas disponible sur cette machine
-  (Command Line Tools uniquement, pas Xcode). Les 11 fichiers Swift passent
+  (Command Line Tools uniquement, pas Xcode). Les fichiers Swift passent
   `swiftc -typecheck -sdk $(xcrun --show-sdk-path)`, ce qui attrape les erreurs
   de type et de signature — **pas** les erreurs de projet Xcode, de ressources ou
-  d'exécution. Le build reste à faire par JP.
-- **Aucune vraie traduction de bout en bout.** Rien n'a été passé à travers
-  Ollama sur cette branche. Les tests couvrent la mécanique (persistance,
-  planification, récupération, idempotence), pas la qualité d'une traduction.
-  Avant de fusionner, refaire tourner
-  `tests/test_pdf_translation.py` et `tests/validate_translation.py`.
+  d'exécution. C'est exactement ce qui a laissé passer le fichier absent du
+  projet (voir ci-dessus). Le build reste à faire par JP.
+- **Traductions réelles : faites.** Deux passages complets de Chapter 9 à travers
+  Ollama sur cette branche — 41/41 le 29/7, puis 44/44 le 31/7 après les
+  correctifs d'extraction, 0 échec les deux fois, validés contre la référence
+  golden (régénérée le 31/7, `tests/RESULTS_2026-07-31.txt`). Ce qui reste non
+  couvert : la qualité de traduction sur d'AUTRES documents que celui-là.
 - **Le réveil programmé (principe ⑩, moitié manquante).** `caffeinate` empêche
   l'endormissement *pendant* le travail ; il ne réveille pas une machine déjà
   endormie *pour atteindre* 23 h. `pmset schedule wake` exige les droits admin,
   donc le backend ne l'arme pas. `energie.commande_reveil_programme()` rend la
   commande sans jamais l'exécuter. **Conséquence à assumer aujourd'hui : une
   traduction planifiée la nuit ne partira pas si le Mac dort**, et l'interface ne
-  le dit toujours pas — c'est le premier geste de la phase 6/7.
+  le dit toujours pas. À traiter avec l'item H.
 
 ## Changements de contrat à connaître
 
