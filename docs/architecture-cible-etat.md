@@ -1,7 +1,7 @@
 # Architecture cible — état des travaux
 
 Branche : `feat/architecture-cible` (partie de `feat/extraction-images-pdf`).
-Dernière mise à jour : 2026-07-29, nuit.
+Dernière mise à jour : 2026-08-01.
 Plan complet : [architecture-cible-plan.md](architecture-cible-plan.md).
 
 ## Où on en est
@@ -14,13 +14,27 @@ Plan complet : [architecture-cible-plan.md](architecture-cible-plan.md).
 | 4 — Récupération généralisée | ① partiel | **fait** | `pytest` |
 | 5 — Énergie | ⑩ | **fait sauf réveil** | vrai `caffeinate` lancé |
 | 8 — F4 / F6 macOS | ⑤ partiel | **fait** | `swiftc -typecheck` |
-| 6 — Push serveur SSE | ⑥ | à faire | — |
-| 7 — « Vos traductions » sur macOS | ④ | à faire | — |
+| 6 — Push serveur SSE | ⑥ | **fait** | navigateur : flux établi, poll éteint |
+| 7 — « Vos traductions » sur macOS | ④ | **fait** | `swiftc -typecheck` seulement |
 | 8 — Clients générés (codegen) | ⑤ | à faire | — |
 | 9 — Store transactionnel SQLite | ② ① complet | à faire | — |
 
-Suite `pytest` : **263 verts** (231 au départ, +32). L'app démarre, toutes les
+Suite `pytest` : **267 verts** (231 au départ, +36). L'app démarre, toutes les
 routes répondent 200.
+
+**Trois bugs de perte de données ont été trouvés et corrigés en chemin** — ils ne
+faisaient pas partie du plan et sont détaillés dans le `CLAUDE.md` du produit :
+un upload rejeté qui détruisait les traductions déjà présentes, l'OCR de
+pymupdf4llm qui remplaçait le texte des pages illustrées, et des images extraites
+qui n'étaient pas les figures du PDF.
+
+**Piège de build macOS (31/7)** : `VosTraductionsView.swift` avait bien été créé
+mais **pas ajouté au projet Xcode**, qui liste ses fichiers explicitement malgré
+la mention « groupes synchronisés » du `CLAUDE.md`. `swiftc -typecheck` passait
+(on lui donne la liste des fichiers à la main) mais le build Xcode échouait sur
+« Cannot find 'VosTraductionsView' in scope ». Tout nouveau fichier Swift doit
+être ajouté aux **4 emplacements** de `project.pbxproj` : PBXBuildFile,
+PBXFileReference, `children` du groupe, et phase `Sources`.
 
 ## À tester demain matin
 
