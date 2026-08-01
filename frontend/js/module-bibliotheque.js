@@ -1077,4 +1077,33 @@
   });
   document.addEventListener("traduction-terminee", chargerDocs);
   document.addEventListener("backend-connecte", chargerDocs);
+
+  /**
+   * Suppression en cascade (feature 320).
+   *
+   * `chargerDocs()` rafraîchit bien la LISTE, mais ne touchait pas à l'état de
+   * lecture : `docActif`, ses chapitres, le chapitre ouvert, les cases cochées
+   * et les fiches restaient en mémoire. Supprimer depuis « Vos traductions » le
+   * document qu'on était en train de lire laissait donc une liste à jour d'un
+   * côté et un texte fantôme de l'autre — avec des boutons qui appelaient un
+   * document que le backend ne connaissait plus.
+   */
+  document.addEventListener("document-supprime", (e) => {
+    const supprime = e.detail && e.detail.chemin_sortie;
+    if (docActif && docActif.chemin_sortie === supprime) {
+      arreterPollFiche();
+      arreterPollAudio();
+      docActif = null;
+      chapActif = null;
+      chapitres = [];
+      chapitresCoches = new Set();
+      ficheParChapitre = {};
+      audio.removeAttribute("src");
+      $("lecture-titre").hidden = true;
+      $("lecture-texte").textContent = "";
+      rendreChapitres();
+      rendreFiche();
+    }
+    chargerDocs();
+  });
 })();

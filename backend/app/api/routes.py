@@ -277,6 +277,10 @@ class TranslateRequest(BaseModel):
     resume: bool = False
     estimation_temps_total: float | None = None
     chapitres_selectionnes: list[int] | None = None
+    # Qualité observée par /analyser (« Excellente », « Correcte »…). Optionnelle
+    # et purement informative : le moteur ne s'en sert pas, elle sert à ce que
+    # l'indicateur reste visible pendant et après la traduction (feature 320).
+    qualite: str | None = None
 
     @model_validator(mode="after")
     def valider_source(self):
@@ -316,6 +320,16 @@ def translate(req: TranslateRequest) -> dict:
         chapitres_selectionnes=req.chapitres_selectionnes,
     )
     chemin_sortie = build_output_path(chemin_source, req.modele_ollama)
+
+    # Qualité observée à l'analyse (feature 320) : le frontend la connaît, le
+    # backend ne la recalcule pas. On l'attache au registre pour qu'elle survive
+    # au passage du lot vers « Vos traductions ». Annotation APRÈS soumission :
+    # l'entrée du registre est créée par le moteur, et un échec d'annotation ne
+    # doit jamais faire échouer un lancement.
+    if req.qualite:
+        from app.services.bibliotheque import annoter_document
+        annoter_document(chemin_sortie, qualite=req.qualite)
+
     return {
         "job_id": job_id,
         "chemin_sortie": chemin_sortie,

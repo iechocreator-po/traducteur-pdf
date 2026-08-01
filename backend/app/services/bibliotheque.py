@@ -67,6 +67,38 @@ def enregistrer_document(
         _sauvegarder(documents)
 
 
+# Champs d'annotation acceptés. Liste FERMÉE volontairement : une annotation
+# libre laisserait n'importe quel appelant écrire dans le registre, qui est la
+# porte d'entrée vers tout le travail de l'utilisateur.
+_CHAMPS_ANNOTABLES = {"qualite"}
+
+
+def annoter_document(chemin_sortie: str, **champs) -> bool:
+    """
+    Attache des métadonnées d'affichage à une entrée existante du registre.
+
+    Sert au report de la « Qualité » (feature 320) : elle est calculée par
+    `POST /analyser`, donc connue du frontend au moment du lancement, mais
+    n'était mémorisée nulle part — elle disparaissait dès que le document
+    quittait le lot en mémoire pour rejoindre « Vos traductions ».
+
+    Volontairement séparé de `enregistrer_document` : celui-ci décrit ce que le
+    moteur produit, celui-là ce que l'interface a observé. Retourne False si le
+    document n'est pas (ou pas encore) dans le registre.
+    """
+    retenus = {k: v for k, v in champs.items() if k in _CHAMPS_ANNOTABLES and v is not None}
+    if not retenus:
+        return False
+    with _lock:
+        documents = _charger()
+        entree = next((d for d in documents if d.get("chemin_sortie") == chemin_sortie), None)
+        if entree is None:
+            return False
+        entree.update(retenus)
+        _sauvegarder(documents)
+        return True
+
+
 def retirer_document(chemin_sortie: str) -> bool:
     """
     Retire une entrée du registre, identifiée par son fichier de sortie.
@@ -134,6 +166,23 @@ def _enrichir(doc: dict) -> dict | None:
         enrichi["statut"] = etat.statut.value
         enrichi["sections_completees"] = etat.derniere_section_completee
         enrichi["total_sections"] = etat.total_sections
+        # Minutage (feature 320) : le temps écoulé et l'estimation vivaient déjà
+        # dans EtatJob mais n'étaient exposés nulle part, si bien que l'interface
+        # perdait toute notion de durée dès qu'une traduction était lancée.
+        # ⚠️ `temps_ecoule_secondes` est FIGÉ pendant la boucle du moteur (il n'est
+        # réécrit qu'aux points de sortie : pause, annulation, fin) — c'est
+        # délibéré, ça évite une réécriture d'état à chaque sous-morceau. Le
+        # client doit donc y ajouter lui-même le temps passé depuis `maj_a` pour
+        # afficher un compteur qui avance.
+        enrichi["temps_ecoule_secondes"] = etat.temps_ecoule_secondes
+        enrichi["estimation_temps_total_secondes"] = etat.estimation_temps_total_secondes
+        # Ancrage pour un compteur qui AVANCE : `temps_ecoule_secondes` étant
+        # figé, seul `temps_debut` permet au client de calculer l'écoulé réel.
+        # Comparer une horloge serveur à une horloge client serait fragile en
+        # général — ici les deux sont la MÊME machine (app 100 % locale), donc
+        # `Date.now()/1000 - temps_debut` est exact. Ne pas reprendre ce raccourci
+        # si le backend devenait un jour distant.
+        enrichi["temps_debut"] = etat.temps_debut
         # job_id du run courant : permet de mettre en pause un job en cours
         # directement depuis « Reprendre une traduction ».
         enrichi["job_id"] = etat.job_id
