@@ -281,6 +281,15 @@ nonisolated struct DocumentBiblio: Codable, Identifiable {
     /// Absent quand le document n'a plus d'état sur disque (traduction d'avant
     /// le registre), d'où l'optionnel.
     let jobId: String?
+    /// Qualité observée à l'analyse, mémorisée dans le registre (feature 320).
+    let qualite: String?
+    /// Horodatage de départ du run. ⚠️ `tempsEcouleSecondes` est FIGÉ pendant la
+    /// boucle du moteur (réécrit seulement aux points de sortie) : seul
+    /// `tempsDebut` permet un compteur qui avance. Backend et app tournent sur
+    /// la même machine, donc les horloges coïncident.
+    let tempsDebut: Double?
+    let tempsEcouleSecondes: Double?
+    let estimationTempsTotalSecondes: Double?
 
     var id: String { cheminSortie }
     var estTermine: Bool { statut == "termine" }
@@ -301,8 +310,11 @@ nonisolated struct DocumentBiblio: Codable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case cheminSource = "chemin_source"
         case cheminSortie = "chemin_sortie"
-        case nom, modele, statut
+        case nom, modele, statut, qualite
         case jobId = "job_id"
+        case tempsDebut = "temps_debut"
+        case tempsEcouleSecondes = "temps_ecoule_secondes"
+        case estimationTempsTotalSecondes = "estimation_temps_total_secondes"
         case langueSource = "langue_source"
         case langueCible = "langue_cible"
         case sectionsCompletees = "sections_completees"

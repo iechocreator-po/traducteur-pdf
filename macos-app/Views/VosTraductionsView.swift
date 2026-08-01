@@ -96,15 +96,74 @@ final class VosTraductionsViewModel: ObservableObject {
         }
     }
 
+    func supprimer(_ doc: DocumentBiblio) async {
+        do {
+            try await APIService.shared.supprimerDocument(cheminSortie: doc.cheminSortie)
+            await rafraichir()
+        } catch let e as APIErreur {
+            erreur = e.errorDescription
+        } catch {
+            erreur = error.localizedDescription
+        }
+    }
+
     func arreter() {
         pollTask?.cancel()
         pollTask = nil
     }
 }
 
+// ── Minutage (parité avec le web, feature 320) ──────────────────────────────
+
+/// Temps écoulé réel d'un document.
+///
+/// Pour un job vivant on compte depuis `tempsDebut` : `tempsEcouleSecondes` est
+/// figé pendant la boucle du moteur et donnerait un compteur immobile.
+func ecouleSecondes(_ doc: DocumentBiblio) -> Double {
+    if doc.estActif, let debut = doc.tempsDebut {
+        return Date().timeIntervalSince1970 - debut
+    }
+    return doc.tempsEcouleSecondes ?? 0
+}
+
+func formaterDuree(_ secondes: Double) -> String? {
+    guard secondes.isFinite, secondes >= 1 else { return nil }
+    let s = Int(secondes.rounded())
+    let h = s / 3600, m = (s % 3600) / 60, r = s % 60
+    return h > 0
+        ? String(format: "%d:%02d:%02d", h, m, r)
+        : String(format: "%d:%02d", m, r)
+}
+
+/// « ⏱ 0:31 écoulées · reste ≈ 0:52 ».
+///
+/// L'ETA est recalculé sur le rythme OBSERVÉ plutôt que sur l'estimation d'avant
+/// lancement, qui ignore la charge réelle de la machine et le cache chaud d'une
+/// reprise.
+func texteMinutage(_ doc: DocumentBiblio) -> String {
+    let ecoule = ecouleSecondes(doc)
+    var parts: [String] = []
+    if let d = formaterDuree(ecoule) { parts.append("⏱ \(d) écoulées") }
+
+    if doc.estActif {
+        let total = doc.totalSections, faites = doc.sectionsCompletees
+        var restant: Double? = nil
+        if faites > 0, total > faites, ecoule > 0 {
+            restant = (ecoule / Double(faites)) * Double(total - faites)
+        } else if let estimation = doc.estimationTempsTotalSecondes {
+            restant = estimation - ecoule
+        }
+        if let r = restant, let d = formaterDuree(r) { parts.append("reste ≈ \(d)") }
+    }
+    return parts.joined(separator: "   ·   ")
+}
+
 struct VosTraductionsView: View {
     @EnvironmentObject private var env: AppEnvironment
     @StateObject private var vm = VosTraductionsViewModel()
+    /// Document en attente de confirmation de retrait. Une suppression sans
+    /// confirmation serait le seul geste destructeur de l'écran.
+    @State private var aSupprimer: DocumentBiblio? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -143,6 +202,21 @@ struct VosTraductionsView: View {
         }
         .task { await vm.rafraichir() }
         .onDisappear { vm.arreter() }
+        .alert(
+            "Retirer « \(aSupprimer?.nom ?? "") » de la liste ?",
+            isPresented: Binding(
+                get: { aSupprimer != nil },
+                set: { if !$0 { aSupprimer = nil } }
+            ),
+            presenting: aSupprimer
+        ) { doc in
+            Button("Retirer", role: .destructive) {
+                Task { await vm.supprimer(doc); aSupprimer = nil }
+            }
+            Button("Annuler", role: .cancel) { aSupprimer = nil }
+        } message: { _ in
+            Text("Les fichiers déjà traduits sur le disque sont conservés.")
+        }
     }
 
     @ViewBuilder
@@ -169,6 +243,32 @@ struct VosTraductionsView: View {
                     .progressViewStyle(.linear)
             }
 
+            // Progression, qualité et minutage — mêmes informations que le web.
+            HStack(spacing: 10) {
+                if doc.totalSections > 0 {
+                    Text("\(doc.sectionsCompletees)/\(doc.totalSections) morceaux")
+                }
+                if let qualite = doc.qualite {
+                    Text("Qualité : \(qualite)")
+                }
+                let minutage = texteMinutage(doc)
+                if !minutage.isEmpty {
+                    // `TimelineView` fait avancer le compteur seconde par seconde
+                    // sans re-rendre la liste : recharger toute la vue chaque
+                    // seconde annulerait l'interaction en cours.
+                    if doc.estActif {
+                        TimelineView(.periodic(from: .now, by: 1)) { _ in
+                            Text(texteMinutage(doc))
+                        }
+                    } else {
+                        Text(minutage)
+                    }
+                }
+                Spacer()
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
             HStack(spacing: 12) {
                 // « Pause » n'a de sens que sur un job qui tourne, et exige un
                 // job_id — absent des traductions d'avant le registre.
@@ -181,6 +281,15 @@ struct VosTraductionsView: View {
                     Button("⏯ Reprendre") { Task { await vm.reprendre(doc, env: env) } }
                         .buttonStyle(.borderless)
                         .font(.caption)
+                }
+                // Supprimer : jamais pendant un job en cours ou en file — même
+                // règle que le web, pour ne pas retirer du registre un document
+                // que le moteur est en train d'écrire.
+                if !doc.estActif {
+                    Button("🗑 Supprimer") { aSupprimer = doc }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                        .foregroundStyle(DS.red)
                 }
                 Spacer()
             }

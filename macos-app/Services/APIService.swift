@@ -201,6 +201,22 @@ actor APIService {
         return try decoder.decode(EtatAudio.self, from: data)
     }
 
+    /// Retire un document du registre de la Bibliothèque.
+    ///
+    /// ⚠️ Ne touche PAS aux fichiers sur disque (`_traduit.md`, `.state.json`,
+    /// cache, images) — c'est un nettoyage de liste, réversible en relançant une
+    /// traduction. Le libellé côté interface doit le dire, sinon l'utilisateur
+    /// croit détruire son travail.
+    func supprimerDocument(cheminSortie: String) async throws {
+        var req = URLRequest(url: base.appendingPathComponent("bibliotheque"))
+        req.httpMethod = "DELETE"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(
+            withJSONObject: ["chemin_sortie": cheminSortie]
+        )
+        try await executer(req)
+    }
+
     func annulerJobPlanifie(id: String) async throws {
         var req = URLRequest(url: base.appendingPathComponent("scheduled/\(id)"))
         req.httpMethod = "DELETE"
