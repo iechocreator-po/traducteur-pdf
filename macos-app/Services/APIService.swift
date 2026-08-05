@@ -223,19 +223,6 @@ actor APIService {
         try await executer(req)
     }
 
-    func annulerJob(jobId: String) async throws {
-        var req = URLRequest(url: base.appendingPathComponent("job/\(jobId)/annuler"))
-        req.httpMethod = "POST"
-        try await executer(req)
-    }
-
-    func statutJob(jobId: String, cheminPdf: String) async throws -> EtatJob {
-        var components = URLComponents(url: base.appendingPathComponent("job/\(jobId)/statut"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "chemin_pdf", value: cheminPdf)]
-        let data = try await executer(URLRequest(url: components.url!))
-        return try decoder.decode(EtatJob.self, from: data)
-    }
-
     // MARK: - Bibliothèque & fiche d'étude (refonte Workflow)
 
     func bibliotheque() async throws -> [DocumentBiblio] {

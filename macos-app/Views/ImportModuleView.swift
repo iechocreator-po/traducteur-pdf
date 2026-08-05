@@ -414,6 +414,9 @@ struct ImportModuleView: View {
                         .buttonStyle(.bordered)
                         .disabled(vm.nbPrets == 0)
                     }
+                    Text("Ce Mac doit rester allumé et éveillé à l'heure prévue — le redémarrage automatique planifié nécessite des droits administrateur non accordés à cette application.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     if let statut = vm.planifStatut {
                         Text(statut)
                             .font(.caption)

@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // ============================================================================
 // « Vos traductions » — la liste PERSISTANTE des documents du registre.

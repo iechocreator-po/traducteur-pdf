@@ -197,24 +197,6 @@ def bibliotheque() -> dict:
     return {"documents": lister_documents()}
 
 
-# Statuts non terminaux : un document dans l'un d'eux peut être repris ou nettoyé
-# depuis « Nouveau document ». `termine` en est exclu (il vit dans la Bibliothèque).
-STATUTS_NON_TERMINAUX = {"en_cours", "en_pause", "en_attente", "erreur", "annule"}
-
-
-@router.get("/jobs/reprenables")
-def jobs_reprenables() -> dict:
-    """
-    Documents dont la traduction n'est pas terminée (en cours, en pause, en
-    attente, en erreur ou annulée). Alimente la section « Reprendre une
-    traduction » du module Nouveau document — persistant, donc survivant au
-    rechargement de page et aux sessions.
-    """
-    from app.services.bibliotheque import lister_documents
-    reprenables = [d for d in lister_documents() if d.get("statut") in STATUTS_NON_TERMINAUX]
-    return {"documents": reprenables}
-
-
 class SupprimerDocumentRequest(BaseModel):
     chemin_sortie: str
 
@@ -339,15 +321,6 @@ def translate(req: TranslateRequest) -> dict:
     }
 
 
-@router.get("/job/{job_id}/statut")
-def statut_job(job_id: str, chemin_pdf: str) -> EtatJob:
-    from app.services.translation_runner import lire_statut
-    etat = lire_statut(job_id, chemin_pdf)
-    if etat is None:
-        raise HTTPException(status_code=404, detail="Job introuvable.")
-    return etat
-
-
 @router.post("/job/{job_id}/pause")
 def pause_job(job_id: str, chemin_sortie: str | None = None) -> dict:
     """
@@ -374,35 +347,6 @@ def pause_job(job_id: str, chemin_sortie: str | None = None) -> dict:
 
     raise HTTPException(status_code=404, detail="Job introuvable ou déjà terminé.")
 
-
-@router.post("/job/{job_id}/annuler")
-def annuler_job_en_cours(job_id: str) -> dict:
-    """
-    Demande l'annulation d'un job en cours ou en file d'attente.
-    Le job s'arrête au prochain chunk et passe au statut « annule ».
-    """
-    from app.services.job_manager import demander_annulation
-    ok = demander_annulation(job_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Job introuvable ou déjà terminé.")
-    return {"statut": "annulation_demandee"}
-
-
-@router.post("/job/{job_id}/reprendre")
-def reprendre_job(job_id: str) -> dict:
-    """
-    Re-starts a paused job. Reads parameters from the saved state file.
-    The client must pass chemin_pdf so we can locate the state file.
-    """
-    from pydantic import BaseModel as BM
-
-    class ReprendreRequest(BM):
-        chemin_pdf: str
-
-    raise HTTPException(
-        status_code=400,
-        detail="Utiliser POST /translate avec resume=true pour reprendre un job.",
-    )
 
 
 class ScheduleRequest(BaseModel):

@@ -3,12 +3,10 @@
 // backend : un seul job Ollama à la fois, progression individuelle par fichier).
 
 (() => {
-  // {id, chemin, type, stage: analyse|pret|probleme|lance|termine|erreur,
+  // {id, chemin, type, stage: analyse|pret|probleme|termine|erreur,
   //  qualite, eta, chapitres, recommandation, jobId, statutJob, pct, sections,
   //  listeChapitres, chapitresCoches, chapitresOuverts, chapitresChargement}
   let lot = [];
-  let pollTimer = null;
-  let lotEnPause = false;
 
   const elListe = $("liste-lot");
 
@@ -200,83 +198,6 @@
     document.dispatchEvent(new CustomEvent("traductions-relancer"));
   }
 
-  // ── Suivi (polling par fichier via check-resume) ────────────────────────────
-
-  async function pollLot() {
-    const actifs = lot.filter(f => f.stage === "lance");
-    if (actifs.length === 0) { arreterPolling(); rendreLot(); return; }
-
-    for (const item of actifs) {
-      try {
-        const etat = await apiPost("/check-resume", corpsSource(item.chemin));
-        if (!etat) continue;
-        item.statutJob = etat.statut;
-        item.sections = `${etat.derniere_section_completee}/${etat.total_sections}`;
-        item.pct = etat.total_sections > 0
-          ? Math.round((etat.derniere_section_completee / etat.total_sections) * 100)
-          : 0;
-        if (etat.statut === "termine") {
-          item.stage = "termine";
-          item.pct = 100;
-          document.dispatchEvent(new CustomEvent("traduction-terminee"));
-        } else if (etat.statut === "erreur") {
-          item.stage = "erreur";
-          item.recommandation = (etat.erreurs || []).slice(-1)[0] || "Erreur du job";
-        } else if (etat.statut === "annule") {
-          item.stage = "erreur";
-          item.recommandation = "Job annulé";
-        }
-      } catch { /* on retentera au prochain tick */ }
-    }
-    rendreLot();
-  }
-
-  function demarrerPolling() {
-    if (pollTimer) return;
-    pollLot();
-    pollTimer = setInterval(pollLot, 2000);
-  }
-
-  function arreterPolling() {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-
-  // ── Pause / reprise globale ─────────────────────────────────────────────────
-
-  async function basculerPauseLot() {
-    const actifs = lot.filter(f => f.stage === "lance");
-    if (lotEnPause) {
-      // Reprise : relance chaque job en pause via resume=true
-      for (const item of actifs.filter(f => f.statutJob === "en_pause")) {
-        try {
-          const data = await apiPost("/translate", corpsSource(item.chemin, {
-            langue_source: $("langue-source").value,
-            langue_cible: $("langue-cible").value,
-            modele_ollama: $("modele").value,
-            extracteur_pdf: $("extracteur-pdf").value,
-            resume: true,
-          }));
-          item.jobId = data.job_id;
-          item.statutJob = "en_attente";
-        } catch { /* réessayable */ }
-      }
-      lotEnPause = false;
-      demarrerPolling();
-    } else {
-      for (const item of actifs) {
-        if (!item.jobId) continue;
-        try {
-          let url = `${API_BASE}/job/${item.jobId}/pause`;
-          if (item.cheminSortie) url += `?chemin_sortie=${encodeURIComponent(item.cheminSortie)}`;
-          await fetch(url, { method: "POST" });
-        } catch { /* poll détectera */ }
-      }
-      lotEnPause = true;
-    }
-    rendreLot();
-  }
-
   // ── Planification du lot ────────────────────────────────────────────────────
 
   async function planifierLot() {
@@ -466,9 +387,6 @@
     const btnLancer = $("bouton-lancer-lot");
     btnLancer.disabled = prets === 0;
     btnLancer.textContent = prets > 0 ? `Lancer la traduction (${prets})` : "Lancer la traduction";
-    const enCours = lot.some(f => f.stage === "lance");
-    $("bouton-pause-lot").hidden = !enCours;
-    $("bouton-pause-lot").textContent = lotEnPause ? "▸ Reprendre" : "⏸ Pause";
 
     elListe.innerHTML = "";
     for (const item of lot) {
@@ -591,7 +509,6 @@
     if (e.dataTransfer.files.length) televerserPlusieurs(e.dataTransfer.files);
   });
   $("bouton-lancer-lot").addEventListener("click", lancerLot);
-  $("bouton-pause-lot").addEventListener("click", basculerPauseLot);
   $("bouton-planifier").addEventListener("click", planifierLot);
   $("bouton-planifier-toggle").addEventListener("click", () => {
     $("zone-planifier").hidden = !$("zone-planifier").hidden;
