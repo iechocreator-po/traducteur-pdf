@@ -25,6 +25,15 @@ struct FichierLot: Identifiable {
     var statutJob: String = ""       // en_attente | en_cours | en_pause | …
     var progression: Double = 0      // 0…1
     var sectionsLabel: String = ""
+    /// Modèle réellement utilisé au lancement — PAS le menu courant (correctif F6).
+    ///
+    /// `build_output_path()` dérive le nom du fichier de sortie de `modele[:2]`.
+    /// Reprendre avec le menu courant plutôt qu'avec le modèle d'origine faisait
+    /// donc écrire l'en-tête dans un fichier NEUF et enregistrer le document sous
+    /// ce nouveau chemin, pendant que le moteur continuait d'écrire dans l'ancien :
+    /// un fichier fantôme vide apparaissait dans la Bibliothèque. Le frontend web
+    /// n'a jamais eu ce bug — il renvoie `doc.modele`.
+    var modeleUtilise: String? = nil
 
     var type: String { estMarkdown(chemin) ? "MD" : "PDF" }
 }
@@ -116,6 +125,9 @@ final class ImportViewModel: ObservableObject {
                     $0.jobId = jobId
                     $0.stage = .lance
                     $0.statutJob = "en_attente"
+                    // Fige le modele du job : la reprise doit repartir avec LUI,
+                    // pas avec le menu courant (F6).
+                    $0.modeleUtilise = env.modeleChoisi
                 }
             } catch {
                 maj(fichier.id) {
@@ -176,7 +188,8 @@ final class ImportViewModel: ObservableObject {
                 if let jobId = try? await APIService.shared.traduire(
                     cheminPdf: estMarkdown(fichier.chemin) ? nil : fichier.chemin,
                     cheminMd: estMarkdown(fichier.chemin) ? fichier.chemin : nil,
-                    modele: env.modeleChoisi,
+                    // F6 : le modele D'ORIGINE du job, jamais le menu courant.
+                    modele: fichier.modeleUtilise ?? env.modeleChoisi,
                     langueSource: env.langueSource, langueCible: env.langueCible,
                     extracteur: env.extracteurChoisi, resume: true) {
                     maj(fichier.id) {
@@ -245,6 +258,13 @@ struct ImportModuleView: View {
                         ligneFichier(fichier)
                     }
                 }
+                // Liste PERSISTANTE, lue du registre backend (F5, principe ④).
+                // Distincte du lot ci-dessus, qui n'existe qu'en mémoire : c'est
+                // elle qui permet de retrouver une traduction après fermeture de
+                // l'app — ce que macOS ne savait pas faire jusqu'ici.
+                Divider()
+                VosTraductionsView()
+
                 HStack {
                     Spacer()
                     Button("🕐 Voir les traductions planifiées") { afficherJobsPlanifies = true }
@@ -394,6 +414,9 @@ struct ImportModuleView: View {
                         .buttonStyle(.bordered)
                         .disabled(vm.nbPrets == 0)
                     }
+                    Text("Ce Mac doit rester allumé et éveillé à l'heure prévue — le redémarrage automatique planifié nécessite des droits administrateur non accordés à cette application.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     if let statut = vm.planifStatut {
                         Text(statut)
                             .font(.caption)

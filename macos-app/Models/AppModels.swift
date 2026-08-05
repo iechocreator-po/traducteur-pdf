@@ -228,6 +228,43 @@ nonisolated struct APIDetailErreur: Codable {
     let detail: String
 }
 
+/// Erreur typée renvoyée par le backend (principe cible ⑦).
+///
+/// Le backend répond `{"detail": "...", "erreur": {"code", "message", "remediation"}}`.
+/// `detail` reste là pour compatibilité ; `erreur` est le champ structuré.
+nonisolated struct APIErreurCorps: Codable {
+    let code: String
+    let message: String
+    let remediation: String?
+}
+
+nonisolated struct APIReponseErreur: Codable {
+    let detail: String?
+    let erreur: APIErreurCorps?
+}
+
+/// Erreur d'API exploitable côté interface.
+///
+/// Corrige F4 : `APIService` jetait systématiquement le code de statut HTTP
+/// (`let (data, _) = ...`), donc le **503 du preflight Ollama et sa consigne de
+/// redémarrage arrivaient comme une erreur de décodage JSON générique**. Le garde
+/// le plus utile du backend était invisible sur ce client.
+nonisolated struct APIErreur: LocalizedError {
+    let statut: Int
+    let code: String
+    let message: String
+    let remediation: String?
+
+    var errorDescription: String? {
+        guard let remediation, !remediation.isEmpty else { return message }
+        return "\(message)\n\n\(remediation)"
+    }
+
+    /// `true` quand Ollama est injoignable ou figé — l'interface peut alors
+    /// proposer directement la marche à suivre plutôt qu'un message générique.
+    var estOllamaIndisponible: Bool { code == "ollama_indisponible" }
+}
+
 // MARK: - Bibliothèque (refonte Workflow)
 
 nonisolated struct DocumentBiblio: Codable, Identifiable {
@@ -240,14 +277,44 @@ nonisolated struct DocumentBiblio: Codable, Identifiable {
     let statut: String
     let sectionsCompletees: Int
     let totalSections: Int
+    /// job_id du run courant — permet de mettre en pause depuis la liste.
+    /// Absent quand le document n'a plus d'état sur disque (traduction d'avant
+    /// le registre), d'où l'optionnel.
+    let jobId: String?
+    /// Qualité observée à l'analyse, mémorisée dans le registre (feature 320).
+    let qualite: String?
+    /// Horodatage de départ du run. ⚠️ `tempsEcouleSecondes` est FIGÉ pendant la
+    /// boucle du moteur (réécrit seulement aux points de sortie) : seul
+    /// `tempsDebut` permet un compteur qui avance. Backend et app tournent sur
+    /// la même machine, donc les horloges coïncident.
+    let tempsDebut: Double?
+    let tempsEcouleSecondes: Double?
+    let estimationTempsTotalSecondes: Double?
 
     var id: String { cheminSortie }
     var estTermine: Bool { statut == "termine" }
 
+    /// Un job qu'on peut relancer : ni terminé, ni en cours de traitement.
+    var estReprenable: Bool {
+        ["en_pause", "erreur", "annule"].contains(statut)
+    }
+
+    var estActif: Bool {
+        ["en_cours", "en_attente"].contains(statut)
+    }
+
+    var progression: Double {
+        totalSections > 0 ? Double(sectionsCompletees) / Double(totalSections) : 0
+    }
+
     enum CodingKeys: String, CodingKey {
         case cheminSource = "chemin_source"
         case cheminSortie = "chemin_sortie"
-        case nom, modele, statut
+        case nom, modele, statut, qualite
+        case jobId = "job_id"
+        case tempsDebut = "temps_debut"
+        case tempsEcouleSecondes = "temps_ecoule_secondes"
+        case estimationTempsTotalSecondes = "estimation_temps_total_secondes"
         case langueSource = "langue_source"
         case langueCible = "langue_cible"
         case sectionsCompletees = "sections_completees"

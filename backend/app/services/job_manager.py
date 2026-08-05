@@ -5,13 +5,14 @@ et la file d'attente séquentielle : un seul job traduit à la fois pour ne pas
 saturer Ollama.
 """
 
-import json
 import os
 import queue
 import threading
 from typing import Callable
 
 from app.models.schemas import EtatJob
+from app.services import energie
+from app.services.persistance import ecrire_texte_atomique, lire_json_tolerant
 
 # Registre en mémoire des jobs actifs — réinitialisé au redémarrage du serveur
 _lock = threading.Lock()
@@ -32,18 +33,38 @@ def chemin_fichier_log(chemin_sortie: str) -> str:
 
 
 def sauvegarder_etat(etat: EtatJob) -> None:
-    chemin = chemin_fichier_etat(etat.chemin_sortie)
-    with open(chemin, "w", encoding="utf-8") as f:
-        f.write(etat.model_dump_json(indent=2))
+    """
+    Persiste l'état du job. Écriture ATOMIQUE : appelée ≈1× par sous-morceau (41×
+    pour un chapitre illustré, des centaines pour un livre), chaque appel était
+    auparavant une fenêtre de corruption qui pouvait faire disparaître TOUS les
+    documents des deux frontends (F1).
+    """
+    ecrire_texte_atomique(
+        chemin_fichier_etat(etat.chemin_sortie), etat.model_dump_json(indent=2)
+    )
 
 
 def charger_etat(chemin_sortie: str) -> EtatJob | None:
-    chemin = chemin_fichier_etat(chemin_sortie)
-    if not os.path.exists(chemin):
+    """
+    Charge l'état d'un job, ou None s'il n'existe pas / n'est plus lisible.
+
+    Ne lève jamais : un seul état corrompu ne doit pas faire tomber la Bibliothèque
+    entière (F1). Le fichier illisible est mis en quarantaine par la couche
+    persistance, donc l'appel suivant repart proprement.
+    """
+    data = lire_json_tolerant(chemin_fichier_etat(chemin_sortie))
+    if data is None:
         return None
-    with open(chemin, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return EtatJob(**data)
+    try:
+        return EtatJob(**data)
+    except Exception as e:
+        # JSON valide mais schéma inattendu (état d'une version future, champ
+        # manquant après édition manuelle) : même traitement, on ne fait pas
+        # tomber l'appelant.
+        print(
+            f"[job_manager] état illisible pour {chemin_sortie} : {e}", flush=True
+        )
+        return None
 
 
 def supprimer_etat(chemin_sortie: str) -> None:
@@ -123,12 +144,20 @@ _thread_worker: threading.Thread | None = None
 def _boucle_worker() -> None:
     while True:
         job_id, travail = _file_travaux.get()
+        # Assertion d'énergie (principe cible ⑩) : sur une app locale qui traduit
+        # des livres pendant des heures, laisser le Mac s'endormir en plein job
+        # est un défaut fonctionnel, pas un détail. Prise à l'entrée, relâchée
+        # quand la file se vide — jamais autour d'un seul travail, sinon on la
+        # reprend et la relâche à chaque élément de la file.
+        energie.acquerir()
         try:
             travail()
         except Exception as e:
             print(f"[job_manager] erreur non gérée du job {job_id} : {e}", flush=True)
         finally:
             _file_travaux.task_done()
+            if _file_travaux.empty():
+                energie.relacher()
 
 
 def soumettre_travail(job_id: str, travail: Callable[[], None]) -> None:

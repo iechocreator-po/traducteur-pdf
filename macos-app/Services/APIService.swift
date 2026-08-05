@@ -149,7 +149,7 @@ actor APIService {
         req.httpMethod = "PUT"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["termes": termes])
-        let (data, _) = try await URLSession.shared.data(for: req)
+        let data = try await executer(req)
         let rep = try decoder.decode(GlossaireResponse.self, from: data)
         return rep.termes
     }
@@ -196,28 +196,31 @@ actor APIService {
     func statutAudio(cheminMd: String) async throws -> EtatAudio? {
         var components = URLComponents(url: base.appendingPathComponent("tts/statut"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "chemin_md", value: cheminMd)]
-        let (data, _) = try await URLSession.shared.data(from: components.url!)
+        let data = try await executer(URLRequest(url: components.url!))
         if data.isEmpty || data == Data("null".utf8) { return nil }
         return try decoder.decode(EtatAudio.self, from: data)
+    }
+
+    /// Retire un document du registre de la Bibliothèque.
+    ///
+    /// ⚠️ Ne touche PAS aux fichiers sur disque (`_traduit.md`, `.state.json`,
+    /// cache, images) — c'est un nettoyage de liste, réversible en relançant une
+    /// traduction. Le libellé côté interface doit le dire, sinon l'utilisateur
+    /// croit détruire son travail.
+    func supprimerDocument(cheminSortie: String) async throws {
+        var req = URLRequest(url: base.appendingPathComponent("bibliotheque"))
+        req.httpMethod = "DELETE"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(
+            withJSONObject: ["chemin_sortie": cheminSortie]
+        )
+        try await executer(req)
     }
 
     func annulerJobPlanifie(id: String) async throws {
         var req = URLRequest(url: base.appendingPathComponent("scheduled/\(id)"))
         req.httpMethod = "DELETE"
-        _ = try await URLSession.shared.data(for: req)
-    }
-
-    func annulerJob(jobId: String) async throws {
-        var req = URLRequest(url: base.appendingPathComponent("job/\(jobId)/annuler"))
-        req.httpMethod = "POST"
-        _ = try await URLSession.shared.data(for: req)
-    }
-
-    func statutJob(jobId: String, cheminPdf: String) async throws -> EtatJob {
-        var components = URLComponents(url: base.appendingPathComponent("job/\(jobId)/statut"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "chemin_pdf", value: cheminPdf)]
-        let (data, _) = try await URLSession.shared.data(from: components.url!)
-        return try decoder.decode(EtatJob.self, from: data)
+        try await executer(req)
     }
 
     // MARK: - Bibliothèque & fiche d'étude (refonte Workflow)
@@ -262,13 +265,13 @@ actor APIService {
     func etudeStatut(cheminSource: String) async throws -> EtatJobEtude? {
         var components = URLComponents(url: base.appendingPathComponent("etude/statut"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "chemin_source", value: cheminSource)]
-        let (data, _) = try await URLSession.shared.data(from: components.url!)
+        let data = try await executer(URLRequest(url: components.url!))
         if data.isEmpty || data == Data("null".utf8) { return nil }
         return try decoder.decode(EtatJobEtude.self, from: data)
     }
 
     func featureFlags() async throws -> [String: Bool] {
-        let (data, _) = try await URLSession.shared.data(from: base.appendingPathComponent("feature-flags"))
+        let data = try await executer(URLRequest(url: base.appendingPathComponent("feature-flags")))
         return (try? decoder.decode([String: Bool].self, from: data)) ?? [:]
     }
 
@@ -286,13 +289,59 @@ actor APIService {
     func pauseJob(jobId: String) async throws {
         var req = URLRequest(url: base.appendingPathComponent("job/\(jobId)/pause"))
         req.httpMethod = "POST"
-        _ = try await URLSession.shared.data(for: req)
+        try await executer(req)
     }
 
     // MARK: - Helpers
 
+    /// LE point de passage réseau unique (correctif F4).
+    ///
+    /// Chaque appel s'écrivait auparavant `let (data, _) = try await
+    /// URLSession.shared.data(...)` : le code de statut HTTP était jeté, à chaque
+    /// fois. Conséquences vérifiées dans l'audit du 27/7 — le 503 du preflight
+    /// Ollama, avec sa consigne exacte de redémarrage, arrivait comme une erreur
+    /// de décodage générique ; et `pauseJob`/`annulerJob` jetaient la réponse
+    /// entière, donc un 404 était avalé et le bouton paraissait fonctionner alors
+    /// que rien ne s'était passé.
+    ///
+    /// ⚠️ Ne JAMAIS rappeler `URLSession.shared.data` ailleurs dans ce fichier :
+    /// c'est exactement la dérive que ce helper supprime.
+    @discardableResult
+    private func executer(_ req: URLRequest) async throws -> Data {
+        let (data, reponse) = try await URLSession.shared.data(for: req)
+
+        guard let http = reponse as? HTTPURLResponse else { return data }
+        guard (200..<300).contains(http.statusCode) else {
+            throw Self.erreur(depuis: data, statut: http.statusCode)
+        }
+        return data
+    }
+
+    /// Traduit un corps d'erreur du backend en `APIErreur` exploitable.
+    private static func erreur(depuis data: Data, statut: Int) -> APIErreur {
+        let decodeur = JSONDecoder()
+        if let corps = try? decodeur.decode(APIReponseErreur.self, from: data),
+           let typee = corps.erreur {
+            return APIErreur(
+                statut: statut,
+                code: typee.code,
+                message: typee.message,
+                remediation: typee.remediation
+            )
+        }
+        // Erreur non typée (route pas encore migrée, ou 404 de FastAPI) : on garde
+        // au moins le `detail`, et surtout le code de statut.
+        let detail = (try? decodeur.decode(APIDetailErreur.self, from: data))?.detail
+        return APIErreur(
+            statut: statut,
+            code: "http_\(statut)",
+            message: detail ?? "Le backend a répondu \(statut).",
+            remediation: nil
+        )
+    }
+
     private func get<T: Decodable>(_ path: String) async throws -> T {
-        let (data, _) = try await URLSession.shared.data(from: base.appendingPathComponent(path))
+        let data = try await executer(URLRequest(url: base.appendingPathComponent(path)))
         return try decoder.decode(T.self, from: data)
     }
 
@@ -301,8 +350,7 @@ actor APIService {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(body)
-        let (data, _) = try await URLSession.shared.data(for: req)
-        return data
+        return try await executer(req)
     }
 
     private func postAny(_ path: String, body: [String: Any]) async throws -> Data {
@@ -310,7 +358,6 @@ actor APIService {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: req)
-        return data
+        return try await executer(req)
     }
 }

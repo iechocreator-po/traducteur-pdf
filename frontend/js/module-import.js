@@ -3,12 +3,10 @@
 // backend : un seul job Ollama à la fois, progression individuelle par fichier).
 
 (() => {
-  // {id, chemin, type, stage: analyse|pret|probleme|lance|termine|erreur,
+  // {id, chemin, type, stage: analyse|pret|probleme|termine|erreur,
   //  qualite, eta, chapitres, recommandation, jobId, statutJob, pct, sections,
   //  listeChapitres, chapitresCoches, chapitresOuverts, chapitresChargement}
   let lot = [];
-  let pollTimer = null;
-  let lotEnPause = false;
 
   const elListe = $("liste-lot");
 
@@ -175,6 +173,9 @@
           modele_ollama: $("modele").value,
           extracteur_pdf: $("extracteur-pdf").value,
           estimation_temps_total: item.eta ?? null,
+          // La qualité observée à l'analyse suit le document dans le registre :
+          // sans ça elle mourait avec le lot en mémoire (feature 320).
+          qualite: item.qualite ?? null,
           ...(selectionPartielle(item)
             ? { chapitres_selectionnes: [...item.chapitresCoches].sort((a, b) => a - b) }
             : {}),
@@ -195,83 +196,6 @@
     rendreLot();
     // Demande à « Vos traductions » de se rafraîchir immédiatement.
     document.dispatchEvent(new CustomEvent("traductions-relancer"));
-  }
-
-  // ── Suivi (polling par fichier via check-resume) ────────────────────────────
-
-  async function pollLot() {
-    const actifs = lot.filter(f => f.stage === "lance");
-    if (actifs.length === 0) { arreterPolling(); rendreLot(); return; }
-
-    for (const item of actifs) {
-      try {
-        const etat = await apiPost("/check-resume", corpsSource(item.chemin));
-        if (!etat) continue;
-        item.statutJob = etat.statut;
-        item.sections = `${etat.derniere_section_completee}/${etat.total_sections}`;
-        item.pct = etat.total_sections > 0
-          ? Math.round((etat.derniere_section_completee / etat.total_sections) * 100)
-          : 0;
-        if (etat.statut === "termine") {
-          item.stage = "termine";
-          item.pct = 100;
-          document.dispatchEvent(new CustomEvent("traduction-terminee"));
-        } else if (etat.statut === "erreur") {
-          item.stage = "erreur";
-          item.recommandation = (etat.erreurs || []).slice(-1)[0] || "Erreur du job";
-        } else if (etat.statut === "annule") {
-          item.stage = "erreur";
-          item.recommandation = "Job annulé";
-        }
-      } catch { /* on retentera au prochain tick */ }
-    }
-    rendreLot();
-  }
-
-  function demarrerPolling() {
-    if (pollTimer) return;
-    pollLot();
-    pollTimer = setInterval(pollLot, 2000);
-  }
-
-  function arreterPolling() {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-
-  // ── Pause / reprise globale ─────────────────────────────────────────────────
-
-  async function basculerPauseLot() {
-    const actifs = lot.filter(f => f.stage === "lance");
-    if (lotEnPause) {
-      // Reprise : relance chaque job en pause via resume=true
-      for (const item of actifs.filter(f => f.statutJob === "en_pause")) {
-        try {
-          const data = await apiPost("/translate", corpsSource(item.chemin, {
-            langue_source: $("langue-source").value,
-            langue_cible: $("langue-cible").value,
-            modele_ollama: $("modele").value,
-            extracteur_pdf: $("extracteur-pdf").value,
-            resume: true,
-          }));
-          item.jobId = data.job_id;
-          item.statutJob = "en_attente";
-        } catch { /* réessayable */ }
-      }
-      lotEnPause = false;
-      demarrerPolling();
-    } else {
-      for (const item of actifs) {
-        if (!item.jobId) continue;
-        try {
-          let url = `${API_BASE}/job/${item.jobId}/pause`;
-          if (item.cheminSortie) url += `?chemin_sortie=${encodeURIComponent(item.cheminSortie)}`;
-          await fetch(url, { method: "POST" });
-        } catch { /* poll détectera */ }
-      }
-      lotEnPause = true;
-    }
-    rendreLot();
   }
 
   // ── Planification du lot ────────────────────────────────────────────────────
@@ -463,9 +387,6 @@
     const btnLancer = $("bouton-lancer-lot");
     btnLancer.disabled = prets === 0;
     btnLancer.textContent = prets > 0 ? `Lancer la traduction (${prets})` : "Lancer la traduction";
-    const enCours = lot.some(f => f.stage === "lance");
-    $("bouton-pause-lot").hidden = !enCours;
-    $("bouton-pause-lot").textContent = lotEnPause ? "▸ Reprendre" : "⏸ Pause";
 
     elListe.innerHTML = "";
     for (const item of lot) {
@@ -588,7 +509,6 @@
     if (e.dataTransfer.files.length) televerserPlusieurs(e.dataTransfer.files);
   });
   $("bouton-lancer-lot").addEventListener("click", lancerLot);
-  $("bouton-pause-lot").addEventListener("click", basculerPauseLot);
   $("bouton-planifier").addEventListener("click", planifierLot);
   $("bouton-planifier-toggle").addEventListener("click", () => {
     $("zone-planifier").hidden = !$("zone-planifier").hidden;
@@ -652,13 +572,150 @@
     const liste = $("liste-reprendre");
     liste.innerHTML = "";
     for (const doc of docs) liste.appendChild(rendreLigne(doc));
+    armerMinutage(docs);
 
-    // Poll tant qu'un document bouge, MAIS pas pendant qu'un sélecteur est ouvert
-    // (on ne veut pas reconstruire le sélecteur sous les doigts de l'utilisateur).
+    // Le serveur pousse (principe cible ⑥) : tant que le flux SSE vit, aucun
+    // poll n'est armé. Le poll ne sert plus que de REPLI si SSE est indisponible.
     const actif = docs.some(d => d.statut === "en_cours" || d.statut === "en_attente");
+    if (fluxVivant()) {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      return;
+    }
     if (actif && !pollTimer) pollTimer = setInterval(() => { if (!selecteurOuvert()) rafraichir(); }, 2500);
     if (!actif && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   }
+
+  // ── Flux SSE (principe cible ⑥) ────────────────────────────────────────────
+  // Remplace le poll à 2,5 s : la progression devient instantanée au lieu d'être
+  // en retard de deux secondes, et une seule connexion remplace N requêtes.
+  //
+  // Le repli par poll est NON NÉGOCIABLE : SSE peut être coupé par un proxy, un
+  // navigateur exotique ou un backend redémarré. Perdre le flux ne doit jamais
+  // priver l'utilisateur de sa progression.
+
+  let flux = null;
+  let fluxOuvertA = 0;
+  let reconnexions = 0;
+
+  function fluxVivant() {
+    return flux !== null && flux.readyState === EventSource.OPEN;
+  }
+
+  function ouvrirFlux() {
+    if (flux) return;
+    try {
+      flux = new EventSource(`${API_BASE}/jobs/events`);
+    } catch {
+      flux = null;
+      return; // repli par poll
+    }
+
+    flux.addEventListener("open", () => {
+      fluxOuvertA = Date.now();
+      reconnexions = 0;
+    });
+
+    flux.addEventListener("documents", () => {
+      // On ne consomme pas la charge utile : `rafraichir()` refait l'appel
+      // complet, qui applique la déduplication avec le lot et le rendu. Le flux
+      // sert de DÉCLENCHEUR, pas de source de vérité — une seule façon de
+      // construire la liste, donc pas de divergence possible entre les deux.
+      if (!selecteurOuvert()) rafraichir();
+    });
+
+    flux.addEventListener("error", () => {
+      // EventSource se reconnecte seul, mais en boucle serrée si le backend est
+      // mort. On ferme et on programme un recul exponentiel (F11), en laissant
+      // le poll prendre le relais entre-temps.
+      const vecuMs = Date.now() - fluxOuvertA;
+      flux.close();
+      flux = null;
+      // Une connexion qui a tenu longtemps puis tombe = incident isolé : on
+      // repart vite. Une qui meurt aussitôt = backend absent : on ralentit.
+      if (vecuMs > 30000) reconnexions = 0;
+      const delai = Math.min(30000, 1000 * Math.pow(2, reconnexions));
+      reconnexions = Math.min(reconnexions + 1, 5);
+      setTimeout(ouvrirFlux, delai);
+      rafraichir();
+    });
+  }
+
+  // ── Minutage (feature 320) ──────────────────────────────────────────────────
+  // Avant : dès qu'une traduction était lancée, le document quittait le lot pour
+  // « Vos traductions », qui n'affichait ni durée ni estimation. On perdait donc
+  // à la fois le « ≈ 173:00 » d'avant lancement ET toute notion de progression
+  // dans le temps — au moment précis où elle intéresse le plus.
+
+  function formaterDuree(secondes) {
+    if (!Number.isFinite(secondes) || secondes < 0) return null;
+    const s = Math.round(secondes);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const r = s % 60;
+    return h > 0
+      ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`
+      : `${m}:${String(r).padStart(2, "0")}`;
+  }
+
+  function ecouleSecondes(doc) {
+    const enMarche = doc.statut === "en_cours" || doc.statut === "en_attente";
+    // Job vivant : on compte depuis `temps_debut` (même machine, donc horloges
+    // identiques). Job arrêté : la valeur figée par le moteur fait foi.
+    if (enMarche && doc.temps_debut) return Date.now() / 1000 - doc.temps_debut;
+    return doc.temps_ecoule_secondes || 0;
+  }
+
+  function texteMinutage(doc) {
+    const ecoule = ecouleSecondes(doc);
+    const parts = [];
+    const dureeEcoulee = formaterDuree(ecoule);
+    if (dureeEcoulee && ecoule >= 1) parts.push(`⏱ ${dureeEcoulee} écoulées`);
+
+    const enMarche = doc.statut === "en_cours" || doc.statut === "en_attente";
+    if (enMarche) {
+      const total = doc.total_sections || 0;
+      const faites = doc.sections_completees || 0;
+      // ETA recalculé EN DIRECT sur le rythme observé, plutôt que l'estimation
+      // d'avant lancement : celle-ci vieillit mal (elle ignore la charge réelle
+      // de la machine et le cache chaud d'une reprise).
+      let restant = null;
+      if (faites > 0 && total > faites && ecoule > 0) {
+        restant = (ecoule / faites) * (total - faites);
+      } else if (doc.estimation_temps_total_secondes) {
+        restant = doc.estimation_temps_total_secondes - ecoule;
+      }
+      const dureeRestante = formaterDuree(restant);
+      if (dureeRestante) parts.push(`reste ≈ ${dureeRestante}`);
+    }
+    return parts.join("   ·   ");
+  }
+
+  // Un seul minuteur pour toute la liste : il ne réécrit QUE le texte des
+  // compteurs, jamais le DOM des lignes. Re-rendre la liste chaque seconde
+  // fermerait un sélecteur de chapitres ouvert sous les doigts de l'utilisateur.
+  let minuteurMinutage = null;
+
+  function majMinutages() {
+    const noeuds = document.querySelectorAll("[data-minutage]");
+    if (noeuds.length === 0) {
+      clearInterval(minuteurMinutage);
+      minuteurMinutage = null;
+      return;
+    }
+    for (const noeud of noeuds) {
+      const doc = (docsCourants || []).find(d => d.chemin_sortie === noeud.dataset.minutage);
+      if (doc) noeud.textContent = texteMinutage(doc);
+    }
+  }
+
+  function armerMinutage(docs) {
+    docsCourants = docs;
+    const vivant = docs.some(d => d.statut === "en_cours" || d.statut === "en_attente");
+    if (vivant && !minuteurMinutage) minuteurMinutage = setInterval(majMinutages, 1000);
+    if (!vivant && minuteurMinutage) { clearInterval(minuteurMinutage); minuteurMinutage = null; }
+  }
+
+  let docsCourants = [];
 
   function rendreLigne(doc) {
     const ligne = document.createElement("div");
@@ -701,8 +758,20 @@
     if (scope.length > 0) morceaux.push(`${faitsChap}/${scope.length} chapitres`);
     if (total > 0) morceaux.push(`${faites}/${total} morceaux`);
     if (doc.nb_sections_echouees) morceaux.push(`${doc.nb_sections_echouees} en échec`);
+    // Qualité (feature 320) : lue du registre, donc elle survit au passage du
+    // lot vers cette liste — et à un rechargement de page.
+    if (doc.qualite) morceaux.push(`Qualité : ${doc.qualite}`);
     info.textContent = morceaux.join("   ·   ");
     ligne.appendChild(info);
+
+    // Minutage vivant (feature 320). Marqué par `data-minutage` : un compteur
+    // local le rafraîchit chaque seconde sans re-rendre toute la ligne, ce qui
+    // écraserait un sélecteur de chapitres ouvert.
+    const minutage = document.createElement("div");
+    minutage.className = "lot-info lot-minutage";
+    minutage.dataset.minutage = doc.chemin_sortie;
+    minutage.textContent = texteMinutage(doc);
+    if (minutage.textContent) ligne.appendChild(minutage);
 
     const actions = document.createElement("div");
     actions.className = "reprendre-actions";
@@ -928,11 +997,20 @@
       return;
     }
     selecteurs.delete(doc.chemin_sortie);
+    // Cascade (feature 320) : la Bibliothèque garde en mémoire le document
+    // affiché, ses chapitres et son panneau Résumé & Quiz. Sans ce signal, un
+    // document supprimé ici continuait d'être lu là-bas — liste à jour d'un
+    // côté, texte fantôme de l'autre.
+    document.dispatchEvent(new CustomEvent("document-supprime", {
+      detail: { chemin_sortie: doc.chemin_sortie },
+    }));
     rafraichir();
   }
 
-  document.addEventListener("backend-connecte", rafraichir);
+  document.addEventListener("backend-connecte", () => { ouvrirFlux(); rafraichir(); });
   document.addEventListener("module-affiche", (e) => { if (e.detail === "import") rafraichir(); });
   document.addEventListener("traduction-terminee", rafraichir);
   document.addEventListener("traductions-relancer", rafraichir);
+
+  ouvrirFlux();
 })();

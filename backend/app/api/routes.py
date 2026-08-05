@@ -197,24 +197,6 @@ def bibliotheque() -> dict:
     return {"documents": lister_documents()}
 
 
-# Statuts non terminaux : un document dans l'un d'eux peut être repris ou nettoyé
-# depuis « Nouveau document ». `termine` en est exclu (il vit dans la Bibliothèque).
-STATUTS_NON_TERMINAUX = {"en_cours", "en_pause", "en_attente", "erreur", "annule"}
-
-
-@router.get("/jobs/reprenables")
-def jobs_reprenables() -> dict:
-    """
-    Documents dont la traduction n'est pas terminée (en cours, en pause, en
-    attente, en erreur ou annulée). Alimente la section « Reprendre une
-    traduction » du module Nouveau document — persistant, donc survivant au
-    rechargement de page et aux sessions.
-    """
-    from app.services.bibliotheque import lister_documents
-    reprenables = [d for d in lister_documents() if d.get("statut") in STATUTS_NON_TERMINAUX]
-    return {"documents": reprenables}
-
-
 class SupprimerDocumentRequest(BaseModel):
     chemin_sortie: str
 
@@ -277,6 +259,10 @@ class TranslateRequest(BaseModel):
     resume: bool = False
     estimation_temps_total: float | None = None
     chapitres_selectionnes: list[int] | None = None
+    # Qualité observée par /analyser (« Excellente », « Correcte »…). Optionnelle
+    # et purement informative : le moteur ne s'en sert pas, elle sert à ce que
+    # l'indicateur reste visible pendant et après la traduction (feature 320).
+    qualite: str | None = None
 
     @model_validator(mode="after")
     def valider_source(self):
@@ -290,24 +276,22 @@ def translate(req: TranslateRequest) -> dict:
     """Starts or resumes a translation job (from PDF or Markdown) in background. Returns job_id and output path."""
     chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
 
+    from app.api.erreurs import source_invalide
     from app.models.schemas import Langue
-    from app.services.translation_runner import demarrer_traduction, build_output_path
-    from app.services.translator import verifier_ollama_pret
+    from app.services.soumission import soumettre_traduction
+    from app.services.translation_runner import build_output_path
 
     try:
         langue_source = Langue(req.langue_source)
         langue_cible = Langue(req.langue_cible)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise source_invalide(str(e))
 
-    # Preflight : Ollama doit pouvoir RÉELLEMENT traduire avant qu'on enfile un
-    # job long. Un llama-server figé répond encore à /api/tags mais bloque toute
-    # génération — sans ce garde, le job resterait figé à 0/N pendant 10 min.
-    pret, message = verifier_ollama_pret(req.modele_ollama)
-    if not pret:
-        raise HTTPException(status_code=503, detail=message)
-
-    job_id = demarrer_traduction(
+    # Point d'entrée UNIQUE (principe cible ⑨) : le preflight Ollama et la clé
+    # d'idempotence vivent dans `soumettre_traduction`, que le planificateur
+    # emprunte aussi. Ne jamais rappeler `demarrer_traduction` directement ici —
+    # c'est ainsi que le planificateur avait fini par contourner le garde (F9).
+    job_id, deja_soumis = soumettre_traduction(
         source_path=chemin_source,
         langue_source=langue_source,
         langue_cible=langue_cible,
@@ -318,16 +302,23 @@ def translate(req: TranslateRequest) -> dict:
         chapitres_selectionnes=req.chapitres_selectionnes,
     )
     chemin_sortie = build_output_path(chemin_source, req.modele_ollama)
-    return {"job_id": job_id, "chemin_sortie": chemin_sortie}
 
+    # Qualité observée à l'analyse (feature 320) : le frontend la connaît, le
+    # backend ne la recalcule pas. On l'attache au registre pour qu'elle survive
+    # au passage du lot vers « Vos traductions ». Annotation APRÈS soumission :
+    # l'entrée du registre est créée par le moteur, et un échec d'annotation ne
+    # doit jamais faire échouer un lancement.
+    if req.qualite:
+        from app.services.bibliotheque import annoter_document
+        annoter_document(chemin_sortie, qualite=req.qualite)
 
-@router.get("/job/{job_id}/statut")
-def statut_job(job_id: str, chemin_pdf: str) -> EtatJob:
-    from app.services.translation_runner import lire_statut
-    etat = lire_statut(job_id, chemin_pdf)
-    if etat is None:
-        raise HTTPException(status_code=404, detail="Job introuvable.")
-    return etat
+    return {
+        "job_id": job_id,
+        "chemin_sortie": chemin_sortie,
+        # Permet à l'interface de dire « déjà en cours » au lieu de laisser croire
+        # à un second lancement (F10).
+        "deja_soumis": deja_soumis,
+    }
 
 
 @router.post("/job/{job_id}/pause")
@@ -356,35 +347,6 @@ def pause_job(job_id: str, chemin_sortie: str | None = None) -> dict:
 
     raise HTTPException(status_code=404, detail="Job introuvable ou déjà terminé.")
 
-
-@router.post("/job/{job_id}/annuler")
-def annuler_job_en_cours(job_id: str) -> dict:
-    """
-    Demande l'annulation d'un job en cours ou en file d'attente.
-    Le job s'arrête au prochain chunk et passe au statut « annule ».
-    """
-    from app.services.job_manager import demander_annulation
-    ok = demander_annulation(job_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Job introuvable ou déjà terminé.")
-    return {"statut": "annulation_demandee"}
-
-
-@router.post("/job/{job_id}/reprendre")
-def reprendre_job(job_id: str) -> dict:
-    """
-    Re-starts a paused job. Reads parameters from the saved state file.
-    The client must pass chemin_pdf so we can locate the state file.
-    """
-    from pydantic import BaseModel as BM
-
-    class ReprendreRequest(BM):
-        chemin_pdf: str
-
-    raise HTTPException(
-        status_code=400,
-        detail="Utiliser POST /translate avec resume=true pour reprendre un job.",
-    )
 
 
 class ScheduleRequest(BaseModel):
@@ -484,6 +446,109 @@ def liste_tous_jobs_planifies() -> dict:
     """Tous les jobs planifiés (y compris déclenchés/annulés), pour la vue liste."""
     from app.services.scheduler import lister_tous_jobs
     return {"jobs": lister_tous_jobs()}
+
+
+@router.get("/jobs/events")
+async def flux_evenements_jobs(request: Request):
+    """
+    Flux SSE de l'état des jobs (principe cible ⑥).
+
+    Remplace six boucles `setInterval` aux cadences et conditions d'arrêt
+    divergentes, dont deux pouvaient tourner indéfiniment. Le serveur pousse, le
+    client ne devine plus.
+
+    Deux choix à ne pas « optimiser » par erreur :
+
+    - **On n'émet que sur CHANGEMENT.** Un flux qui répète le même état chaque
+      seconde coûterait plus cher que le poll qu'il remplace.
+    - **On garde un battement régulier** (`: keep-alive`) même sans changement.
+      Sans lui, un proxy ou le navigateur ferme une connexion inactive, et le
+      client croit le backend mort alors qu'il n'a simplement rien à dire.
+
+    Le poll reste en repli côté client : SSE indisponible ne doit jamais priver
+    l'utilisateur de sa progression.
+    """
+    import asyncio
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    from app.services.bibliotheque import lister_documents
+
+    async def flux():
+        dernier = None
+        battements = 0
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                documents = lister_documents()
+            except Exception as e:
+                # La garde par document rend ce cas très improbable, mais un flux
+                # qui meurt en silence serait pire que le poll qu'il remplace.
+                yield f"event: erreur\ndata: {_json.dumps({'message': str(e)})}\n\n"
+                await asyncio.sleep(5)
+                continue
+
+            # Empreinte de ce qui intéresse l'interface : inutile de repousser un
+            # document dont seule une date de mise à jour a bougé.
+            instantane = [
+                {
+                    "chemin_sortie": d.get("chemin_sortie"),
+                    "nom": d.get("nom"),
+                    "statut": d.get("statut"),
+                    "sections_completees": d.get("sections_completees"),
+                    "total_sections": d.get("total_sections"),
+                    "job_id": d.get("job_id"),
+                    "nb_sections_echouees": d.get("nb_sections_echouees"),
+                }
+                for d in documents
+            ]
+            if instantane != dernier:
+                dernier = instantane
+                yield f"event: documents\ndata: {_json.dumps(instantane)}\n\n"
+                battements = 0
+            else:
+                battements += 1
+                if battements >= 10:  # ~20 s sans changement
+                    yield ": keep-alive\n\n"
+                    battements = 0
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        flux(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # Désactive la mise en tampon d'un éventuel proxy : sans ça le flux
+            # arrive par paquets et perd tout son intérêt.
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/scheduler/sante")
+def sante_planificateur() -> dict:
+    """
+    Santé du planificateur (principe cible ⑫).
+
+    Un composant qui travaille quand personne ne regarde doit pouvoir dire qu'il
+    ne travaille plus. Sans cette route, une boucle de surveillance morte n'avait
+    pour seul signe qu'une ligne sur stdout toutes les 60 s, et l'interface
+    affichait une liste vide indiscernable d'un « rien à faire » (F13).
+
+    `en_panne` et `echeances_depassees` sont les deux champs à afficher : une
+    échéance passée alors que le thread est vivant est une anomalie.
+    """
+    from app.services.persistance import corruptions_rencontrees
+    from app.services.scheduler import sante
+
+    etat = sante()
+    # Les corruptions rencontrées depuis le démarrage : c'est ici qu'une perte de
+    # cache autrefois silencieuse (F2) devient constatable.
+    etat["corruptions"] = corruptions_rencontrees()
+    return etat
 
 
 @router.delete("/scheduled/{job_id}")
