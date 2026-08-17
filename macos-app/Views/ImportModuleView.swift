@@ -363,18 +363,23 @@ struct ImportModuleView: View {
                     .labelsHidden()
                 }
 
+                // Le choix du modèle est un réglage ORDINAIRE, pas un réglage
+                // avancé : plusieurs modèles peuvent cohabiter (feature 338) et
+                // on en change d'un document à l'autre pour comparer les
+                // traductions. Le moteur de conversion, lui, reste avancé — on
+                // n'y touche qu'en cas de PDF récalcitrant.
+                Picker("Modèle IA :", selection: $env.modeleChoisi) {
+                    ForEach(env.modeles, id: \.self) { m in
+                        Text(m).tag(m)
+                    }
+                }
+                .font(.caption)
+
                 if modeAvance {
-                    HStack(spacing: 12) {
-                        Picker("Moteur de conversion :", selection: $env.extracteurChoisi) {
-                            ForEach(env.extracteurs) { ext in
-                                Text(ext.disponible ? ext.nom : "\(ext.nom) (bientôt)")
-                                    .tag(ext.id)
-                            }
-                        }
-                        Picker("Modèle IA :", selection: $env.modeleChoisi) {
-                            ForEach(env.modeles, id: \.self) { m in
-                                Text(m).tag(m)
-                            }
+                    Picker("Moteur de conversion :", selection: $env.extracteurChoisi) {
+                        ForEach(env.extracteurs) { ext in
+                            Text(ext.disponible ? ext.nom : "\(ext.nom) (bientôt)")
+                                .tag(ext.id)
                         }
                     }
                     .font(.caption)

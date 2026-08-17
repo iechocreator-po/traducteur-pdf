@@ -80,14 +80,20 @@
           </select>
         </div>
 
+        <!-- Le choix du modèle est un réglage ORDINAIRE, pas un réglage avancé :
+             plusieurs modèles peuvent cohabiter (feature 338) et on en change
+             d'un document à l'autre pour comparer les traductions. Le moteur de
+             conversion, lui, reste avancé — on n'y touche qu'en cas de PDF
+             récalcitrant. -->
+        <div class="reglage-modele">
+          <label for="modele">Modèle IA (Ollama)</label>
+          <select id="modele"></select>
+        </div>
+
         <div class="zone-avance" data-avance hidden>
           <div>
             <label for="extracteur-pdf">Moteur de conversion</label>
             <select id="extracteur-pdf"></select>
-          </div>
-          <div>
-            <label for="modele">Modèle IA (Ollama)</label>
-            <select id="modele"></select>
           </div>
         </div>
 

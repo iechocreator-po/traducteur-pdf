@@ -316,6 +316,24 @@ pre { white-space: pre-wrap; font-size: 0.85rem; }
 .zone-avance label { font-size: 0.78rem; color: var(--text-2); }
 .zone-avance select { background: var(--surface); }
 
+/* Choix du modèle — réglage ordinaire, sorti du mode avancé (feature 338).
+   Même langage visuel que .zone-avance pour que les réglages du lot restent
+   une famille cohérente, mais sur une seule colonne : seul, il n'a personne
+   à côté de qui s'aligner. */
+.reglage-modele {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 0.9rem 1rem;
+  margin-top: 0.9rem;
+}
+.reglage-modele label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-2);
+  margin-bottom: 0.3rem;
+}
+.reglage-modele select { background: var(--surface); width: 100%; }
+
 .ligne-actions-lot {
   display: flex;
   align-items: center;
