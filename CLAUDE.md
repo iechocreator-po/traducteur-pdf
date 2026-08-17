@@ -194,9 +194,10 @@ document est désormais traité comme une **liste ordonnée de chapitres** ; s'i
   le registre Bibliothèque et bascule tout `.state.json` resté `en_cours` → `en_pause` (au
   redémarrage le registre mémoire est vide : un `en_cours` est forcément un job coupé par un
   arrêt/crash serveur). Il redevient ainsi reprenable depuis « Nouveau document ».
-- **Endpoints associés** : `GET /api/jobs/reprenables` (documents non terminaux, filtre sur
-  `STATUTS_NON_TERMINAUX`) ; `DELETE /api/bibliotheque` (`bibliotheque.retirer_document` : retire
-  du registre, **ne touche pas** aux fichiers disque).
+- **Endpoints associés** : `DELETE /api/bibliotheque` (`bibliotheque.retirer_document` : retire
+  du registre, **ne touche pas** aux fichiers disque). *(`GET /api/jobs/reprenables` a existé un
+  temps pour ça mais n'a jamais eu de client — retiré le 5/8/2026 avec le reste du code mort F8,
+  voir « Architecture cible » plus bas.)*
 - **Perf mesurée** : Ollama ~29 tok/s sur M2 Pro. Le parallélisme des sous-morceaux reste mesuré
   **inutile** (1,04× — Ollama 0.32 sérialise sans `OLLAMA_NUM_PARALLEL`), donc non construit ;
   l'architecture (file d'unités) le rendrait toutefois facile à ajouter. Items encore ouverts :
@@ -568,6 +569,12 @@ intégré » du document).
   `AnnulationDemandee`, statut `annule`, branches de rendu) et **aucun bouton
   « Annuler » n'existe dans aucune des deux interfaces** — les deux savent
   afficher un job annulé, aucune ne sait en provoquer un.
+  **Code mort retiré depuis le 5/8/2026** (branche `feat/architecture-cible`,
+  voir « Architecture cible » plus bas) : les 4 routes et les 5 éléments JS
+  ci-dessus, plus leurs deux wrappers Swift. La machinerie d'annulation active
+  (`demander_annulation`/`est_annule`/`AnnulationDemandee`) n'a pas bougé —
+  toujours aucun bouton « Annuler », c'était la façade HTTP inutilisée qui a
+  disparu, pas le mécanisme.
 
 - **Le planificateur est une 5ᵉ famille de jobs, hors de tout le reste** (addendum
   du 28/7/2026). Il n'est pas sur la file du `job_manager` : il a son propre thread
@@ -689,9 +696,41 @@ rattrapage borné à 24 h) ; `POST /translate` renvoie un champ `deja_soumis` ;
 nouvelle route `GET /api/scheduler/sante` (dernier tick, prochaine échéance,
 échéances dépassées, corruptions rencontrées) ; `GET /api/jobs/events` en SSE.
 
-**Non vérifié sur cette machine** : `xcodebuild` est absent (Command Line Tools
-seulement). Tout le Swift passe `swiftc -typecheck -sdk $(xcrun --show-sdk-path)`,
-ce qui attrape les erreurs de type mais **pas** le build Xcode ni l'exécution.
+**`xcodebuild` reste absent sur cette machine** (Command Line Tools seulement,
+pas Xcode.app sélectionné — `sudo xcode-select -s` demanderait le mot de passe
+admin de JP). Tout le Swift continue de passer par
+`swiftc -typecheck -sdk $(xcrun --show-sdk-path)`, ce qui attrape les erreurs de
+type mais **pas** les erreurs de projet Xcode ni l'exécution — **build réel
+confirmé par JP dans Xcode le 5/8/2026**, voir ci-dessous.
+
+### F8 nettoyé, message sur le réveil programmé, et un 2ᵉ piège de typecheck (5/8/2026)
+
+Une vérification par lecture directe du code (pas seulement des docs) a confirmé
+que F1, F2, F4, F6, F7, F9, F10, F11, F13 étaient déjà réellement corrigés sur
+cette branche. F3 (fenêtre de duplication) reste **atténuée** par ③ mais pas
+éliminée — la vraie correction exige le store transactionnel ②, laissé tel
+quel (décision explicite : hors périmètre pour l'instant). **F8**, lui, ne
+l'était pas : le code mort décrit plus haut était toujours présent — retiré
+(4 routes backend, le polling/pause mort du module Import web, les 2 wrappers
+Swift correspondants dans `APIService.swift`).
+
+Ajouté dans la foulée, web **et** macOS, un message près du bouton « Planifier
+le lot » : le Mac doit rester éveillé à l'heure prévue, le réveil automatique
+programmé (`services/energie.py`, `pmset schedule wake`) reste bloqué faute de
+droits admin — jusqu'ici l'interface laissait croire le contraire.
+
+**Second piège du même genre que celui du 31/7** (fichier Swift absent du
+projet Xcode, voir plus haut) : `VosTraductionsView.swift` déclarait un
+`ObservableObject` avec `@Published` sans `import Combine`. Ça passait
+`swiftc -typecheck` en compilant tous les fichiers ensemble (résolution
+laxiste inter-fichiers) mais cassait le vrai build Xcode
+(« does not conform to protocol 'ObservableObject' »). Corrigé — et vérifié
+que tous les autres fichiers du projet utilisant `@Published`/`ObservableObject`
+importent déjà `Combine`, celui-ci était le seul manquant. **Leçon à retenir** :
+`swiftc -typecheck` multi-fichiers ne remplace toujours pas un vrai build Xcode
+pour ce genre d'erreur — deuxième fois que ce filet précis laisse passer un
+défaut. Build Xcode réel confirmé propre par JP le 5/8/2026, première
+confirmation de ce type sur cette branche.
 
 ## Géré par bilbao — ne pas éditer à la main
 _Bloc régénéré par le cockpit bilbao (2026-07-14). La prose hors marqueurs n'est jamais touchée._
