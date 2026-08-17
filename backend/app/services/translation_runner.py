@@ -92,19 +92,76 @@ def _base_depuis_source(chemin: str) -> str:
     return base
 
 
+def suffixe_modele(modele: str) -> str:
+    """
+    Suffixe de fichier identifiant le modèle, sans ambiguïté.
+
+    Historiquement `modele[:2]` — DEUX caractères. Suffisant tant qu'un seul
+    modèle était installé, ambigu dès qu'il y en a deux de la même famille :
+
+        llama3.1 → « ll »     qwen2.5 → « qw »     gemma2 → « ge »
+        llama3.2 → « ll »     qwen3   → « qw »     gemma3 → « ge »
+
+    Deux modèles partageant leurs deux premières lettres écrivaient donc dans le
+    MÊME fichier de sortie, le MÊME `.state.json` et le MÊME cache. Or comparer
+    la qualité de deux modèles sur un même document est précisément la raison
+    d'en installer un second — le défaut mordait exactement là où on l'attendait
+    le moins.
+
+    On garde un suffixe lisible plutôt qu'un hash : les fichiers vivent à côté
+    des documents de l'utilisateur, il doit pouvoir dire d'un coup d'œil lequel
+    vient de quel modèle.
+    """
+    if not modele:
+        return ""
+    # « qwen2.5:latest » → « qwen2.5 » : la balise Ollama ne distingue pas un
+    # contenu, et l'inclure produirait « qwen2-5-latest », plus long sans gain.
+    base = modele.split(":")[0]
+    return re.sub(r"[^a-z0-9]+", "-", base.lower()).strip("-")
+
+
 def build_output_path(source_path: str, modele: str = "") -> str:
+    """
+    Chemin du fichier traduit pour ce couple (source, modèle).
+
+    ⚠️ Consulte le disque, à dessein : un document traduit AVANT le passage au
+    suffixe long garde son nom historique (`_traduit_ll.md`). Sans cela, sa
+    reprise et son ajout de chapitres repartiraient de zéro dans un fichier neuf,
+    et l'ancien deviendrait orphelin — une régression silencieuse sur du travail
+    déjà payé.
+    """
     base = _base_depuis_source(source_path)
-    suffixe = modele[:2] if modele else ""
-    return f"{base}_traduit_{suffixe}.md" if suffixe else f"{base}_traduit.md"
+    if not modele:
+        return f"{base}_traduit.md"
+
+    nouveau = f"{base}_traduit_{suffixe_modele(modele)}.md"
+    if os.path.exists(nouveau):
+        return nouveau
+
+    ancien = f"{base}_traduit_{modele[:2]}.md"
+    if os.path.exists(ancien):
+        return ancien
+    return nouveau
 
 
-def _trouver_etat_existant(chemin: str) -> "EtatJob | None":
-    """Cherche un fichier .state.json correspondant à ce fichier source (PDF ou MD)."""
+def _trouver_etat_existant(chemin: str, modele: str = "") -> "EtatJob | None":
+    """
+    Cherche l'état d'un job pour ce fichier source (PDF ou MD).
+
+    ⚠️ `modele` n'est pas cosmétique. Sans lui, on prend le PREMIER `.state.json`
+    que renvoie le glob — c'est-à-dire un état arbitraire, dans l'ordre du
+    système de fichiers. Avec deux modèles installés, « Reprendre » pouvait donc
+    repartir sur le travail de l'AUTRE modèle, et l'ajout de chapitres mélanger
+    les deux dans un même document. Quand le modèle est connu, on ne consulte
+    que son état, et on ne retombe jamais sur celui d'un voisin.
+    """
+    if modele:
+        return charger_etat(build_output_path(chemin, modele))
+
+    # Sans modèle (sondes de statut génériques) : comportement historique.
     base = _base_depuis_source(chemin)
-    candidats = _glob.glob(f"{_glob.escape(base)}_traduit*.state.json")
-    for chemin_etat in candidats:
-        chemin_md = chemin_etat.replace(".state.json", ".md")
-        etat = charger_etat(chemin_md)
+    for chemin_etat in _glob.glob(f"{_glob.escape(base)}_traduit*.state.json"):
+        etat = charger_etat(chemin_etat.replace(".state.json", ".md"))
         if etat:
             return etat
     return None
@@ -512,7 +569,9 @@ def demarrer_traduction(
 
     tous_chapitres, implicite = _chapitres_ou_implicite(source_path, extracteur)
     tous_index = {c["index"] for c in tous_chapitres}
-    existing = _trouver_etat_existant(source_path)
+    # Modèle transmis : l'état consulté est celui de CE modèle, jamais celui d'un
+    # autre (voir _trouver_etat_existant).
+    existing = _trouver_etat_existant(source_path, modele)
 
     reprendre = bool(resume and existing and existing.statut in STATUTS_REPRENABLES)
     ajout = bool(
