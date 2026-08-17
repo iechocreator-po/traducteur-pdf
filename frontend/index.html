@@ -5,7 +5,7 @@
   <title>toledo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/style.css?v=3">
+  <link rel="stylesheet" href="css/style.css?v=4">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
     (function () {
@@ -36,7 +36,10 @@
     </div>
     <div class="mode-avance">
       <span>Mode avancé</span>
-      <button type="button" id="switch-avance" class="switch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
+      <!-- aria-label explicite : le texte « Mode avancé » voisin n'est PAS un
+           <label>, donc il ne nomme pas ce bouton — et il disparaît sur écran
+           étroit. Sans cet attribut, l'interrupteur serait annoncé sans nom. -->
+      <button type="button" id="switch-avance" class="switch" role="switch" aria-checked="false" aria-label="Mode avancé"><span class="switch-knob"></span></button>
     </div>
   </header>
 

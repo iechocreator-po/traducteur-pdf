@@ -860,6 +860,51 @@ html.avance .biblio-lecture {
 }
 
 /* ── Responsive minimal ────────────────────────────────────────────────────── */
+/* ── Barre supérieure sur écran étroit ──────────────────────────────────────
+   La barre est une rangée unique qui déborde sous ~800 px : le logo, trois
+   onglets, deux pastilles, la bascule de thème et le mode avancé ne tiennent
+   pas côte à côte. Elle poussait alors la PAGE entière en défilement
+   horizontal — tout le contenu glissait latéralement.
+
+   ⚠️ Elle ne doit PAS passer sur deux lignes : `.barre-app` est `sticky` et la
+   Bibliothèque calcule sa hauteur avec `calc(100vh - var(--hauteur-barre))`.
+   Une barre plus haute que cette constante décalerait toute la mise en page.
+   On garde donc UNE rangée, et on la fait rentrer. */
+@media (max-width: 800px) {
+  .barre-app { gap: 10px; padding: 0 12px; }
+
+  /* Les onglets défilent DANS la barre au lieu de pousser la page.
+     `min-width: 0` est indispensable : sans lui, un élément flex refuse de
+     rétrécir sous la largeur de son contenu et le débordement persiste. */
+  .modules-nav {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;          /* Firefox */
+  }
+  .modules-nav::-webkit-scrollbar { display: none; }
+  .onglet-module { white-space: nowrap; }
+
+  /* L'espaceur ne sert qu'à repousser les contrôles à droite quand il reste de
+     la place — sur écran étroit il n'y en a plus. */
+  .barre-espace { display: none; }
+
+  .theme-switch button { padding: 0.15rem 0.4rem; }
+
+  /* Le libellé s'efface, l'interrupteur reste : son nom accessible vient de son
+     aria-label, pas de ce texte. */
+  .mode-avance span { display: none; }
+}
+
+/* Sous ~590 px, tout ne rentre plus même compacté : c'est la navigation qui se
+   fait écraser, parce qu'elle est le seul élément autorisé à passer sous la
+   largeur de son contenu. Or c'est le plus important de la barre. On fait donc
+   céder le décor avant elle — le mot « toledo » s'efface, la pastille reste. */
+@media (max-width: 590px) {
+  .logo { font-size: 0; gap: 0; }        /* masque le texte, garde la pastille */
+  .logo-pastille { font-size: 1rem; }    /* réinitialise pour l'élément conservé */
+  .modules-nav { min-width: 96px; }      /* de quoi lire un onglet entier */
+}
+
 @media (max-width: 900px) {
   .biblio-layout,
   html.avance .biblio-layout,
