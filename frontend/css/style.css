@@ -640,6 +640,37 @@ html.avance .biblio-lecture {
   max-width: 640px;
 }
 .lecture-texte h3, .lecture-texte h4 { color: var(--text); margin: 1.2rem 0 0.4rem; }
+
+/* ── Relecture comparative (feature 297) ────────────────────────────────────
+   Hors comparaison, une seule colonne : la grille n'a qu'un enfant visible et
+   le rendu est exactement celui d'avant. En comparaison, deux colonnes égales.
+   `min-width: 0` sur les panneaux est nécessaire — sans lui, une ligne longue
+   (URL, tableau) élargirait la colonne au lieu de s'y adapter, et la zone de
+   lecture partirait en défilement horizontal. */
+.lecture-colonnes { display: grid; grid-template-columns: 1fr; gap: 0 2rem; }
+.lecture-colonnes.comparaison { grid-template-columns: 1fr 1fr; }
+.lecture-panneau { min-width: 0; }
+/* En comparaison la largeur est celle de la colonne, pas les 640px de lecture
+   confortable — sinon les deux textes ne s'alignent pas. */
+.lecture-colonnes.comparaison .lecture-texte { max-width: none; }
+.lecture-panneau-titre {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding-bottom: 0.35rem;
+  margin-bottom: 0.7rem;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+}
+/* La comparaison exige de la largeur : sous 900px on repasse à une colonne,
+   les deux textes l'un sous l'autre plutôt que deux colonnes illisibles. */
+@media (max-width: 900px) {
+  .lecture-colonnes.comparaison { grid-template-columns: 1fr; gap: 1.5rem 0; }
+}
 .lecture-image {
   display: block;
   max-width: 100%;

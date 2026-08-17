@@ -5,7 +5,7 @@
   <title>toledo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/style.css?v=4">
+  <link rel="stylesheet" href="css/style.css?v=5">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
     (function () {
@@ -181,6 +181,8 @@
         <div class="lecture-bandeau" id="lecture-bandeau" hidden>
           <span class="badge-type" id="lecture-badge">MD</span>
           <span id="lecture-doc-nom" class="lecture-doc-nom"></span>
+          <button id="doc-comparer" class="bouton-mini" aria-pressed="false"
+                  title="Afficher la version d'origine à côté de la traduction">⇄ Comparer</button>
           <button id="doc-exporter" class="bouton-mini" hidden>⬇ Exporter (HTML)…</button>
         </div>
         <div class="lecture-echec" id="lecture-echec" hidden>
@@ -194,7 +196,21 @@
             <p class="aide">Les documents apparaissent ici une fois traduits dans « Nouveau document ».</p>
           </div>
           <h2 id="lecture-titre" hidden></h2>
-          <div id="lecture-texte" class="lecture-texte"></div>
+          <!-- Relecture comparative (feature 297) : deux colonnes synchronisées,
+               l'origine à gauche, la traduction à droite. Hors comparaison, seule
+               la colonne de traduction existe et garde son identifiant historique
+               #lecture-texte — tout le code de rendu, d'export et de TTS continue
+               de la viser sans changement. -->
+          <div id="lecture-colonnes" class="lecture-colonnes">
+            <div id="lecture-source-panneau" class="lecture-panneau" hidden>
+              <div class="lecture-panneau-titre" id="lecture-source-langue">Version d'origine</div>
+              <div id="lecture-source" class="lecture-texte"></div>
+            </div>
+            <div class="lecture-panneau">
+              <div class="lecture-panneau-titre" id="lecture-trad-langue" hidden>Traduction</div>
+              <div id="lecture-texte" class="lecture-texte"></div>
+            </div>
+          </div>
         </div>
         <div class="barre-audio" id="barre-audio" hidden>
           <button id="audio-play" class="bouton-play" disabled>▸</button>
@@ -348,7 +364,7 @@
 
   <script src="js/commun.js?v=3"></script>
   <script src="js/module-import.js?v=8"></script>
-  <script src="js/module-bibliotheque.js?v=5"></script>
+  <script src="js/module-bibliotheque.js?v=6"></script>
   <script src="js/module-laboratoire.js?v=3"></script>
 </body>
 </html>

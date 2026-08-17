@@ -308,8 +308,63 @@
     } catch (e) {
       $("lecture-texte").textContent = `Impossible de charger le chapitre : ${e.message}`;
     }
+    chargerSourceComparee();
     rendreFiche();
   }
+
+  // ── Relecture comparative (feature 297) ─────────────────────────────────────
+  // L'origine à gauche, la traduction à droite, sur le MÊME chapitre.
+  //
+  // Les index concordent parce que la Bibliothèque tire ses chapitres des
+  // marqueurs écrits par le moteur, qui portent l'index ET le titre de la
+  // SOURCE (feature 327) : le chapitre n de la traduction est bien le chapitre n
+  // de l'original. Sans cet alignement, comparer côte à côte afficherait deux
+  // passages sans rapport — vérifié sur Chapter 9 avant d'écrire ce code.
+
+  let comparaisonActive = false;
+
+  function appliquerComparaison() {
+    $("lecture-colonnes").classList.toggle("comparaison", comparaisonActive);
+    $("lecture-source-panneau").hidden = !comparaisonActive;
+    $("lecture-trad-langue").hidden = !comparaisonActive;
+    const bouton = $("doc-comparer");
+    bouton.setAttribute("aria-pressed", String(comparaisonActive));
+    bouton.classList.toggle("is-active", comparaisonActive);
+    if (docActif) {
+      $("lecture-source-langue").textContent = `Version d'origine (${docActif.langue_source || "source"})`;
+      $("lecture-trad-langue").textContent = `Traduction (${docActif.langue_cible || "cible"})`;
+    }
+  }
+
+  async function chargerSourceComparee() {
+    if (!comparaisonActive || !docActif || !chapActif) return;
+    const zone = $("lecture-source");
+    zone.textContent = "Chargement…";
+    try {
+      // La source est le document D'ORIGINE (PDF ou Markdown), pas la sortie.
+      // `corpsSource` n'existe pas ici : on choisit la clé selon l'extension,
+      // comme le fait le reste du module.
+      const cle = estMarkdown(docActif.chemin_source) ? "chemin_md" : "chemin_pdf";
+      const data = await apiPost("/chapitres/contenu", {
+        [cle]: docActif.chemin_source,
+        index: chapActif.index,
+      });
+      rendreContenu(data.contenu, zone);
+    } catch (e) {
+      zone.textContent = `Impossible de charger la version d'origine : ${e.message}`;
+    }
+  }
+
+  $("doc-comparer").addEventListener("click", () => {
+    comparaisonActive = !comparaisonActive;
+    appliquerComparaison();
+    if (comparaisonActive) {
+      // La colonne de lecture doit être visible pour qu'une comparaison ait un
+      // sens — en mode avancé elle est masquée par défaut.
+      montrerLecture();
+      chargerSourceComparee();
+    }
+  });
 
   // Résout un chemin relatif (extrait d'un tag ![]() du markdown, ex.
   // "MonDoc_images/xxx.png") en absolu — relatif au dossier du document
@@ -323,8 +378,11 @@
 
   // Rendu Markdown minimal et sûr (DOM construit en textContent/createElement,
   // jamais innerHTML)
-  function rendreContenu(markdown) {
-    const zone = $("lecture-texte");
+  function rendreContenu(markdown, cible) {
+    // `cible` permet de rendre dans la colonne d'origine sans dupliquer tout ce
+    // moteur de rendu (feature 297). Par défaut : la colonne de traduction,
+    // comme avant.
+    const zone = cible || $("lecture-texte");
     zone.innerHTML = "";
     const lignes = markdown.split("\n");
     let paragraphe = [];
