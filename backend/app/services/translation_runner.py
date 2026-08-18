@@ -51,6 +51,7 @@ from app.services.translator import (
     AppelInterrompu,
 )
 from app.services import cache_traduction, glossaire, store
+from app.services.persistance import ecrire_texte_atomique
 from app.services.job_manager import (
     sauvegarder_etat,
     charger_etat,
@@ -291,7 +292,12 @@ def _ecrire_chapitre(
     except Exception as e:  # noqa: BLE001 — le store ne doit jamais casser un job
         print(f"[traduction] écriture store ignorée : {e}", flush=True)
 
-    # 2. Append idempotent dans le .md.
+    # 2. Le .md est REGENERE depuis le store (étape E) quand celui-ci fait foi.
+    if _regenerer_sortie(output_path, state, implicite):
+        return
+
+    # 3. Repli : append idempotent (étape D). Sert aux documents traduits AVANT
+    #    la phase 9, dont le store ne connaît pas les chapitres.
     if marqueur and _sortie_contient(output_path, marqueur):
         _journaliser(state, f"Chapitre {chap['index']} déjà présent dans la sortie — non réécrit")
         return
@@ -299,6 +305,83 @@ def _ecrire_chapitre(
         if marqueur:
             f.write(f"\n{marqueur}\n\n")
         f.write(traduit + "\n")
+
+
+def _regenerer_sortie(output_path: str, state: EtatJob, implicite: bool) -> bool:
+    """
+    Réécrit le `.md` ENTIER depuis le store — étape E de la phase 9.
+
+    Le fichier cesse d'être construit par ajouts successifs pour devenir un
+    EXPORT du store. Deux gains : il ne peut plus diverger de ce que la base
+    sait, et la réécriture est naturellement idempotente — plus besoin de la
+    sentinelle de l'étape D quand ce chemin s'applique.
+
+    ⚠️ Le `.md` continue d'être ÉCRIT SUR LE DISQUE, il ne devient pas virtuel.
+    Le frontend dérive le dossier des images de `chemin_sortie`
+    (`module-bibliotheque.js`, `urlImage`) : un fichier purement en base ferait
+    disparaître les images, en silence.
+
+    ⚠️ REFUSE de régénérer quand le store ne connaît pas tous les chapitres déjà
+    traduits. C'est le cas des documents traduits AVANT la phase 9 : leur
+    contenu n'est que dans le `.md`, et le régénérer depuis une base vide
+    DÉTRUIRAIT la traduction. On retourne alors False et l'appelant garde
+    l'append idempotent de l'étape D.
+
+    Retourne True si la sortie a été régénérée.
+    """
+    try:
+        chapitres = store.lire_chapitres(output_path)
+    except Exception as e:  # noqa: BLE001
+        print(f"[traduction] store illisible, régénération abandonnée : {e}", flush=True)
+        return False
+
+    if not chapitres:
+        return False
+    indices_store = {c["index_chapitre"] for c in chapitres}
+    if not set(state.chapitres_traduits).issubset(indices_store):
+        # Le store est en retard sur la réalité du fichier — ne rien réécrire.
+        return False
+
+    annexe = _extraire_annexe_liens(output_path)
+
+    indices_str = ", ".join(str(i) for i in sorted(state.chapitres_traduits))
+    morceaux = [
+        f"<!-- modèle : {state.modele_ollama} | source : {state.langue_source.value}"
+        f" → {state.langue_cible.value} | chapitres traduits : {indices_str} -->\n"
+    ]
+    for c in chapitres:
+        if not implicite:
+            morceaux.append(f"\n{_marqueur_chapitre(c['index_chapitre'], c['titre'] or '')}\n\n")
+        morceaux.append(c["contenu"] + "\n")
+    if annexe:
+        morceaux.append(annexe)
+
+    # Écriture ATOMIQUE : régénérer, c'est écraser un fichier qui contient TOUT
+    # le travail. Un `open("w")` interrompu ici le détruirait — exactement le
+    # défaut que la phase 1 a corrigé partout ailleurs.
+    ecrire_texte_atomique(output_path, "".join(morceaux))
+    return True
+
+
+def _extraire_annexe_liens(output_path: str) -> str:
+    """
+    Récupère l'annexe des liens si la sortie en a déjà une.
+
+    Elle est ajoutée APRÈS tous les chapitres ; une régénération l'effacerait
+    sans ça. `_annexer_liens_source` la reconstruirait au prochain passage, mais
+    seulement si la source est encore un PDF lisible — on ne parie pas dessus.
+    """
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            contenu = f.read()
+    except OSError:
+        return ""
+    position = contenu.find(TITRE_ANNEXE_LIENS)
+    if position == -1:
+        return ""
+    # On remonte au séparateur qui précède le titre, pour garder la mise en forme.
+    debut = contenu.rfind("\n\n---\n\n", 0, position)
+    return contenu[debut if debut != -1 else position:]
 
 
 def _sortie_contient(output_path: str, marqueur: str) -> bool:

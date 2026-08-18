@@ -649,3 +649,113 @@ def test_le_contenu_et_l_etat_partent_ensemble_dans_le_store(tmp_path, monkeypat
     import json
     etat_store = json.loads(store.lire_etat(sortie))
     assert sorted(etat_store["chapitres_traduits"]) == [0, 1, 2]
+
+
+# ── Étape E : le .md devient un export régénéré ──────────────────────────────
+
+def test_E_la_sortie_est_regeneree_depuis_le_store_sans_doublon(tmp_path, monkeypatch):
+    """
+    Le `.md` cesse d'être construit par ajouts pour devenir un export du store.
+    La régénération est naturellement idempotente : réécrire deux fois donne le
+    même fichier, là où l'ancien append doublait.
+    """
+    monkeypatch.setattr(translation_runner, "traduire_texte", _fausse_traduction)
+    source = _ecrire_source_md(tmp_path, "doc.md", nb_sections=3)
+
+    _, sortie = _demarrer(source)
+    _attendre_statut(sortie, {StatutJob.TERMINE})
+
+    contenu = open(sortie, encoding="utf-8").read()
+    assert contenu.count("<!-- === chapitre") == 3
+    # L'en-tête reflète les chapitres faits.
+    assert "chapitres traduits : 0, 1, 2" in contenu.split("\n", 1)[0]
+
+    # Régénérer à nouveau ne change rien.
+    etat = charger_etat(sortie)
+    assert translation_runner._regenerer_sortie(sortie, etat, implicite=False) is True
+    assert open(sortie, encoding="utf-8").read() == contenu
+
+
+def test_E_un_document_d_avant_la_phase_9_n_est_JAMAIS_ecrase(tmp_path):
+    """
+    LE garde-fou de l'étape E. Un document traduit avant la phase 9 n'a son
+    contenu QUE dans le `.md` — le store ignore ses chapitres. Le régénérer
+    depuis une base vide produirait un fichier vide et DÉTRUIRAIT la traduction.
+    """
+    from app.models.schemas import EtatJob, StatutJob as SJ
+
+    sortie = tmp_path / "ancien_traduit_ll.md"
+    contenu_original = (
+        "<!-- modèle : llama3.1 | source : anglais → français | chapitres traduits : 0, 1 -->\n"
+        "\n<!-- === chapitre 0 : Un === -->\n\ntexte du chapitre 0\n"
+        "\n<!-- === chapitre 1 : Deux === -->\n\ntexte du chapitre 1\n"
+    )
+    sortie.write_text(contenu_original, encoding="utf-8")
+
+    etat = EtatJob(
+        job_id="job-legacy",
+        chemin_pdf=str(tmp_path / "ancien.pdf"),
+        chemin_sortie=str(sortie),
+        langue_source=Langue.ANGLAIS,
+        langue_cible=Langue.FRANCAIS,
+        modele_ollama="llama3.1",
+        statut=SJ.EN_PAUSE,
+        chapitres_traduits=[0, 1],
+    )
+
+    # Le store ne connaît rien de ce document.
+    assert translation_runner._regenerer_sortie(str(sortie), etat, implicite=False) is False
+    # Et le fichier est INTACT.
+    assert sortie.read_text(encoding="utf-8") == contenu_original
+
+
+def test_E_un_store_incomplet_ne_declenche_pas_la_regeneration(tmp_path):
+    """
+    Variante plus insidieuse : le store connaît UNE PARTIE des chapitres. Une
+    régénération produirait un fichier amputé — pire qu'un doublon, parce que
+    silencieuse. On exige que le store couvre tout `chapitres_traduits`.
+    """
+    from app.models.schemas import EtatJob, StatutJob as SJ
+    from app.services import store
+
+    sortie = tmp_path / "partiel_traduit_ll.md"
+    original = "en-tete\n\n<!-- === chapitre 0 : Un === -->\n\nc0\n\n<!-- === chapitre 1 : Deux === -->\n\nc1\n"
+    sortie.write_text(original, encoding="utf-8")
+
+    # Le store n'a QUE le chapitre 0.
+    store.ecrire_chapitre_et_etat(str(sortie), 0, "Un", "c0", 0, "{}")
+
+    etat = EtatJob(
+        job_id="job-partiel", chemin_pdf=str(tmp_path / "p.pdf"), chemin_sortie=str(sortie),
+        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS,
+        modele_ollama="llama3.1", statut=SJ.EN_PAUSE, chapitres_traduits=[0, 1],
+    )
+    assert translation_runner._regenerer_sortie(str(sortie), etat, implicite=False) is False
+    assert sortie.read_text(encoding="utf-8") == original
+
+
+def test_E_l_annexe_des_liens_survit_a_la_regeneration(tmp_path):
+    """
+    L'annexe est ajoutée APRÈS tous les chapitres. Une régénération naïve
+    l'effacerait ; `_annexer_liens_source` ne la reconstruirait que si la source
+    est encore un PDF lisible — on ne parie pas là-dessus.
+    """
+    from app.models.schemas import EtatJob, StatutJob as SJ
+    from app.services import store
+
+    sortie = tmp_path / "avec_annexe_traduit_ll.md"
+    annexe = f"\n\n---\n\n{translation_runner.TITRE_ANNEXE_LIENS}\n\n- <https://exemple.org>\n"
+    sortie.write_text("en-tete\n\ncontenu\n" + annexe, encoding="utf-8")
+
+    store.ecrire_chapitre_et_etat(str(sortie), 0, "Un", "contenu du chapitre", 0, "{}")
+    etat = EtatJob(
+        job_id="j", chemin_pdf=str(tmp_path / "a.pdf"), chemin_sortie=str(sortie),
+        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS,
+        modele_ollama="llama3.1", statut=SJ.EN_PAUSE, chapitres_traduits=[0],
+    )
+    assert translation_runner._regenerer_sortie(str(sortie), etat, implicite=False) is True
+
+    apres = sortie.read_text(encoding="utf-8")
+    assert translation_runner.TITRE_ANNEXE_LIENS in apres
+    assert "https://exemple.org" in apres
+    assert "contenu du chapitre" in apres
