@@ -244,6 +244,9 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
 TITRE_ANNEXE_LIENS = "## Liens du document original"
 
 
+_RE_MARQUEUR_CHAPITRE = re.compile(r"<!-- === chapitre \d+ : .*? === -->")
+
+
 def _marqueur_chapitre(index: int, titre: str) -> str:
     """Marqueur inséré avant chaque chapitre traduit. Sert AUSSI de sentinelle
     d'idempotence (voir _ecrire_chapitre) et de découpage côté Bibliothèque."""
@@ -381,7 +384,16 @@ def _extraire_annexe_liens(output_path: str) -> str:
         return ""
     # On remonte au séparateur qui précède le titre, pour garder la mise en forme.
     debut = contenu.rfind("\n\n---\n\n", 0, position)
-    return contenu[debut if debut != -1 else position:]
+    debut = debut if debut != -1 else position
+
+    # ⚠️ BORNER la fin. L'annexe n'est PAS forcément en fin de fichier : un
+    # document traduit en plusieurs passes la voit ajoutée après la première,
+    # puis d'autres chapitres s'ajoutent APRÈS elle. Constaté sur un livre réel
+    # de 716 Ko — annexe ligne 393 sur 3327, suivie de 15 chapitres. Renvoyer
+    # « jusqu'à la fin » aurait réinjecté ces 15 chapitres à la régénération,
+    # donc dupliqué 90 % du document.
+    suite = _RE_MARQUEUR_CHAPITRE.search(contenu, position)
+    return contenu[debut : suite.start()] if suite else contenu[debut:]
 
 
 def _sortie_contient(output_path: str, marqueur: str) -> bool:

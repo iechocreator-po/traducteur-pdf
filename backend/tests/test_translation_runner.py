@@ -759,3 +759,26 @@ def test_E_l_annexe_des_liens_survit_a_la_regeneration(tmp_path):
     assert translation_runner.TITRE_ANNEXE_LIENS in apres
     assert "https://exemple.org" in apres
     assert "contenu du chapitre" in apres
+
+
+def test_E_l_annexe_du_milieu_n_avale_pas_les_chapitres_suivants(tmp_path):
+    """
+    RÉGRESSION jumelle de celle de la migration : `_extraire_annexe_liens`
+    renvoyait tout jusqu'à la FIN du fichier. Sur un document dont l'annexe est
+    au milieu (traduction en plusieurs passes), elle emportait les chapitres
+    suivants — qui auraient été réinjectés à la régénération, donc dupliqués.
+    """
+    md = tmp_path / "doc.md"
+    md.write_text(
+        "<!-- en-tête -->\n"
+        "\n<!-- === chapitre 0 : Un === -->\n\nc0\n"
+        f"\n\n---\n\n{translation_runner.TITRE_ANNEXE_LIENS}\n\n- <https://exemple.org>\n"
+        "\n<!-- === chapitre 1 : Deux === -->\n\nc1\n",
+        encoding="utf-8",
+    )
+    annexe = translation_runner._extraire_annexe_liens(str(md))
+
+    assert translation_runner.TITRE_ANNEXE_LIENS in annexe
+    assert "exemple.org" in annexe
+    assert "chapitre 1" not in annexe, "l'annexe a emporté le chapitre suivant"
+    assert "c1" not in annexe
