@@ -35,7 +35,11 @@ def _questions_factices(texte, modele, langue, nb, points=None):
     return [QuestionEtude(question=f"Question {i + 1} ?", reponse=f"Réponse {i + 1}.") for i in range(nb)]
 
 
-def _attendre_statut(chemin_source, statuts, timeout=5.0):
+def _attendre_statut(chemin_source, statuts, timeout=15.0):
+    # 15 s et non 5 : ces tests attendent un thread worker en arriere-plan, et
+    # 5 s suffisaient a faire echouer test_fiche_complete quand la machine etait
+    # chargee (Ollama + serveurs en parallele). Un test instable erode la
+    # confiance dans toute la suite ; il ne mesure pas une vitesse ici.
     fin = time.time() + timeout
     while time.time() < fin:
         etat = study_runner.lire_statut_etude(chemin_source)
