@@ -11,7 +11,7 @@ import threading
 from typing import Callable
 
 from app.models.schemas import EtatJob
-from app.services import energie
+from app.services import energie, store
 from app.services.persistance import ecrire_texte_atomique, lire_json_tolerant
 
 # Registre en mémoire des jobs actifs — réinitialisé au redémarrage du serveur
@@ -39,9 +39,15 @@ def sauvegarder_etat(etat: EtatJob) -> None:
     auparavant une fenêtre de corruption qui pouvait faire disparaître TOUS les
     documents des deux frontends (F1).
     """
-    ecrire_texte_atomique(
-        chemin_fichier_etat(etat.chemin_sortie), etat.model_dump_json(indent=2)
-    )
+    donnees = etat.model_dump_json(indent=2)
+    ecrire_texte_atomique(chemin_fichier_etat(etat.chemin_sortie), donnees)
+    # Double écriture (phase 9, étape C). Le JSON reste la source de vérité tant
+    # que la bascule n'est pas terminée ; un échec du store ne doit jamais faire
+    # échouer un job, puisque le fichier a déjà réussi.
+    try:
+        store.ecrire_etat(etat.chemin_sortie, donnees)
+    except Exception as e:  # noqa: BLE001
+        print(f"[job_manager] écriture store ignorée : {e}", flush=True)
 
 
 def charger_etat(chemin_sortie: str) -> EtatJob | None:
@@ -54,7 +60,13 @@ def charger_etat(chemin_sortie: str) -> EtatJob | None:
     """
     data = lire_json_tolerant(chemin_fichier_etat(chemin_sortie))
     if data is None:
-        return None
+        # Repli sur le store (étape C) : le JSON peut avoir été mis en
+        # quarantaine par la couche persistance alors que le store, lui, a
+        # toujours l'état. C'est le même gain que pour le cache — une corruption
+        # ne fait plus perdre la progression, seulement le fichier.
+        data = _etat_depuis_store(chemin_sortie)
+        if data is None:
+            return None
     try:
         return EtatJob(**data)
     except Exception as e:
@@ -67,10 +79,39 @@ def charger_etat(chemin_sortie: str) -> EtatJob | None:
         return None
 
 
+def _etat_depuis_store(chemin_sortie: str) -> dict | None:
+    """État sérialisé du store, ou None. Ne lève jamais : c'est un repli."""
+    import json as _json
+    try:
+        brut = store.lire_etat(chemin_sortie)
+    except Exception as e:  # noqa: BLE001
+        print(f"[job_manager] store illisible : {e}", flush=True)
+        return None
+    if not brut:
+        return None
+    try:
+        return _json.loads(brut)
+    except ValueError:
+        return None
+
+
 def supprimer_etat(chemin_sortie: str) -> None:
+    """
+    Supprime l'état, des DEUX côtés.
+
+    ⚠️ Oublier le store rendrait la suppression illusoire : `charger_etat` se
+    replie dessus quand le fichier est absent, donc l'état « supprimé »
+    ressusciterait au prochain appel. Attrapé par test_supprimer_etat en
+    branchant l'étape C — c'est précisément le genre d'incohérence que la double
+    écriture peut introduire si on ne traite pas les deux sources ensemble.
+    """
     chemin = chemin_fichier_etat(chemin_sortie)
     if os.path.exists(chemin):
         os.remove(chemin)
+    try:
+        store.supprimer_etat(chemin_sortie)
+    except Exception as e:  # noqa: BLE001
+        print(f"[job_manager] suppression store ignorée : {e}", flush=True)
 
 
 def journaliser_erreur(chemin_sortie: str, message: str) -> None:

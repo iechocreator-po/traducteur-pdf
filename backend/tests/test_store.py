@@ -7,6 +7,7 @@ tout le chantier — écrire le contenu et avancer l'état est atomique (F3).
 """
 
 import json
+import os
 import sqlite3
 import threading
 
@@ -140,3 +141,78 @@ def test_deux_threads_ecrivent_sans_se_marcher_dessus():
 
     assert erreurs == [], f"écritures concurrentes en échec : {erreurs}"
     assert len(store.lire_morceaux("/doc.md")) == 60
+
+
+# ── Étape C : l'état en double écriture ──────────────────────────────────────
+
+def _etat(chemin_sortie: str, statut="en_pause", faites=3):
+    from app.models.schemas import EtatJob, Langue, StatutJob
+    return EtatJob(
+        job_id="job-1",
+        chemin_pdf="/fake/doc.pdf",
+        chemin_sortie=chemin_sortie,
+        langue_source=Langue.ANGLAIS,
+        langue_cible=Langue.FRANCAIS,
+        modele_ollama="llama3.1",
+        statut=StatutJob(statut),
+        derniere_section_completee=faites,
+    )
+
+
+def test_l_etat_est_ecrit_dans_le_store_ET_le_json(tmp_path):
+    from app.services import job_manager
+
+    sortie = str(tmp_path / "doc_traduit.md")
+    job_manager.sauvegarder_etat(_etat(sortie))
+
+    assert os.path.exists(job_manager.chemin_fichier_etat(sortie)), "le JSON reste la source"
+    assert store.lire_etat(sortie) is not None, "le store doit être alimenté en parallèle"
+
+
+def test_un_etat_json_corrompu_est_recupere_depuis_le_store(tmp_path):
+    """
+    Même gain que pour le cache : la corruption d'un `.state.json` ne fait plus
+    perdre la progression. Avant, le fichier partait en quarantaine et le job
+    devenait un document sans état — donc réputé terminé.
+    """
+    from app.services import job_manager
+
+    sortie = str(tmp_path / "doc_traduit.md")
+    job_manager.sauvegarder_etat(_etat(sortie, faites=7))
+
+    chemin = job_manager.chemin_fichier_etat(sortie)
+    contenu = open(chemin, encoding="utf-8").read()
+    with open(chemin, "w", encoding="utf-8") as f:
+        f.write(contenu[: len(contenu) // 2])          # troncature réelle
+
+    recharge = job_manager.charger_etat(sortie)
+    assert recharge is not None, "l'état a été perdu alors que le store l'avait"
+    assert recharge.derniere_section_completee == 7
+
+
+def test_supprimer_un_etat_le_retire_des_DEUX_cotes(tmp_path):
+    """
+    Régression : `supprimer_etat` n'effaçait que le fichier. Le repli sur le
+    store ressuscitait alors l'état « supprimé » au premier `charger_etat`.
+    """
+    from app.services import job_manager
+
+    sortie = str(tmp_path / "doc_traduit.md")
+    job_manager.sauvegarder_etat(_etat(sortie))
+    job_manager.supprimer_etat(sortie)
+
+    assert store.lire_etat(sortie) is None
+    assert job_manager.charger_etat(sortie) is None
+
+
+def test_un_etat_d_avant_la_bascule_reste_lisible(tmp_path):
+    """Compat : un document d'avant la phase 9 n'a que son JSON — il doit servir."""
+    from app.services import job_manager
+    from app.services.persistance import ecrire_texte_atomique
+
+    sortie = str(tmp_path / "ancien_traduit.md")
+    ecrire_texte_atomique(
+        job_manager.chemin_fichier_etat(sortie), _etat(sortie, faites=42).model_dump_json()
+    )
+    assert store.lire_etat(sortie) is None                    # rien dans le store
+    assert job_manager.charger_etat(sortie).derniere_section_completee == 42
