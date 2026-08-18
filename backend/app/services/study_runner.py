@@ -19,7 +19,13 @@ import uuid
 from app.config.settings import ETUDE_CONTEXTE_MAX, ETUDE_CONDENSE_CHUNK
 from app.services.persistance import ecrire_texte_atomique, lire_json_tolerant
 from app.models.schemas import EtatJobEtude, FicheChapitre, StatutJob
-from app.services.etude import generer_points, generer_questions, condenser_texte
+from app.services.etude import (
+    calculer_nb_points,
+    calculer_nb_questions,
+    condenser_texte,
+    generer_points,
+    generer_questions,
+)
 from app.services.pdf_extractor import chapitres_avec_contenu, decouper_en_chunks
 from app.services.job_manager import (
     enregistrer_job,
@@ -197,7 +203,8 @@ def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
                 if chap.etape != "questions" or not chap.points:
                     chap.etape = "points"
                     _sauvegarder_etat(etat)
-                    chap.points = generer_points(texte, etat.modele_ollama, etat.langue_fiche, etat.nb_points)
+                    nb_pts = etat.nb_points or calculer_nb_points(len(texte))
+                    chap.points = generer_points(texte, etat.modele_ollama, etat.langue_fiche, nb_pts)
                     _fin_etape()
                     chap.etape = "questions"
                     _journaliser(etat, f"Chapitre {chap.index} ({chap.titre}) : {len(chap.points)} points générés")
@@ -206,7 +213,12 @@ def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
 
                 # Étape 2 : questions de compréhension
                 _verifier_interruption(etat)
-                chap.questions = generer_questions(texte, etat.modele_ollama, etat.langue_fiche, etat.nb_questions)
+                nb_q = etat.nb_questions or calculer_nb_questions(len(texte))
+                # Les points sont transmis : les questions ne doivent ni les
+                # reformuler, ni porter deux fois sur le même fait.
+                chap.questions = generer_questions(
+                    texte, etat.modele_ollama, etat.langue_fiche, nb_q, points=chap.points
+                )
                 _fin_etape()
                 chap.etape = "termine"
                 _journaliser(etat, f"Chapitre {chap.index} ({chap.titre}) : {len(chap.questions)} questions générées")

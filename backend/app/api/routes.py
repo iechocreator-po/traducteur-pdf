@@ -571,8 +571,11 @@ class EtudeRequest(BaseModel):
     modele_ollama: str = "llama3.1"
     extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
     langue_fiche: str = "français"
-    nb_points: int = Field(default=5, ge=1, le=10)
-    nb_questions: int = Field(default=3, ge=1, le=10)
+    # 0 (ou absent) = AUTOMATIQUE : le nombre est dérivé de la longueur du
+    # chapitre. Cinq points fixes pour un chapitre de livre de 50 000 caractères
+    # ne pouvaient qu'être vagues. Une valeur explicite reste respectée.
+    nb_points: int = Field(default=0, ge=0, le=20)
+    nb_questions: int = Field(default=0, ge=0, le=20)
 
     @model_validator(mode="after")
     def valider(self):

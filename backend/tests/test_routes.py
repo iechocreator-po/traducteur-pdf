@@ -147,7 +147,13 @@ def test_etude_sans_chapitres_rejete(tmp_path):
     assert reponse.status_code == 422
 
 
-def test_etude_nb_points_hors_bornes_rejete(tmp_path):
+def test_etude_nb_points_zero_signifie_automatique(tmp_path):
+    """
+    CHANGEMENT DE CONTRAT (18/8) : 0 ne veut plus dire « invalide » mais
+    « automatique » — le nombre de points est dérivé de la longueur du chapitre.
+    Cinq points fixes pour un chapitre de livre de 50 000 caractères ne pouvaient
+    qu'être vagues.
+    """
     source = tmp_path / "doc.md"
     source.write_text("# Titre\n\nContenu.")
     reponse = client.post("/api/etude", json={
@@ -155,7 +161,20 @@ def test_etude_nb_points_hors_bornes_rejete(tmp_path):
         "chapitres_selectionnes": [0],
         "nb_points": 0,
     })
-    assert reponse.status_code == 422
+    assert reponse.status_code != 422
+
+
+def test_etude_nb_points_hors_bornes_rejete(tmp_path):
+    """Les bornes réelles restent gardées : négatif et au-delà de 20."""
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nContenu.")
+    for valeur in (-1, 21):
+        reponse = client.post("/api/etude", json={
+            "chemin_md": str(source),
+            "chapitres_selectionnes": [0],
+            "nb_points": valeur,
+        })
+        assert reponse.status_code == 422, f"nb_points={valeur} aurait dû être rejeté"
 
 
 def test_etude_chapitre_inconnu_rejete(tmp_path):

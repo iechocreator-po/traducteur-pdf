@@ -29,7 +29,9 @@ def _points_factices(texte, modele, langue, nb):
     return [f"Point {i + 1}" for i in range(nb)]
 
 
-def _questions_factices(texte, modele, langue, nb):
+def _questions_factices(texte, modele, langue, nb, points=None):
+    # `points` est transmis par le runner depuis le 18/8 : les questions
+    # reçoivent les points déjà retenus pour ne pas les reformuler.
     return [QuestionEtude(question=f"Question {i + 1} ?", reponse=f"Réponse {i + 1}.") for i in range(nb)]
 
 
