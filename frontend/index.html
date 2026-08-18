@@ -5,7 +5,7 @@
   <title>toledo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/style.css?v=5">
+  <link rel="stylesheet" href="css/style.css?v=6">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
     (function () {
@@ -167,6 +167,16 @@
             <button type="button" id="biblio-toggle-lecture" class="bouton-mini">📖 Afficher le texte</button>
           </div>
           <p class="aide">Coche des chapitres à gauche, puis génère leurs points clés + quiz par l'IA locale.</p>
+          <!-- Deux stratégies de génération coexistent (18/8) : leur fiche porte
+               un nom distinct, donc on peut produire les deux sur un même
+               chapitre et les comparer. « condensation » reste le défaut. -->
+          <div class="ia-strategie">
+            <label for="ia-strategie">Stratégie</label>
+            <select id="ia-strategie">
+              <option value="condensation" selected>Condensation (actuelle)</option>
+              <option value="sections">Par sections (points depuis le texte)</option>
+            </select>
+          </div>
           <button id="ia-generer" class="bouton-ia" disabled>Générer les points clés + quiz</button>
           <button id="ia-exporter" class="bouton-secondaire" hidden>⬇ Exporter la fiche (HTML)…</button>
           <p id="ia-statut" class="aide"></p>
@@ -364,7 +374,7 @@
 
   <script src="js/commun.js?v=3"></script>
   <script src="js/module-import.js?v=8"></script>
-  <script src="js/module-bibliotheque.js?v=6"></script>
+  <script src="js/module-bibliotheque.js?v=7"></script>
   <script src="js/module-laboratoire.js?v=3"></script>
 </body>
 </html>

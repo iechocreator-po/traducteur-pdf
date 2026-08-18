@@ -355,6 +355,15 @@
     }
   }
 
+  $("ia-strategie").addEventListener("change", () => {
+    // Chaque stratégie a SA fiche : on recharge celle qui correspond.
+    ficheParChapitre = {};
+    arreterPollFiche();
+    $("ia-statut").textContent = "";
+    rendreFiche();
+    chargerFicheExistante();
+  });
+
   $("doc-comparer").addEventListener("click", () => {
     comparaisonActive = !comparaisonActive;
     appliquerComparaison();
@@ -550,9 +559,28 @@
     }
   }
 
+  // ── Stratégie de génération de fiche (18/8) ─────────────────────────────────
+  // Deux stratégies coexistent, chacune avec sa propre fiche sur le disque.
+  // Le statut doit donc être demandé POUR une stratégie : sans ça, l'interface
+  // afficherait la plus récente des deux, au hasard.
+
+  function strategieChoisie() {
+    const sel = $("ia-strategie");
+    return sel ? sel.value : "condensation";
+  }
+
+  function urlStatutFiche() {
+    const params = new URLSearchParams({
+      chemin_source: docActif.chemin_sortie,
+      modele: docActif.modele || "",
+      strategie: strategieChoisie(),
+    });
+    return `/etude/statut?${params}`;
+  }
+
   async function chargerFicheExistante() {
     try {
-      const etat = await apiGet(`/etude/statut?chemin_source=${encodeURIComponent(docActif.chemin_sortie)}`);
+      const etat = await apiGet(urlStatutFiche());
       if (etat) {
         synchroniserFiches(etat);
         if (etat.statut === "en_cours" || etat.statut === "en_attente") demarrerPollFiche();
@@ -574,8 +602,12 @@
         // sinon changer un menu de l'Import efface les fiches déjà générées
         // (le backend redémarre à zéro si les options diffèrent).
         modele_ollama: docActif.modele,
-        nb_points: 5,
-        nb_questions: 3,
+        // 0 = automatique : le backend dérive le nombre de la longueur du
+        // chapitre. Cinq points fixes pour un chapitre de livre de 50 000
+        // caractères ne pouvaient qu'être vagues.
+        nb_points: 0,
+        nb_questions: 0,
+        strategie: strategieChoisie(),
         langue_fiche: docActif.langue_cible || "français",
       });
       $("ia-statut").textContent = "⏳ Génération en cours…";
@@ -589,7 +621,7 @@
   async function pollStatutFiche() {
     if (!docActif) { arreterPollFiche(); return; }
     try {
-      const etat = await apiGet(`/etude/statut?chemin_source=${encodeURIComponent(docActif.chemin_sortie)}`);
+      const etat = await apiGet(urlStatutFiche());
       if (!etat) return;
       synchroniserFiches(etat);
       const enErreur = etat.chapitres.filter(c => c.etape === "erreur").length;

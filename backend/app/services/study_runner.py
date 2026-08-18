@@ -23,6 +23,7 @@ from app.services.etude import (
     calculer_nb_points,
     calculer_nb_questions,
     condenser_texte,
+    consolider_points,
     generer_points,
     generer_questions,
 )
@@ -52,10 +53,51 @@ def _base_depuis_source(chemin: str) -> str:
     return re.sub(r"_converti_[a-z]{0,4}$", "", base)
 
 
-def build_output_path(source_path: str, modele: str = "") -> str:
+# Stratégies de génération de fiche. La valeur est écrite dans le NOM DU FICHIER
+# et dans l'état : deux fiches du même document produites autrement doivent
+# pouvoir coexister, sinon on ne peut pas les comparer.
+STRATEGIE_CONDENSATION = "condensation"
+STRATEGIE_SECTIONS = "sections"
+STRATEGIES = (STRATEGIE_CONDENSATION, STRATEGIE_SECTIONS)
+STRATEGIE_PAR_DEFAUT = STRATEGIE_CONDENSATION
+
+
+def build_output_path(
+    source_path: str, modele: str = "", strategie: str = STRATEGIE_PAR_DEFAUT
+) -> str:
+    """
+    Chemin de la fiche pour ce couple (modèle, stratégie).
+
+    ⚠️ Le suffixe était `modele[:2]` — DEUX caractères, exactement le défaut
+    corrigé côté traduction par la feature 338 : `qwen2.5` et `qwen3` donnent
+    tous deux « qw », donc la même fiche. Le suffixe est désormais le slug
+    complet du modèle, suivi de la stratégie.
+
+    ⚠️ CONSULTE LE DISQUE, à dessein : une fiche produite avant ce changement
+    garde son nom historique (`_fiche_ll.md`). Sans ce repli elle deviendrait
+    orpheline et serait regénérée de zéro.
+    """
+    from app.services.translation_runner import suffixe_modele
+
     base = _base_depuis_source(source_path)
-    suffixe = modele[:2] if modele else ""
-    return f"{base}_fiche_{suffixe}.md" if suffixe else f"{base}_fiche.md"
+    if not modele:
+        return f"{base}_fiche.md"
+
+    nouveau = f"{base}_fiche_{suffixe_modele(modele)}_{strategie}.md"
+    if os.path.exists(nouveau):
+        return nouveau
+
+    # Repli 1 : une fiche déjà produite avec la stratégie par défaut, avant que
+    # la stratégie n'entre dans le nom.
+    if strategie == STRATEGIE_PAR_DEFAUT:
+        sans_strategie = f"{base}_fiche_{suffixe_modele(modele)}.md"
+        if os.path.exists(sans_strategie):
+            return sans_strategie
+        # Repli 2 : nom historique à deux caractères.
+        ancien = f"{base}_fiche_{modele[:2]}.md"
+        if os.path.exists(ancien):
+            return ancien
+    return nouveau
 
 
 def _chemin_etat(chemin_sortie: str) -> str:
@@ -78,8 +120,21 @@ def _charger_etat(chemin_etat: str) -> EtatJobEtude | None:
         return None
 
 
-def lire_statut_etude(chemin_source: str) -> EtatJobEtude | None:
-    """Retourne l'état du job de fiche le plus récent pour ce fichier source."""
+def lire_statut_etude(
+    chemin_source: str, modele: str = "", strategie: str = "",
+) -> EtatJobEtude | None:
+    """
+    État du job de fiche pour ce document.
+
+    ⚠️ Quand `modele` et `strategie` sont donnés, on ne consulte QUE cette
+    fiche-là. Sans eux, on retombe sur l'ancien comportement — « la plus
+    récente », quel que soit son modèle ou sa stratégie. C'était le même défaut
+    que `_trouver_etat_existant` côté traduction avant la 338 : avec deux fiches
+    du même document, l'interface en affichait une au hasard.
+    """
+    if modele and strategie:
+        return _charger_etat(_chemin_etat(build_output_path(chemin_source, modele, strategie)))
+
     base = _base_depuis_source(chemin_source)
     plus_recent = None
     for chemin in _glob.glob(f"{_glob.escape(base)}_fiche*.state.json"):
@@ -162,6 +217,53 @@ def _texte_pour_generation(chap: FicheChapitre, contenu: str, etat: EtatJobEtude
     return "\n\n".join(notes)
 
 
+def _generer_points_selon_strategie(
+    chap: FicheChapitre, contenu: str, texte_condense, nb_points: int, etat: EtatJobEtude
+) -> list[str]:
+    """
+    Aiguille entre les deux stratégies de génération des points.
+
+    `condensation` (défaut, historique) : le chapitre trop long est résumé en
+    notes, puis les points sont tirés DES NOTES. Simple et peu coûteux, mais
+    c'est un résumé de résumé — soupçonné d'être la cause principale des fiches
+    jugées trop simplistes le 18/8.
+
+    `sections` : le chapitre est découpé, les points de CHAQUE section sont
+    générés depuis le TEXTE RÉEL, puis consolidés. La matière première reste
+    ancrée dans le document.
+
+    Les deux coexistent volontairement : le nom de fichier porte la stratégie,
+    donc on peut produire les deux fiches d'un même chapitre et les comparer.
+    """
+    if etat.strategie != STRATEGIE_SECTIONS:
+        # `texte_condense` est un CALLABLE : on ne condense qu'ici, donc jamais
+        # pour la stratégie « sections ».
+        return generer_points(texte_condense(), etat.modele_ollama, etat.langue_fiche, nb_points)
+
+    sections = decouper_en_chunks(contenu, taille_max=ETUDE_CONDENSE_CHUNK)
+    _journaliser(
+        etat,
+        f"Chapitre {chap.index} : stratégie « sections » — {len(sections)} section(s)",
+    )
+    _sauvegarder_etat(etat)
+
+    # Combien de points par section pour en avoir assez à consolider sans
+    # exploser le coût : on vise ~1,5× la cible, réparti, avec un plancher de 2.
+    par_section = max(2, round(nb_points * 1.5 / max(1, len(sections))))
+    points_par_section = []
+    for i, section in enumerate(sections):
+        _verifier_interruption(etat)
+        points_par_section.append(
+            generer_points(section, etat.modele_ollama, etat.langue_fiche, par_section)
+        )
+        _journaliser(etat, f"  section {i + 1}/{len(sections)} : {len(points_par_section[-1])} point(s)")
+
+    _verifier_interruption(etat)
+    return consolider_points(
+        points_par_section, etat.modele_ollama, etat.langue_fiche, nb_points
+    )
+
+
 def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
     """Exécuté par le worker de la file. Vérifie pause/annulation entre les étapes."""
     if est_annule(etat.job_id):
@@ -197,14 +299,24 @@ def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
 
             try:
                 _verifier_interruption(etat)
-                texte = _texte_pour_generation(chap, contenu, etat)
+                # Condensation PARESSEUSE : la stratégie « sections » n'en a pas
+                # besoin pour les points, et la déclencher ici la ferait payer
+                # pour rien — plusieurs appels Ollama sur un chapitre de livre.
+                _condense: list[str] = []
+
+                def texte_condense() -> str:
+                    if not _condense:
+                        _condense.append(_texte_pour_generation(chap, contenu, etat))
+                    return _condense[0]
 
                 # Étape 1 : points à retenir (déjà faits si reprise en cours de chapitre)
                 if chap.etape != "questions" or not chap.points:
                     chap.etape = "points"
                     _sauvegarder_etat(etat)
-                    nb_pts = etat.nb_points or calculer_nb_points(len(texte))
-                    chap.points = generer_points(texte, etat.modele_ollama, etat.langue_fiche, nb_pts)
+                    nb_pts = etat.nb_points or calculer_nb_points(len(contenu))
+                    chap.points = _generer_points_selon_strategie(
+                        chap, contenu, texte_condense, nb_pts, etat
+                    )
                     _fin_etape()
                     chap.etape = "questions"
                     _journaliser(etat, f"Chapitre {chap.index} ({chap.titre}) : {len(chap.points)} points générés")
@@ -213,11 +325,16 @@ def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
 
                 # Étape 2 : questions de compréhension
                 _verifier_interruption(etat)
-                nb_q = etat.nb_questions or calculer_nb_questions(len(texte))
+                # Les questions travaillent sur un texte de taille maîtrisée : même
+                # avec « sections », un chapitre de 55 000 caractères ne tient pas
+                # dans un seul prompt. Les points consolidés, eux, sont transmis en
+                # contexte — ils portent désormais la substance du chapitre.
+                texte_q = texte_condense()
+                nb_q = etat.nb_questions or calculer_nb_questions(len(contenu))
                 # Les points sont transmis : les questions ne doivent ni les
                 # reformuler, ni porter deux fois sur le même fait.
                 chap.questions = generer_questions(
-                    texte, etat.modele_ollama, etat.langue_fiche, nb_q, points=chap.points
+                    texte_q, etat.modele_ollama, etat.langue_fiche, nb_q, points=chap.points
                 )
                 _fin_etape()
                 chap.etape = "termine"
@@ -269,6 +386,7 @@ def demarrer_etude(
     chapitres_selectionnes: list[int],
     modele: str,
     langue_fiche: str = "français",
+    strategie: str = STRATEGIE_PAR_DEFAUT,
     nb_points: int = 5,
     nb_questions: int = 3,
     extracteur: str = "pymupdf4llm",
@@ -285,12 +403,13 @@ def demarrer_etude(
     if introuvables:
         raise ValueError(f"Chapitre(s) inconnu(s) : {introuvables}")
 
-    chemin_sortie = build_output_path(source_path, modele)
-    existant = lire_statut_etude(source_path)
+    chemin_sortie = build_output_path(source_path, modele, strategie)
+    existant = lire_statut_etude(source_path, modele, strategie)
     memes_options = (
         existant is not None
         and existant.chemin_sortie == chemin_sortie
         and existant.langue_fiche == langue_fiche
+        and existant.strategie == strategie
         and existant.nb_points == nb_points
         and existant.nb_questions == nb_questions
     )
@@ -316,6 +435,7 @@ def demarrer_etude(
         chemin_sortie=chemin_sortie,
         modele_ollama=modele,
         langue_fiche=langue_fiche,
+        strategie=strategie,
         nb_points=nb_points,
         nb_questions=nb_questions,
         statut=StatutJob.EN_ATTENTE,

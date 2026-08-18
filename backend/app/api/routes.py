@@ -576,6 +576,16 @@ class EtudeRequest(BaseModel):
     # ne pouvaient qu'être vagues. Une valeur explicite reste respectée.
     nb_points: int = Field(default=0, ge=0, le=20)
     nb_questions: int = Field(default=0, ge=0, le=20)
+    # « condensation » (défaut, historique) ou « sections ». Le nom de la fiche
+    # porte la stratégie : les deux peuvent coexister pour être comparées.
+    strategie: str = "condensation"
+
+    @model_validator(mode="after")
+    def valider_strategie(self):
+        from app.services.study_runner import STRATEGIES
+        if self.strategie not in STRATEGIES:
+            raise ValueError(f"strategie inconnue : {self.strategie} (attendu : {', '.join(STRATEGIES)})")
+        return self
 
     @model_validator(mode="after")
     def valider(self):
@@ -603,6 +613,7 @@ def generer_fiche_etude(req: EtudeRequest) -> dict:
             chapitres_selectionnes=req.chapitres_selectionnes,
             modele=req.modele_ollama,
             langue_fiche=req.langue_fiche,
+            strategie=req.strategie,
             nb_points=req.nb_points,
             nb_questions=req.nb_questions,
             extracteur=req.extracteur_pdf,
@@ -613,10 +624,19 @@ def generer_fiche_etude(req: EtudeRequest) -> dict:
 
 
 @router.get("/etude/statut", response_model=EtatJobEtude | None)
-def statut_etude(chemin_source: str) -> EtatJobEtude | None:
-    """État du job de fiche d'étude le plus récent pour ce fichier source."""
+def statut_etude(
+    chemin_source: str, modele: str = "", strategie: str = "",
+) -> EtatJobEtude | None:
+    """
+    État du job de fiche pour ce document.
+
+    `modele` et `strategie` sont optionnels — sans eux, on retourne la fiche la
+    plus récente, comme avant. Les fournir cible UNE fiche précise, ce qui est
+    indispensable dès qu'il en existe deux pour le même document : sinon
+    l'interface en affiche une au hasard.
+    """
     from app.services.study_runner import lire_statut_etude
-    return lire_statut_etude(chemin_source)
+    return lire_statut_etude(chemin_source, modele, strategie)
 
 
 class GlossaireRequest(BaseModel):

@@ -203,3 +203,49 @@ def condenser_texte(texte: str, modele: str, langue: str) -> str:
     )
     reponse.raise_for_status()
     return reponse.json().get("response", "").strip()
+
+def consolider_points(
+    points_par_section: list[list[str]], modele: str, langue: str, nb_points: int
+) -> list[str]:
+    """
+    Fusionne les points de plusieurs sections en une liste finale.
+
+    C'est la seconde moitié de la stratégie « sections ». La première génère les
+    points de CHAQUE section depuis le texte réel ; celle-ci les met en commun :
+    déduplique, classe, et garde les meilleurs.
+
+    Pourquoi ne pas simplement concaténer et tronquer : deux sections voisines
+    produisent souvent le même point sous deux formulations, et l'ordre de
+    lecture n'est pas l'ordre d'importance. Un tri naïf donnerait une liste
+    redondante commençant par des détails.
+
+    ⚠️ Cette étape voit des POINTS, pas le texte — c'est le seul endroit de la
+    stratégie où le modèle travaille sur une paraphrase. La différence avec la
+    condensation est que la matière première, elle, vient du texte : ici on
+    choisit parmi des points ancrés, là on résumait un résumé.
+    """
+    tous = [p for section in points_par_section for p in section]
+    if not tous:
+        return []
+    if len(tous) <= nb_points:
+        return tous
+
+    system = (
+        f"Tu es un pédagogue qui finalise une fiche de révision. Tu réponds "
+        f"UNIQUEMENT en JSON valide, en {langue}, sans texte hors du JSON.\n"
+        f'Format exact attendu : {{"points": ["…", "…"]}}\n'
+        f"On te donne les points relevés section par section dans un même "
+        f"chapitre. RÈGLES :\n"
+        f"1. Retiens exactement {nb_points} points, du plus important au moins "
+        f"important.\n"
+        f"2. FUSIONNE les points qui disent la même chose sous deux formulations, "
+        f"en gardant la version la plus précise (celle qui porte un nom, une date "
+        f"ou un chiffre).\n"
+        f"3. REPRENDS les points tels quels ou fusionnés — n'en invente aucun et "
+        f"n'ajoute aucune information absente de la liste.\n"
+        f"4. Conserve les éléments concrets : noms propres, dates, chiffres, "
+        f"termes techniques."
+    )
+    prompt = "\n".join(f"- {p}" for p in tous)
+    resultat = _generer_valide(modele, system, prompt, _ReponsePoints)
+    return resultat.points[:nb_points]
