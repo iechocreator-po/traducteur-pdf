@@ -50,7 +50,7 @@ from app.services.translator import (
     OllamaIndisponible,
     AppelInterrompu,
 )
-from app.services import cache_traduction, glossaire
+from app.services import cache_traduction, glossaire, store
 from app.services.job_manager import (
     sauvegarder_etat,
     charger_etat,
@@ -241,6 +241,72 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
 
 
 TITRE_ANNEXE_LIENS = "## Liens du document original"
+
+
+def _marqueur_chapitre(index: int, titre: str) -> str:
+    """Marqueur inséré avant chaque chapitre traduit. Sert AUSSI de sentinelle
+    d'idempotence (voir _ecrire_chapitre) et de découpage côté Bibliothèque."""
+    return f"<!-- === chapitre {index} : {titre} === -->"
+
+
+def _ecrire_chapitre(
+    output_path: str, chap: dict, traduit: str, implicite: bool, state: EtatJob
+) -> None:
+    """
+    Écrit un chapitre terminé — ÉTAPE D de la phase 9, là où F3 disparaît.
+
+    Le défaut : le chapitre était ajouté au `.md` puis `chapitres_traduits`
+    n'était persisté qu'au `sauvegarder_etat` suivant. Un arrêt dans cet
+    intervalle laissait le chapitre DANS le fichier sans qu'il soit marqué comme
+    fait — donc retraduit ET réajouté à la reprise. Duplication silencieuse, à
+    chaque chapitre de chaque document.
+
+    Deux garanties, complémentaires :
+
+    1. **Transaction** : le contenu et l'état partent ensemble dans le store.
+       Soit les deux, soit aucun — plus d'état intermédiaire.
+    2. **Append idempotent** : le `.md` reste la source de vérité jusqu'à
+       l'étape E, donc la transaction seule ne suffit pas à le protéger. On
+       vérifie donc que le marqueur du chapitre n'y est pas DÉJÀ avant
+       d'ajouter. C'est une vérification par le CONTENU du fichier, pas par
+       l'état — donc juste même si l'état a été perdu, ce qui est précisément
+       le cas après un arrêt brutal.
+
+    Coût assumé : relire la sortie à chaque chapitre. Sur un livre de 500 Ko et
+    100 chapitres, c'est 50 Mo de lecture locale — négligeable devant une seule
+    requête Ollama, et le prix d'une garantie qui ne dépend pas de l'état.
+    """
+    marqueur = "" if implicite else _marqueur_chapitre(chap["index"], chap["titre"])
+
+    # 1. Transaction : contenu + état, atomiquement.
+    try:
+        store.ecrire_chapitre_et_etat(
+            chemin_sortie=output_path,
+            index_chapitre=chap["index"],
+            titre=chap["titre"],
+            contenu=traduit,
+            ordre=chap["index"],
+            etat_json=state.model_dump_json(),
+        )
+    except Exception as e:  # noqa: BLE001 — le store ne doit jamais casser un job
+        print(f"[traduction] écriture store ignorée : {e}", flush=True)
+
+    # 2. Append idempotent dans le .md.
+    if marqueur and _sortie_contient(output_path, marqueur):
+        _journaliser(state, f"Chapitre {chap['index']} déjà présent dans la sortie — non réécrit")
+        return
+    with open(output_path, "a", encoding="utf-8") as f:
+        if marqueur:
+            f.write(f"\n{marqueur}\n\n")
+        f.write(traduit + "\n")
+
+
+def _sortie_contient(output_path: str, marqueur: str) -> bool:
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            return marqueur in f.read()
+    except OSError:
+        return False
 
 
 def _annexer_liens_source(state: EtatJob) -> None:
@@ -469,15 +535,12 @@ def _executer_traduction(state: EtatJob, chapitres: list[dict], implicite: bool)
 
             if chapitre_ok:
                 traduit = "\n\n".join(parties)
-                with open(output_path, "a", encoding="utf-8") as f:
-                    if not implicite:
-                        f.write(f"\n<!-- === chapitre {chap['index']} : {chap['titre']} === -->\n\n")
-                    f.write(traduit + "\n")
                 if chap["index"] not in state.chapitres_traduits:
                     state.chapitres_traduits.append(chap["index"])
                 # Un chapitre qui réussit après un échec antérieur quitte la liste des échoués.
                 if chap["index"] in state.chapitres_echoues:
                     state.chapitres_echoues.remove(chap["index"])
+                _ecrire_chapitre(output_path, chap, traduit, implicite, state)
 
             unites_faites += nb_sc
             state.derniere_section_completee = unites_faites  # aligne la barre après le chapitre

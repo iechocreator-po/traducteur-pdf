@@ -572,3 +572,80 @@ def test_annexe_liens_ignoree_pour_source_markdown(tmp_path, monkeypatch):
 
     translation_runner._annexer_liens_source(state)
     assert "## Liens du document original" not in sortie.read_text()
+
+
+# ── F3 : la fenêtre de duplication (phase 9, étape D) ────────────────────────
+
+def _fausse_traduction(texte, modele, langue_source, langue_cible,
+                       termes_a_conserver=None, interruption=None):
+    return texte
+
+
+def test_F3_un_chapitre_deja_dans_la_sortie_n_est_jamais_reecrit(tmp_path, monkeypatch):
+    """
+    F3 — LE défaut que la phase 9 vise.
+
+    Le chapitre était ajouté au `.md`, puis `chapitres_traduits` n'était persisté
+    qu'au `sauvegarder_etat` SUIVANT. Un arrêt dans cet intervalle laissait le
+    chapitre DANS le fichier sans qu'il soit marqué comme fait : la reprise le
+    retraduisait et le RÉAJOUTAIT. Duplication silencieuse, à chaque chapitre.
+
+    On reproduit exactement cet état — sortie complète, état en retard — puis on
+    reprend. Le fichier ne doit pas doubler.
+    """
+    monkeypatch.setattr(translation_runner, "traduire_texte", _fausse_traduction)
+    source = _ecrire_source_md(tmp_path, "doc.md", nb_sections=3)
+
+    _, sortie = _demarrer(source)
+    _attendre_statut(sortie, {StatutJob.TERMINE})
+
+    contenu_avant = open(sortie, encoding="utf-8").read()
+    marqueurs_avant = contenu_avant.count("<!-- === chapitre")
+    assert marqueurs_avant == 3
+
+    # ── On fabrique la fenêtre de crash : l'état « oublie » le dernier chapitre,
+    # alors que la sortie le contient déjà.
+    etat = charger_etat(sortie)
+    etat.chapitres_traduits = [0, 1]          # le chapitre 2 n'est plus marqué
+    etat.statut = StatutJob.EN_PAUSE
+    sauvegarder_etat(etat)
+
+    # ── Reprise.
+    translation_runner.demarrer_traduction(
+        source_path=source,
+        langue_source=Langue.ANGLAIS,
+        langue_cible=Langue.FRANCAIS,
+        modele="llama3.1",
+        resume=True,
+    )
+    _attendre_statut(sortie, {StatutJob.TERMINE})
+
+    contenu_apres = open(sortie, encoding="utf-8").read()
+    assert contenu_apres.count("<!-- === chapitre") == 3, (
+        "un chapitre a été réécrit alors qu'il était déjà dans la sortie"
+    )
+    assert contenu_apres.count("<!-- === chapitre 2 ") == 1
+
+
+def test_le_contenu_et_l_etat_partent_ensemble_dans_le_store(tmp_path, monkeypatch):
+    """
+    Étape D : `ecrire_chapitre_et_etat` écrit les deux en UNE transaction. Après
+    une traduction, le store doit contenir autant de chapitres que la sortie, et
+    un état qui les déclare tous faits — jamais l'un sans l'autre.
+    """
+    from app.services import store
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", _fausse_traduction)
+    source = _ecrire_source_md(tmp_path, "doc.md", nb_sections=3)
+
+    _, sortie = _demarrer(source)
+    _attendre_statut(sortie, {StatutJob.TERMINE})
+
+    chapitres = store.lire_chapitres(sortie)
+    assert len(chapitres) == 3
+    # Les chapitres ressortent dans l'ordre du document.
+    assert [c["index_chapitre"] for c in chapitres] == [0, 1, 2]
+
+    import json
+    etat_store = json.loads(store.lire_etat(sortie))
+    assert sorted(etat_store["chapitres_traduits"]) == [0, 1, 2]

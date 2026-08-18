@@ -99,8 +99,18 @@ def connexion() -> sqlite3.Connection:
     retire du registre sans toucher aux fichiers.
     """
     conn = getattr(_local, "conn", None)
-    if conn is not None:
+    # On mémorise POUR QUELLE base la connexion a été ouverte. Le worker de la
+    # file est un thread de longue durée : si la base change sous lui (ce que
+    # font les tests, un fichier temporaire par test), il continuerait sinon
+    # d'écrire dans l'ancienne — les chapitres partaient dans la base du test
+    # précédent, et le test courant lisait une base vide. En production le chemin
+    # ne change jamais, mais un garde qui ne tient que par cette hypothèse est
+    # un garde qui tombera le jour où elle cesse d'être vraie.
+    if conn is not None and getattr(_local, "chemin", None) == CHEMIN_BASE:
         return conn
+    if conn is not None:
+        conn.close()
+        _local.conn = None
     os.makedirs(os.path.dirname(CHEMIN_BASE), exist_ok=True)
     conn = sqlite3.connect(CHEMIN_BASE, timeout=30)
     conn.row_factory = sqlite3.Row
@@ -112,6 +122,7 @@ def connexion() -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     conn.commit()
     _local.conn = conn
+    _local.chemin = CHEMIN_BASE
     return conn
 
 
