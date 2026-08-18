@@ -7,6 +7,7 @@ Permet de sauter les sections déjà traduites lors d'un re-run du même documen
 import hashlib
 import os
 
+from app.services import store
 from app.services.persistance import ecrire_json_atomique, lire_json_tolerant
 
 
@@ -39,7 +40,20 @@ def charger_cache(chemin_sortie: str) -> dict[str, str]:
     disparition ne se signalait nulle part.
     """
     donnees = lire_json_tolerant(chemin_fichier_cache(chemin_sortie), defaut={})
-    return donnees if isinstance(donnees, dict) else {}
+    depuis_json = donnees if isinstance(donnees, dict) else {}
+
+    # ── Étape B de la phase 9 : double écriture, lecture prioritaire SQLite ──
+    # Le store fait foi quand il connaît le document ; le JSON reste le repli
+    # pour tout ce qui a été traduit avant la bascule. On FUSIONNE plutôt que de
+    # choisir : un document en cours de migration a une partie de son cache de
+    # chaque côté, et perdre l'une des deux ferait repayer du travail chez Ollama
+    # — exactement ce que ce cache existe pour éviter.
+    try:
+        depuis_store = store.lire_morceaux(chemin_sortie)
+    except Exception as e:  # noqa: BLE001 — le store ne doit JAMAIS casser un job
+        print(f"[cache] store illisible, repli sur le JSON : {e}", flush=True)
+        return depuis_json
+    return {**depuis_json, **depuis_store}
 
 
 def sauvegarder_cache(chemin_sortie: str, cache: dict[str, str]) -> None:
@@ -48,3 +62,10 @@ def sauvegarder_cache(chemin_sortie: str, cache: dict[str, str]) -> None:
     sans atomicité, chacune de ces réécritures pouvait le détruire (F2).
     """
     ecrire_json_atomique(chemin_fichier_cache(chemin_sortie), cache, indent=None)
+    # Double écriture (étape B) : le JSON reste la source tant que la bascule
+    # n'est pas terminée, le store se remplit en parallèle. Un échec du store ne
+    # doit pas faire échouer la traduction — le JSON, lui, a déjà réussi.
+    try:
+        store.ecrire_morceaux(chemin_sortie, cache)
+    except Exception as e:  # noqa: BLE001
+        print(f"[cache] écriture store ignorée : {e}", flush=True)

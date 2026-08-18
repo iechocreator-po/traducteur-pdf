@@ -195,13 +195,47 @@ def test_F13_un_fichier_de_planification_abime_ne_tue_plus_le_planificateur(tmp_
     assert len(scheduler.lister_jobs_planifies()) == 1
 
 
-def test_F2_un_cache_abime_est_signale_au_lieu_de_disparaitre(tmp_path):
-    """F2 — la perte de cache reste possible, mais plus silencieuse."""
+def test_F2_un_cache_abime_est_signale_ET_le_travail_survit(tmp_path):
+    """
+    F2 — le contrat s'est RENFORCÉ avec l'étape B de la phase 9.
+
+    Avant : un cache JSON corrompu faisait perdre le travail (on repartait de
+    zéro chez Ollama), la seule amélioration étant que la perte était signalée.
+    Depuis la double écriture, le store SQLite a la même donnée : la corruption
+    est toujours signalée, mais le travail déjà payé est RÉCUPÉRÉ.
+    """
     from app.services import cache_traduction
 
     sortie = str(tmp_path / "doc_traduit.md")
     cache_traduction.sauvegarder_cache(sortie, {"cle1": "traduction déjà payée"})
     _tronquer(cache_traduction.chemin_fichier_cache(sortie))
 
-    assert cache_traduction.charger_cache(sortie) == {}
+    # La corruption du JSON est bien constatée…
+    recupere = cache_traduction.charger_cache(sortie)
     assert len(persistance.corruptions_rencontrees()) == 1
+    # …mais le travail n'est plus perdu.
+    assert recupere == {"cle1": "traduction déjà payée"}
+
+
+def test_cache_absent_des_DEUX_cotes_repart_bien_de_zero(tmp_path):
+    """Le repli doit rester un repli : rien nulle part → dictionnaire vide."""
+    from app.services import cache_traduction
+
+    assert cache_traduction.charger_cache(str(tmp_path / "jamais_traduit.md")) == {}
+
+
+def test_un_cache_d_avant_la_bascule_reste_lisible(tmp_path):
+    """
+    Compat : les documents traduits AVANT la phase 9 n'ont que leur JSON. Le
+    store est vide pour eux, et leur cache doit continuer de servir — sinon la
+    bascule ferait repayer chez Ollama tout le travail existant.
+    """
+    from app.services import cache_traduction
+    from app.services.persistance import ecrire_json_atomique
+
+    sortie = str(tmp_path / "ancien_traduit.md")
+    # Écrit UNIQUEMENT le JSON, comme le faisait le code d'avant.
+    ecrire_json_atomique(
+        cache_traduction.chemin_fichier_cache(sortie), {"vieille-cle": "vieux travail"}, indent=None
+    )
+    assert cache_traduction.charger_cache(sortie) == {"vieille-cle": "vieux travail"}
