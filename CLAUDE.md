@@ -70,7 +70,7 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   ne révélant jamais le chemin disque d'un fichier, l'upload envoie les octets ; le backend
   les écrit dans `backend/uploads/<hash-contenu>/` (`services/uploads.py`) et retourne un
   chemin absolu réinjecté tel quel dans le flux existant. Puis : analyse auto (qualité /
-  durée / chapitres), réglages du lot (langues ; extracteur et modèle en mode avancé),
+  durée / chapitres), réglages du lot (langues et modèle ; extracteur en mode avancé),
   lancement en lot (file séquentielle backend), planification. La gestion des traductions
   existantes se fait dans la section **« Vos traductions »** (décrite plus haut) :
   Pause / Reprendre (`POST /api/job/{job_id}/pause`, `POST /api/translate` `resume=true`,
@@ -111,7 +111,8 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
 
 - **Mode avancé** (`appliquerModeAvance` dans `commun.js`) : bascule `.hidden` sur tous
   les `[data-avance]` et une classe `.avance` sur `<html>` (pour le reflow CSS de la
-  grille Bibliothèque). Éléments gated : réglages extracteur/modèle de l'Import, onglet +
+  grille Bibliothèque). Éléments gated : extracteur de l'Import (le **modèle** en est sorti
+  le 17/8, voir « Plusieurs modèles Ollama cohabitent »), onglet +
   contenu du **Laboratoire**, section **Résumé & Quiz** de la Bibliothèque. `activerModule`
   redirige vers l'Import si on tente d'ouvrir le Laboratoire hors mode avancé. Le **bouton**
   « mode avancé » lui-même est gated par le flag `mode_avance` (off → bouton masqué et
@@ -731,6 +732,73 @@ importent déjà `Combine`, celui-ci était le seul manquant. **Leçon à reteni
 pour ce genre d'erreur — deuxième fois que ce filet précis laisse passer un
 défaut. Build Xcode réel confirmé propre par JP le 5/8/2026, première
 confirmation de ce type sur cette branche.
+
+## Plusieurs modèles Ollama cohabitent (feature 338, 17/8/2026)
+
+Ajouter un modèle ne demande **aucun code** : `GET /api/modeles` interroge Ollama
+et le menu recopie la liste telle quelle. Aucune liste blanche nulle part —
+`OLLAMA_MODELE_DEFAUT` dans `settings.py` est une constante **orpheline**,
+utilisée nulle part. Un `ollama pull qwen2.5` suffit.
+
+Mais deux défauts latents mordaient dès qu'un **second** modèle existait, c'est-à-dire
+exactement dans le cas d'usage visé — comparer deux modèles sur un même document.
+
+- **Collision des fichiers de sortie.** Le suffixe était `modele[:2]`, deux
+  caractères : `llama3.1` et `llama3.2` donnaient tous deux `ll`, `qwen2.5` et
+  `qwen3` donnaient `qw`. Deux modèles d'une même famille écrivaient donc dans le
+  MÊME `.md`, le MÊME `.state.json` et le MÊME cache. `suffixe_modele()` produit
+  désormais un slug lisible (`qwen2-5`, `llama3-1`) — lisible plutôt que haché,
+  ces fichiers vivant à côté des documents de l'utilisateur.
+  ⚠️ `build_output_path()` **consulte le disque** à dessein : un document traduit
+  avant ce changement garde son nom historique `_traduit_ll.md`, sinon sa reprise
+  repartirait de zéro dans un fichier neuf et l'ancienne deviendrait orpheline.
+
+- **État de reprise choisi au hasard.** `_trouver_etat_existant()` renvoyait le
+  PREMIER `.state.json` trouvé par un glob — un état arbitraire, dans l'ordre du
+  système de fichiers. Avec deux modèles, « Reprendre » pouvait poursuivre le
+  travail de l'AUTRE, et l'ajout de chapitres mélanger les deux. La fonction prend
+  maintenant le modèle et ne consulte que son état, sans repli sur un voisin.
+
+**Le choix du modèle est un réglage ordinaire**, sorti du mode avancé (web et
+macOS) : on en change d'un document à l'autre. Le moteur de conversion, lui, y
+reste — on n'y touche qu'en cas de PDF récalcitrant, et un mauvais choix y coûte
+cher (`tesseract` sur un PDF à couche texte donnerait de l'OCR là où le texte
+réel existe). Le sélecteur n'apparaît toutefois qu'une fois **un fichier ajouté
+au lot** : `#zone-lot` est masqué tant que le lot est vide.
+
+## Relecture comparative (feature 297, 17/8/2026)
+
+Bouton « ⇄ Comparer » du bandeau de lecture : la version d'origine à gauche, la
+traduction à droite, sur le **même chapitre**.
+
+Ça ne marche que parce que les index concordent : la Bibliothèque tire ses
+chapitres des marqueurs écrits par le moteur, qui portent l'index ET le titre de
+la **source** (feature 327). Le chapitre n de la traduction est donc le chapitre n
+de l'original. **Vérifier cet alignement avant de toucher au découpage** — sans
+lui, la comparaison afficherait deux passages sans rapport.
+
+`rendreContenu(markdown, cible)` prend une cible optionnelle : la colonne
+d'origine réutilise le même moteur de rendu plutôt qu'une seconde version qui
+divergerait. La source est lue via `POST /api/chapitres/contenu` sur
+`chemin_source` — aucune route ajoutée.
+
+## Contraintes d'interface à ne pas casser
+
+- **La barre supérieure doit rester sur UNE rangée.** Elle est `sticky` et la
+  Bibliothèque calcule sa hauteur avec `calc(100vh - var(--hauteur-barre))` : une
+  barre sur deux lignes décalerait toute la mise en page. Sous 800 px les onglets
+  défilent *dans* la barre (`min-width: 0` est indispensable — sans lui un élément
+  flex refuse de passer sous la largeur de son contenu) ; sous 590 px le texte du
+  logo s'efface pour que la navigation ne soit pas écrasée.
+- **`chemin_sortie` doit rester un vrai chemin sur le disque.** Le frontend en
+  dérive le dossier des images (`module-bibliotheque.js`, `urlImage`). Un `.md`
+  purement virtuel casserait l'affichage des images, en silence. À retenir pour la
+  phase 9, où le `.md` devient un export dérivé : il doit continuer d'être écrit.
+- **Le CSS et le JS sont versionnés par un paramètre d'URL** (`style.css?v=N`,
+  `module-bibliotheque.js?v=N`). Sans l'incrémenter, le navigateur sert l'ancienne
+  version — vérifié : une modification de CSS restait sans effet jusqu'à la bascule.
+- **Le bouton du mode avancé n'a de nom accessible que par son `aria-label`.** Le
+  texte « Mode avancé » voisin n'est pas un `<label>`, et il disparaît sous 800 px.
 
 ## Géré par bilbao — ne pas éditer à la main
 _Bloc régénéré par le cockpit bilbao (2026-07-14). La prose hors marqueurs n'est jamais touchée._
