@@ -59,7 +59,11 @@ def _base_depuis_source(chemin: str) -> str:
 STRATEGIE_CONDENSATION = "condensation"
 STRATEGIE_SECTIONS = "sections"
 STRATEGIES = (STRATEGIE_CONDENSATION, STRATEGIE_SECTIONS)
-STRATEGIE_PAR_DEFAUT = STRATEGIE_CONDENSATION
+# Défaut passé à « sections » le 19/8, après comparaison sur Chapter 9 : mêmes
+# 12 points mais couvrant TOUT le chapitre (condensation restait bloquée sur les
+# 20 premiers pour cent), questions typées et concrètes, et 203 s contre 400 s.
+# « condensation » reste disponible et inchangée.
+STRATEGIE_PAR_DEFAUT = STRATEGIE_SECTIONS
 
 
 def build_output_path(
@@ -87,9 +91,12 @@ def build_output_path(
     if os.path.exists(nouveau):
         return nouveau
 
-    # Repli 1 : une fiche déjà produite avec la stratégie par défaut, avant que
-    # la stratégie n'entre dans le nom.
-    if strategie == STRATEGIE_PAR_DEFAUT:
+    # Repli lié à CONDENSATION, jamais à « la stratégie par défaut du moment ».
+    # Les fiches produites avant que la stratégie n'entre dans le nom l'ont
+    # forcément été par condensation — c'était la seule qui existait. Ancrer ce
+    # repli sur STRATEGIE_PAR_DEFAUT ferait renvoyer une de ces fiches à qui
+    # demande « sections » le jour où le défaut change, c'est-à-dire aujourd'hui.
+    if strategie == STRATEGIE_CONDENSATION:
         sans_strategie = f"{base}_fiche_{suffixe_modele(modele)}.md"
         if os.path.exists(sans_strategie):
             return sans_strategie

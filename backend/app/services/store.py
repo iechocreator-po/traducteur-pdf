@@ -44,6 +44,16 @@ CHEMIN_BASE = os.path.normpath(CHEMIN_BASE)
 
 _local = threading.local()
 
+# Sérialise la MISE EN PLACE d'une connexion (bascule WAL + création du schéma).
+# `PRAGMA journal_mode=WAL` exige un verrou exclusif : si deux threads ouvrent
+# leur connexion en même temps sur une base fraîche, l'un des deux reçoit
+# « database is locked » — le busy_timeout ne protège pas contre ça, parce que le
+# conflit porte sur le changement de mode, pas sur une écriture.
+# Trouvé par le test de concurrence à 3 threads, qui échouait environ une fois
+# sur cinq. Ce n'est pas un artefact de test : le worker, le planificateur et les
+# threads d'uvicorn ouvrent leurs connexions au démarrage, donc en même temps.
+_verrou_ouverture = threading.Lock()
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
     chemin_sortie  TEXT PRIMARY KEY,
@@ -114,13 +124,17 @@ def connexion() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(CHEMIN_BASE), exist_ok=True)
     conn = sqlite3.connect(CHEMIN_BASE, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    with _verrou_ouverture:
+        # `busy_timeout` explicite AVANT la bascule WAL : le paramètre `timeout`
+        # de connect() ne s'applique pas encore de façon fiable à ce PRAGMA.
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA journal_mode=WAL")
     # NORMAL suffit en WAL : les écritures survivent au crash du PROCESS, seul un
     # arrêt brutal de la MACHINE peut coûter la dernière transaction. C'est le
     # compromis standard, et il évite un fsync par sous-morceau.
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.executescript(SCHEMA)
-    conn.commit()
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.executescript(SCHEMA)
+        conn.commit()
     _local.conn = conn
     _local.chemin = CHEMIN_BASE
     return conn

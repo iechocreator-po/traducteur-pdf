@@ -576,9 +576,18 @@ class EtudeRequest(BaseModel):
     # ne pouvaient qu'être vagues. Une valeur explicite reste respectée.
     nb_points: int = Field(default=0, ge=0, le=20)
     nb_questions: int = Field(default=0, ge=0, le=20)
-    # « condensation » (défaut, historique) ou « sections ». Le nom de la fiche
-    # porte la stratégie : les deux peuvent coexister pour être comparées.
-    strategie: str = "condensation"
+    # « sections » (défaut depuis le 19/8) ou « condensation ». Le nom de la
+    # fiche porte la stratégie : les deux coexistent pour être comparées.
+    # La valeur vient de la constante du service, pour qu'un futur changement de
+    # défaut n'ait pas à être répété ici.
+    strategie: str = ""
+
+    @model_validator(mode="after")
+    def defaut_strategie(self):
+        if not self.strategie:
+            from app.services.study_runner import STRATEGIE_PAR_DEFAUT
+            self.strategie = STRATEGIE_PAR_DEFAUT
+        return self
 
     @model_validator(mode="after")
     def valider_strategie(self):

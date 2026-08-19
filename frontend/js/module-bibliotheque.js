@@ -566,7 +566,10 @@
 
   function strategieChoisie() {
     const sel = $("ia-strategie");
-    return sel ? sel.value : "condensation";
+    // Repli aligné sur le défaut du backend (« sections » depuis le 19/8). Il ne
+    // sert que si le sélecteur est absent du DOM — mais un repli qui contredit
+    // le backend produirait une fiche différente de celle qu'on affiche.
+    return sel ? sel.value : "sections";
   }
 
   function urlStatutFiche() {

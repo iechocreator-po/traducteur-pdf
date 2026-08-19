@@ -52,6 +52,10 @@ def _attendre_statut(chemin_source, statuts, timeout=15.0):
 def _mock_generation(monkeypatch):
     monkeypatch.setattr(study_runner, "generer_points", _points_factices)
     monkeypatch.setattr(study_runner, "generer_questions", _questions_factices)
+    # « sections » étant le défaut depuis le 19/8, la consolidation est sur le
+    # chemin normal : sans ce faux, les tests taperaient sur Ollama pour de vrai.
+    monkeypatch.setattr(study_runner, "consolider_points",
+                        lambda listes, m, l, n: [p for section in listes for p in section][:n])
 
 
 def test_fiche_complete(tmp_path, monkeypatch):
@@ -199,6 +203,8 @@ def test_build_output_path_porte_le_modele_ET_la_strategie(tmp_path):
     """
     base = str(tmp_path / "livre")
     assert study_runner.build_output_path(f"{base}.pdf", "llama3.1").endswith(
+        "livre_fiche_llama3-1_sections.md"), "le défaut est « sections » depuis le 19/8"
+    assert study_runner.build_output_path(f"{base}.pdf", "llama3.1", "condensation").endswith(
         "livre_fiche_llama3-1_condensation.md")
     assert study_runner.build_output_path(f"{base}.pdf", "llama3.1", "sections").endswith(
         "livre_fiche_llama3-1_sections.md")
@@ -207,7 +213,7 @@ def test_build_output_path_porte_le_modele_ET_la_strategie(tmp_path):
             != study_runner.build_output_path(f"{base}.pdf", "qwen3"))
     # Le suffixe _converti_xx de la source est toujours retire.
     assert study_runner.build_output_path(f"{base}_converti_py.md", "mistral").endswith(
-        "livre_fiche_mistral_condensation.md")
+        "livre_fiche_mistral_sections.md")
 
 
 def test_une_fiche_d_avant_le_changement_garde_son_nom(tmp_path):
@@ -219,9 +225,14 @@ def test_une_fiche_d_avant_le_changement_garde_son_nom(tmp_path):
     ancienne = tmp_path / "livre_fiche_ll.md"
     ancienne.write_text("# fiche historique\n", encoding="utf-8")
 
-    assert study_runner.build_output_path(f"{base}.pdf", "llama3.1") == str(ancienne)
-    # Mais une AUTRE strategie prend bien un nom neuf.
-    assert study_runner.build_output_path(f"{base}.pdf", "llama3.1", "sections").endswith(
+    # Le repli est ancré sur CONDENSATION, jamais sur « le défaut du moment » :
+    # ces fiches ont forcément été produites par condensation, c'était la seule
+    # stratégie qui existait. Depuis que « sections » est le défaut, ancrer le
+    # repli dessus aurait renvoyé une fiche de condensation à qui demande
+    # « sections ».
+    assert study_runner.build_output_path(f"{base}.pdf", "llama3.1", "condensation") == str(ancienne)
+    # Et « sections » — désormais le défaut — prend bien un nom neuf.
+    assert study_runner.build_output_path(f"{base}.pdf", "llama3.1").endswith(
         "livre_fiche_llama3-1_sections.md")
 
 
@@ -305,11 +316,18 @@ def test_la_strategie_sections_lit_le_TEXTE_pas_des_notes(tmp_path, monkeypatch)
     # Ce qu'on exige : elle n'a PAS servi aux points.
 
 
-def test_la_strategie_par_defaut_reste_la_condensation(tmp_path, monkeypatch):
-    """Aucune régression pour qui ne demande rien : le comportement ne change pas."""
+def test_la_strategie_par_defaut_est_desormais_sections(tmp_path, monkeypatch):
+    """
+    CHANGEMENT DE CONTRAT (19/8) : « sections » devient le défaut. Mesuré sur
+    Chapter 9 — mêmes 12 points mais couvrant TOUT le chapitre (condensation
+    restait bloquée sur les 20 premiers pour cent) et 203 s contre 400 s.
+    Qui ne demande rien ne condense donc plus.
+    """
     condensations = []
     monkeypatch.setattr(study_runner, "generer_points", _points_factices)
     monkeypatch.setattr(study_runner, "generer_questions", _questions_factices)
+    monkeypatch.setattr(study_runner, "consolider_points",
+                        lambda listes, m, l, n: [p for s in listes for p in s][:n])
     monkeypatch.setattr(study_runner, "condenser_texte",
                         lambda t, m, l: condensations.append(t) or "notes")
 
@@ -320,9 +338,9 @@ def test_la_strategie_par_defaut_reste_la_condensation(tmp_path, monkeypatch):
     study_runner.demarrer_etude(
         source_path=str(source), chapitres_selectionnes=[0], modele="llama3.1",
     )
-    _attendre_statut(str(source), {StatutJob.TERMINE}, timeout=10)
+    _attendre_statut(str(source), {StatutJob.TERMINE})
 
-    assert condensations, "la stratégie par défaut doit toujours condenser"
+    assert condensations == [], "le défaut condense encore — « sections » n'est pas actif"
 
 
 def test_les_deux_strategies_produisent_deux_fiches_distinctes(tmp_path, monkeypatch):
@@ -413,8 +431,9 @@ def test_la_condensation_garde_son_chemin_pour_les_questions(tmp_path, monkeypat
 
     study_runner.demarrer_etude(
         source_path=str(source), chapitres_selectionnes=[0], modele="llama3.1",
+        strategie=study_runner.STRATEGIE_CONDENSATION,
     )
     _attendre_statut(str(source), {StatutJob.TERMINE})
 
-    assert condensations, "la stratégie par défaut doit toujours condenser"
+    assert condensations, "« condensation » demandée explicitement doit condenser"
     assert modes == [False], "la condensation ne doit pas partir des points"
