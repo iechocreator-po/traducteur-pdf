@@ -325,16 +325,28 @@ def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
 
                 # Étape 2 : questions de compréhension
                 _verifier_interruption(etat)
-                # Les questions travaillent sur un texte de taille maîtrisée : même
-                # avec « sections », un chapitre de 55 000 caractères ne tient pas
-                # dans un seul prompt. Les points consolidés, eux, sont transmis en
-                # contexte — ils portent désormais la substance du chapitre.
-                texte_q = texte_condense()
+                # Un chapitre de 55 000 caractères ne tient pas dans un prompt de
+                # questions : il faut une matière de taille maîtrisée.
+                #
+                # « condensation » utilise le texte condensé, comme avant.
+                # « sections » part de ses POINTS CONSOLIDÉS — ils sont ancrés dans
+                # le texte réel et portent la substance du chapitre. Ça supprime la
+                # condensation de son chemin : elle n'en avait besoin QUE pour les
+                # questions, et c'est ce qui la rendait 13 % plus lente (454 s
+                # contre 400 s sur Chapter 9). Mesuré aussi : les deux stratégies
+                # produisaient des questions presque identiques, parce qu'elles
+                # lisaient toutes deux le même texte condensé — le gain de
+                # « sections » ne les atteignait pas.
+                depuis_points = (
+                    etat.strategie == STRATEGIE_SECTIONS and bool(chap.points)
+                )
+                texte_q = "" if depuis_points else texte_condense()
                 nb_q = etat.nb_questions or calculer_nb_questions(len(contenu))
                 # Les points sont transmis : les questions ne doivent ni les
                 # reformuler, ni porter deux fois sur le même fait.
                 chap.questions = generer_questions(
-                    texte_q, etat.modele_ollama, etat.langue_fiche, nb_q, points=chap.points
+                    texte_q, etat.modele_ollama, etat.langue_fiche, nb_q,
+                    points=chap.points, depuis_les_points=depuis_points,
                 )
                 _fin_etape()
                 chap.etape = "termine"

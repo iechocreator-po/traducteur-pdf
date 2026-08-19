@@ -131,6 +131,7 @@ def generer_points(texte: str, modele: str, langue: str, nb_points: int) -> list
 def generer_questions(
     texte: str, modele: str, langue: str, nb_questions: int,
     points: list[str] | None = None,
+    depuis_les_points: bool = False,
 ) -> list[QuestionEtude]:
     """
     Génère des questions de compréhension avec leur réponse attendue (corrigé).
@@ -139,6 +140,16 @@ def generer_questions(
     ne les reformulent, et sert de contexte anti-redondance — mesuré le 18/8,
     qwen2.5 produisait sinon deux questions sur le MÊME fait (les ponts de
     Königsberg posés deux fois de suite).
+
+    `depuis_les_points` : le matériau EST la liste des points, pas un texte.
+    Utilisé par la stratégie « sections », dont les points sont ancrés dans le
+    texte réel du chapitre. Mesuré le 18/8 sur Chapter 9 : les deux stratégies
+    produisaient des questions presque identiques — et pour cause, elles
+    lisaient toutes deux le MÊME texte condensé. Le gain de « sections » ne les
+    atteignait pas. En partant des points, on supprime la condensation du chemin
+    de cette stratégie : elle devient à la fois meilleure et plus rapide (elle
+    était 13 % plus lente, 454 s contre 400 s, uniquement à cause de cette
+    condensation dont elle n'avait besoin que pour les questions).
 
     Les types sont IMPOSÉS et ordonnés. Sans ça, les trois questions étaient du
     rappel déguisé, toutes introduites par « selon le texte » — alors même que
@@ -156,11 +167,33 @@ def generer_questions(
     consignes_types = "\n".join(
         f"   Q{i + 1} = {types[i % len(types)]}" for i in range(nb_questions)
     )
-    contexte_points = (
-        "\nLes points déjà retenus (à NE PAS simplement reformuler) :\n"
-        + "\n".join(f"- {p}" for p in points)
-        if points else ""
-    )
+    if depuis_les_points:
+        # Le matériau EST la liste des points. Dire « ne reformule pas les
+        # points » ici serait contradictoire : on demande au contraire de les
+        # EXPLOITER, en développant ce qu'ils énoncent plutôt qu'en les répétant.
+        materiau = (
+            "Voici les points clés d'un chapitre, chacun tiré directement de son "
+            "texte. Ils constituent la matière de ton quiz.\n\n"
+            + "\n".join(f"- {p}" for p in (points or []))
+        )
+        regle_reponse = (
+            "5. La réponse DÉVELOPPE le point concerné en 2 à 4 phrases — elle "
+            "l'explique ou en tire les conséquences, elle ne le répète pas mot "
+            "pour mot. N'ajoute aucun fait absent des points fournis."
+        )
+        contexte_points = ""
+    else:
+        materiau = texte
+        regle_reponse = (
+            "5. La réponse est complète et se suffit à elle-même, en 2 à 4 "
+            "phrases, appuyée uniquement sur le texte fourni."
+        )
+        contexte_points = (
+            "\nLes points déjà retenus (à NE PAS simplement reformuler) :\n"
+            + "\n".join(f"- {p}" for p in points)
+            if points else ""
+        )
+
     system = (
         f"Tu es un pédagogue qui prépare un quiz de révision. Tu réponds "
         f"UNIQUEMENT en JSON valide, en {langue}, sans texte hors du JSON.\n"
@@ -171,11 +204,10 @@ def generer_questions(
         f"3. INTERDIT de commencer une question par « Selon le texte » ou "
         f"« D'après le texte ».\n"
         f"4. INTERDIT : deux questions portant sur le même fait ou le même exemple.\n"
-        f"5. La réponse est complète et se suffit à elle-même, en 2 à 4 phrases, "
-        f"appuyée uniquement sur le texte fourni."
+        f"{regle_reponse}"
         f"{contexte_points}"
     )
-    resultat = _generer_valide(modele, system, texte, _ReponseQuestions)
+    resultat = _generer_valide(modele, system, materiau, _ReponseQuestions)
     return resultat.questions[:nb_questions]
 
 

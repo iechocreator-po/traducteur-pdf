@@ -29,7 +29,7 @@ def _points_factices(texte, modele, langue, nb):
     return [f"Point {i + 1}" for i in range(nb)]
 
 
-def _questions_factices(texte, modele, langue, nb, points=None):
+def _questions_factices(texte, modele, langue, nb, points=None, depuis_les_points=False):
     # `points` est transmis par le runner depuis le 18/8 : les questions
     # reçoivent les points déjà retenus pour ne pas les reformuler.
     return [QuestionEtude(question=f"Question {i + 1} ?", reponse=f"Réponse {i + 1}.") for i in range(nb)]
@@ -346,3 +346,75 @@ def test_les_deux_strategies_produisent_deux_fiches_distinctes(tmp_path, monkeyp
     assert len(fiches) == 2, f"les deux fiches devraient coexister, trouvé : {fiches}"
     assert any("condensation" in f for f in fiches)
     assert any("sections" in f for f in fiches)
+
+
+def test_la_strategie_sections_ne_condense_plus_JAMAIS(tmp_path, monkeypatch):
+    """
+    Suite du 19/8. « sections » ne condensait plus pour les POINTS, mais encore
+    pour les QUESTIONS — d'où deux conséquences mesurées sur Chapter 9 :
+    elle était 13 % plus lente que « condensation » (454 s contre 400 s), et
+    ses questions étaient presque identiques aux siennes, puisque les deux
+    lisaient le même texte condensé.
+
+    Les questions partent désormais des POINTS CONSOLIDÉS, ancrés dans le texte
+    réel. La condensation disparaît complètement de ce chemin.
+    """
+    condensations = []
+    materiaux_questions = []
+
+    def questions_tracees(texte, modele, langue, nb, points=None, depuis_les_points=False):
+        materiaux_questions.append({"texte": texte, "depuis_points": depuis_les_points,
+                                    "nb_points": len(points or [])})
+        return [QuestionEtude(question=f"Q{i} ?", reponse=f"R{i}.") for i in range(nb)]
+
+    monkeypatch.setattr(study_runner, "generer_points",
+                        lambda t, m, l, n: [f"point ancré {i}" for i in range(n)])
+    monkeypatch.setattr(study_runner, "generer_questions", questions_tracees)
+    monkeypatch.setattr(study_runner, "condenser_texte",
+                        lambda t, m, l: condensations.append(t) or "notes")
+    monkeypatch.setattr(study_runner, "consolider_points",
+                        lambda listes, m, l, n: [p for s in listes for p in s][:n])
+
+    # Chapitre largement au-dessus du seuil de condensation.
+    source = tmp_path / "long.md"
+    source.write_text("# Titre\n\n" + ("phrase alpha. " * 1200), encoding="utf-8")
+
+    study_runner.demarrer_etude(
+        source_path=str(source), chapitres_selectionnes=[0],
+        modele="llama3.1", strategie=study_runner.STRATEGIE_SECTIONS,
+    )
+    _attendre_statut(str(source), {StatutJob.TERMINE})
+
+    assert condensations == [], (
+        "« sections » condense encore — c'est ce qui la rendait plus lente ET "
+        "donnait des questions identiques à celles de « condensation »"
+    )
+    assert len(materiaux_questions) == 1
+    assert materiaux_questions[0]["depuis_points"] is True
+    assert materiaux_questions[0]["nb_points"] > 0, "les points n'ont pas été transmis"
+
+
+def test_la_condensation_garde_son_chemin_pour_les_questions(tmp_path, monkeypatch):
+    """La stratégie historique n'est pas touchée : elle condense toujours."""
+    condensations = []
+    modes = []
+
+    def questions_tracees(texte, modele, langue, nb, points=None, depuis_les_points=False):
+        modes.append(depuis_les_points)
+        return [QuestionEtude(question="Q ?", reponse="R.") for _ in range(nb)]
+
+    monkeypatch.setattr(study_runner, "generer_points", _points_factices)
+    monkeypatch.setattr(study_runner, "generer_questions", questions_tracees)
+    monkeypatch.setattr(study_runner, "condenser_texte",
+                        lambda t, m, l: condensations.append(t) or "notes")
+
+    source = tmp_path / "long.md"
+    source.write_text("# Titre\n\n" + ("mot " * 4000), encoding="utf-8")
+
+    study_runner.demarrer_etude(
+        source_path=str(source), chapitres_selectionnes=[0], modele="llama3.1",
+    )
+    _attendre_statut(str(source), {StatutJob.TERMINE})
+
+    assert condensations, "la stratégie par défaut doit toujours condenser"
+    assert modes == [False], "la condensation ne doit pas partir des points"
