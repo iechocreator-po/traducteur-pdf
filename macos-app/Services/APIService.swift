@@ -246,25 +246,50 @@ actor APIService {
     }
 
     /// Enfile la génération points clés + questions d'un ou plusieurs chapitres.
+    ///
+    /// ⚠️ `nbPoints`/`nbQuestions` valent 0 par défaut, et c'est VOLONTAIRE :
+    /// le backend interprète 0 comme AUTOMATIQUE et dérive le nombre de la
+    /// longueur du chapitre (3/5/8/12 points). Les valeurs 5 et 3 étaient
+    /// codées en dur ici, si bien qu'un chapitre de livre de 55 000 caractères
+    /// restait à 5 points sur macOS — exactement le « trop simpliste » que le
+    /// dimensionnement automatique a corrigé côté web.
+    ///
+    /// `strategie` vide = défaut du backend (« sections »). La passer permet de
+    /// produire les deux fiches d'un même chapitre et de les comparer.
     func genererEtude(cheminMd: String, chapitres: [Int], modele: String,
-                      langueFiche: String, nbPoints: Int = 5, nbQuestions: Int = 3) async throws {
-        let data = try await postAny("etude", body: [
+                      langueFiche: String, strategie: String = "",
+                      nbPoints: Int = 0, nbQuestions: Int = 0) async throws {
+        var corps: [String: Any] = [
             "chemin_md": cheminMd,
             "chapitres_selectionnes": chapitres,
             "modele_ollama": modele,
             "langue_fiche": langueFiche,
             "nb_points": nbPoints,
             "nb_questions": nbQuestions,
-        ])
+        ]
+        if !strategie.isEmpty { corps["strategie"] = strategie }
+        let data = try await postAny("etude", body: corps)
         if let err = try? decoder.decode(APIDetailErreur.self, from: data) {
             throw NSError(domain: "APIService", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: err.detail])
         }
     }
 
-    func etudeStatut(cheminSource: String) async throws -> EtatJobEtude? {
+    /// État de la fiche pour ce document.
+    ///
+    /// ⚠️ Sans `modele` ET `strategie`, la route retombe sur « la fiche la plus
+    /// récente », quels que soient son modèle et sa stratégie. Dès qu'un
+    /// document en a deux — le cas normal depuis que les stratégies coexistent —
+    /// on en affichait donc une AU HASARD. Même défaut que celui corrigé côté
+    /// web, et que la feature 338 avait corrigé côté traduction.
+    func etudeStatut(
+        cheminSource: String, modele: String = "", strategie: String = ""
+    ) async throws -> EtatJobEtude? {
         var components = URLComponents(url: base.appendingPathComponent("etude/statut"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "chemin_source", value: cheminSource)]
+        var items = [URLQueryItem(name: "chemin_source", value: cheminSource)]
+        if !modele.isEmpty { items.append(URLQueryItem(name: "modele", value: modele)) }
+        if !strategie.isEmpty { items.append(URLQueryItem(name: "strategie", value: strategie)) }
+        components.queryItems = items
         let data = try await executer(URLRequest(url: components.url!))
         if data.isEmpty || data == Data("null".utf8) { return nil }
         return try decoder.decode(EtatJobEtude.self, from: data)
