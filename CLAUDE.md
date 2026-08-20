@@ -623,11 +623,12 @@ fantôme si le menu a changé. Le web ne l'a pas : il renvoie `doc.modele`.
 **F4 et F6 sont corrigés depuis le 29/7** (branche `feat/architecture-cible`,
 voir plus bas) ; la liste de reprise macOS aussi.
 
-## Pertes de données réelles — trois pièges vérifiés (29-30/7/2026)
+## Pertes de données réelles — quatre pièges vérifiés (29-30/7 et 18/8/2026)
 
-Ces trois défauts ont **détruit ou amputé du travail pour de vrai**, pas en
+Ces quatre défauts ont **détruit ou amputé du travail pour de vrai**, pas en
 théorie. Tous corrigés sur `feat/architecture-cible`, tous couverts par un test
-de non-régression. À lire avant de toucher à l'extraction ou aux uploads.
+de non-régression. À lire avant de toucher à l'extraction, aux uploads ou à la
+migration.
 
 - **Un upload rejeté détruisait les traductions déjà présentes**
   (`services/uploads.py`). Le dossier d'upload est indexé sur le **contenu**
@@ -663,21 +664,45 @@ de non-régression. À lire avant de toucher à l'extraction ou aux uploads.
   `extract_image`), assemblées page par page — les deux figures complètes, à
   leur résolution d'origine (500×271 et 500×257).
 
+- **La migration vers le store perdait 90 % d'un livre, en annonçant un succès**
+  (`backend/scripts/migrer_vers_store.py`, 18/8). Le corps était tronqué à
+  l'**annexe des liens**, supposée en fin de fichier. Elle ne l'est pas : un
+  document traduit **en plusieurs passes** la voit suivie d'autres chapitres.
+  Mesuré sur un livre de 716 Ko : **7 chapitres migrés sur 22**, 78 043
+  caractères au lieu de 691 654 — et le script affichait « 3 documents migrés ».
+  Le même défaut existait dans `translation_runner._extraire_annexe_liens()`,
+  désormais borné par `_RE_MARQUEUR_CHAPITRE`. ⚠️ **Ne jamais supposer qu'un
+  marqueur est en fin de fichier** parce qu'il y est *la première fois*.
+  Ce défaut n'a été vu que par un **contrôle aller-retour** (régénérer depuis la
+  base et comparer à l'original, au caractère près) — un simple compte de
+  documents migrés le déclarait vert, et il cachait un jumeau qui *dupliquait*
+  les mêmes chapitres.
+
 **Conséquence sur la référence golden** : `tests/reference/Chapter9_*_reference.md`
 encodait ces défauts, donc validait une sortie défectueuse contre une référence
 défectueuse. Régénérée le 31/7 (`RESULTS_2026-07-31.txt`) — source 50 950 octets,
 traduit 60 019. Après tout correctif d'extraction, **régénérer la référence**,
 sinon elle fige le défaut.
 
-## Architecture cible — branche `feat/architecture-cible` (29-31/7/2026)
+## Architecture cible — branche `feat/architecture-cible` (29/7 → 20/8/2026)
 
 Mise en œuvre des 12 principes de l'audit. Plan complet dans
 [docs/architecture-cible-plan.md](docs/architecture-cible-plan.md), état dans
 [docs/architecture-cible-etat.md](docs/architecture-cible-etat.md).
-**Phases 1 à 7 livrées** ; restent la génération des clients (⑤) et le store
-transactionnel SQLite (②). `pytest` : 267 verts.
+**Phases 1 à 7 et 9 livrées** ; reste la génération des clients (⑤, feature 328).
+`pytest` : **315 verts**.
 
-Nouveaux modules backend, à connaître avant d'en écrire un quatrième :
+**F3 est fermé depuis la phase 9** (17-18/8, six étapes) — c'était le dernier
+défaut structurel ouvert. Écrire un chapitre et avancer `chapitres_traduits`
+sont désormais **une seule transaction** (`store.ecrire_chapitre_et_etat`), et
+l'écriture du `.md` est idempotente.
+
+⚠️ **La double écriture JSON + SQLite est encore active, et le JSON reste la
+source de vérité.** Le store est alimenté et la migration faite, mais rien ne
+lit encore le store en premier. Le retrait du JSON est la moitié restante de la
+feature 328 — il n'apporte qu'un gain de propreté, aucune garantie nouvelle.
+
+Nouveaux modules backend, à connaître avant d'en écrire un sixième :
 
 | Module | Rôle |
 |---|---|
@@ -686,6 +711,22 @@ Nouveaux modules backend, à connaître avant d'en écrire un quatrième :
 | `services/recuperation.py` | Récupération au démarrage des **quatre** familles de jobs (F7). |
 | `services/energie.py` | `caffeinate` pendant le travail. Le réveil programmé (`pmset`) exige les droits admin : la commande est **rendue, jamais exécutée**. |
 | `api/erreurs.py` | Erreurs typées `{code, message, remediation}`. `detail` est conservé pour compat. |
+| `services/store.py` | Store SQLite (WAL, une connexion **par thread**). Porte les morceaux traduits, l'état et le registre. `ecrire_chapitre_et_etat()` fait le tout en une transaction — c'est ce qui ferme F3. |
+
+⚠️ **`PRAGMA journal_mode=WAL` exige un verrou exclusif**, et `busy_timeout` ne
+couvre PAS ce conflit-là : sans le `_verrou_ouverture` (module) qui sérialise
+l'ouverture, le test à 3 threads échouait `database is locked` **1 fois sur 5**.
+Le worker, le planificateur et uvicorn ouvrent tous leur connexion au démarrage,
+donc simultanément. Ne pas retirer ce verrou en le croyant redondant.
+
+⚠️ **La connexion est liée au chemin de base**, pas seulement au thread : un
+changement de `CHEMIN_BASE` (tests) doit rouvrir, sinon un thread garde la base
+précédente. Voir `reinitialiser_pour_tests()`.
+
+Migration : `backend/scripts/migrer_vers_store.py`, **dry-run par défaut**,
+`--appliquer` obligatoire pour écrire. ⚠️ Il a perdu 90 % d'un livre avant
+correction — voir la section « Pertes de données réelles » : l'annexe des liens
+**n'est pas forcément en fin de fichier**.
 
 ⚠️ **Ne JAMAIS rappeler `demarrer_traduction()` directement** depuis une route ou
 le planificateur : c'est ainsi que le planificateur avait fini par contourner le
@@ -701,8 +742,13 @@ nouvelle route `GET /api/scheduler/sante` (dernier tick, prochaine échéance,
 pas Xcode.app sélectionné — `sudo xcode-select -s` demanderait le mot de passe
 admin de JP). Tout le Swift continue de passer par
 `swiftc -typecheck -sdk $(xcrun --show-sdk-path)`, ce qui attrape les erreurs de
-type mais **pas** les erreurs de projet Xcode ni l'exécution — **build réel
-confirmé par JP dans Xcode le 5/8/2026**, voir ci-dessous.
+type mais **pas** les erreurs de projet Xcode ni l'exécution — **builds réels
+confirmés par JP dans Xcode le 5/8 puis le 20/8/2026**, voir ci-dessous.
+
+⚠️ Le correctif macOS de la feature 341 (20/8) est **postérieur** à la dernière
+confirmation : il n'a passé que `swiftc -typecheck`. Ce filet a déjà laissé
+passer **deux** erreurs de build (un fichier absent du projet Xcode le 31/7, un
+`import Combine` manquant le 5/8) — donc un build Xcode reste à faire.
 
 ### F8 nettoyé, message sur le réveil programmé, et un 2ᵉ piège de typecheck (5/8/2026)
 
@@ -781,6 +827,76 @@ lui, la comparaison afficherait deux passages sans rapport.
 d'origine réutilise le même moteur de rendu plutôt qu'une seconde version qui
 divergerait. La source est lue via `POST /api/chapitres/contenu` sur
 `chemin_source` — aucune route ajoutée.
+
+## Fiches d'étude — deux stratégies cohabitent (18-19/8/2026)
+
+`services/etude.py` sait produire les points clés de deux façons, et les deux
+restent disponibles pour être **comparées sur un même chapitre** :
+
+- **`condensation`** (historique) : le chapitre est condensé, puis les points
+  sont tirés du condensé.
+- **`sections`** (**défaut depuis le 19/8**, `STRATEGIE_PAR_DEFAUT`) : le
+  chapitre est découpé, chaque section donne ses points, puis
+  `consolider_points()` fusionne.
+
+Le déclencheur était un vrai retour — « le contenu généré est trop simpliste ».
+Mesuré sur Chapter 9 : `condensation` restait bloquée sur les **20 premiers pour
+cent** du chapitre (7 points sur 12 décrivaient le protocole de coloration de
+Cajal), là où `sections` couvre tout, en **203 s contre 400 s**. Ce n'était donc
+pas un problème de modèle mais de **stratégie** — changer de modèle n'y faisait
+rien.
+
+Deux dimensionnements automatiques : `calculer_nb_points()` (3/5/8/12) et
+`calculer_nb_questions()` (2/3/4/6). Côté API, **`nb_points`/`nb_questions` à 0
+= automatique** ; une valeur explicite reste respectée.
+
+⚠️ **Pièges à ne pas « corriger »** :
+
+- `schemas.py` : `EtatJobEtude.strategie` vaut **`"condensation"`**, PAS
+  `STRATEGIE_PAR_DEFAUT`. C'est le défaut de **désérialisation** des
+  `.state.json` écrits avant que la stratégie n'existe — ils ont forcément été
+  produits par condensation. L'aligner sur le défaut du moment relabelliserait
+  d'anciennes fiches en « sections ».
+- `study_runner.build_output_path()` : le repli vers le nom historique
+  (`_fiche_<modele>.md`, sans stratégie) est ancré sur `STRATEGIE_CONDENSATION`,
+  pour la même raison. Même piège, même conséquence.
+- Le nom du fichier porte **modèle ET stratégie**
+  (`<base>_fiche_<modele-slug>_<strategie>.md`) — c'est ce qui permet aux deux
+  fiches de coexister. Le suffixe était `modele[:2]`, le défaut de la feature
+  338 répliqué ici.
+- `study_runner` compare les options (`memes_options`) et **efface
+  silencieusement** les fiches déjà générées quand elles divergent. D'où la
+  règle ci-dessous.
+
+## Les options suivent le DOCUMENT, jamais les menus (F6, feature 341, 20/8/2026)
+
+Règle générale du produit, violée quatre fois à ce jour : **toute option envoyée
+au backend pour un document existant se lit sur le document** (`doc.modele`,
+`doc.langue_cible`), jamais sur le menu affiché à l'écran.
+
+Changer un menu ne doit pas changer le sort d'un travail déjà commencé. Deux
+conséquences distinctes selon le domaine : en **traduction**, `build_output_path`
+dérive le nom du fichier du modèle, donc un menu changé crée un fichier fantôme
+(c'est F6) ; en **étude**, `study_runner` efface les fiches déjà générées.
+
+Historique : corrigé côté web, puis sur macOS pour `reprendre()` et
+`basculerPause()` le 1/8 (F6), puis **de nouveau** sur macOS pour
+`genererFiche()` le 20/8 — une quatrième fonction que le correctif de F6 n'avait
+pas touchée. **Corriger les appelants connus d'un défaut ne protège pas les
+suivants**, et rien dans le code ne fait respecter cette règle.
+
+**Parité macOS des fiches (feature 341)** — trois autres écarts corrigés le même
+jour, tous silencieux : `strategie` n'était pas envoyée ; `nbPoints`/`nbQuestions`
+étaient codés en dur à 5 et 3, donc **le dimensionnement automatique ne
+s'appliquait pas** (5 points pour un chapitre de 55 000 caractères) ; et
+`etudeStatut()` ne ciblait ni modèle ni stratégie, si bien que la route retombait
+sur « la plus récente » et affichait **une fiche sur deux au hasard**.
+
+⚠️ **Un paramètre optionnel omis ne se signale jamais.** Il prend le défaut du
+serveur, raisonnable en général et faux ici. C'est ce qui rend cette classe de
+défaut durable : rien ne casse, le résultat est seulement moins bon. Quand une
+route gagne un paramètre, **vérifier les DEUX clients** — c'est toujours macOS
+qui décroche, parce que le travail est fait d'abord sur le web.
 
 ## Contraintes d'interface à ne pas casser
 
