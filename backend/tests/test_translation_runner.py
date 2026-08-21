@@ -128,6 +128,32 @@ def test_progression_avance_au_grain_du_sous_morceau(tmp_path, monkeypatch):
     assert intermediaires, f"aucune progression intermédiaire observée : {vues}"
 
 
+def test_demarrer_traduction_enregistre_le_document_dans_le_store(tmp_path, monkeypatch):
+    """
+    Feature 328 (double écriture du registre) : `store.enregistrer_document`
+    doit être appelé au lancement, comme `bibliotheque.enregistrer_document` —
+    seul moyen pour `bibliotheque._charger` de disposer un jour d'un filet de
+    récupération pour ce document.
+    """
+    from app.services import store
+
+    source = tmp_path / "doc.md"
+    source.write_text("# Section 0\n\n" + "mot " * 200, encoding="utf-8")
+
+    def traducteur(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+
+    _, sortie = _demarrer(str(source))
+    _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+
+    doc = store.lire_document(sortie)
+    assert doc is not None, "le document aurait dû être enregistré dans le store aussi"
+    assert doc["chemin_source"] == str(source)
+    assert doc["modele"] == "llama3.1"
+
+
 def test_document_sans_titre_traduit_en_chapitre_implicite(tmp_path, monkeypatch):
     """Un document sans aucun titre `#` est traité comme un chapitre implicite
     couvrant tout le texte, et se termine normalement."""

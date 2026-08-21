@@ -202,6 +202,21 @@ def lire_etat(chemin_sortie: str) -> str | None:
     return ligne["donnees"] if ligne else None
 
 
+def lire_etat_horodate(chemin_sortie: str) -> tuple[str, float] | None:
+    """
+    (donnees, maj_a) du store, ou None. Sert à `job_manager.charger_etat` pour
+    décider si le store est réellement à jour par rapport au JSON, plutôt que de
+    le préférer à l'aveugle — voir la feature 328 (bascule lecture) : le JSON
+    est TOUJOURS écrit avec succès avant que le store ne soit tenté, donc le
+    store peut être en retard (écriture ratée en silence) mais jamais en avance
+    sur une écriture qu'il n'a pas encore vue.
+    """
+    ligne = connexion().execute(
+        "SELECT donnees, maj_a FROM etats WHERE chemin_sortie = ?", (chemin_sortie,)
+    ).fetchone()
+    return (ligne["donnees"], ligne["maj_a"]) if ligne else None
+
+
 def ecrire_etat(chemin_sortie: str, donnees: str) -> None:
     conn = connexion()
     with conn:
@@ -271,3 +286,26 @@ def enregistrer_document(
             "VALUES (?, ?, ?, ?, ?, ?)",
             (chemin_sortie, chemin_source, modele, langue_source, langue_cible, time.time()),
         )
+
+
+def lire_document(chemin_sortie: str) -> dict | None:
+    ligne = connexion().execute(
+        "SELECT chemin_sortie, chemin_source, modele, langue_source, langue_cible, maj_a "
+        "FROM documents WHERE chemin_sortie = ?",
+        (chemin_sortie,),
+    ).fetchone()
+    return dict(ligne) if ligne else None
+
+
+def lister_documents() -> list[dict]:
+    """
+    Registre tel que connu du store. N'a PAS les mêmes champs que
+    `bibliotheque.json` (pas de `nom`, `cree_a`, `qualite` — voir feature 328) :
+    ce n'est PAS un remplacement direct, seulement un filet de récupération si
+    le JSON est illisible. Voir `bibliotheque._charger`.
+    """
+    lignes = connexion().execute(
+        "SELECT chemin_sortie, chemin_source, modele, langue_source, langue_cible, maj_a "
+        "FROM documents"
+    ).fetchall()
+    return [dict(l) for l in lignes]

@@ -724,6 +724,18 @@ def demarrer_traduction(
         langue_source=langue_source.value,
         langue_cible=langue_cible.value,
     )
+    # Double écriture (feature 328) : best-effort, ne doit jamais casser le
+    # lancement d'un job — le JSON ci-dessus a déjà réussi.
+    try:
+        store.enregistrer_document(
+            chemin_sortie=output_path,
+            chemin_source=source_path,
+            modele=modele,
+            langue_source=langue_source.value,
+            langue_cible=langue_cible.value,
+        )
+    except Exception as e:  # noqa: BLE001
+        print(f"[traduction] enregistrement store ignoré : {e}", flush=True)
 
     tous_chapitres, implicite = _chapitres_ou_implicite(source_path, extracteur)
     tous_index = {c["index"] for c in tous_chapitres}

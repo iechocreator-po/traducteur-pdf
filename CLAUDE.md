@@ -690,17 +690,48 @@ Mise en œuvre des 12 principes de l'audit. Plan complet dans
 [docs/architecture-cible-plan.md](docs/architecture-cible-plan.md), état dans
 [docs/architecture-cible-etat.md](docs/architecture-cible-etat.md).
 **Phases 1 à 7 et 9 livrées** ; reste la génération des clients (⑤, feature 328).
-`pytest` : **315 verts**.
+`pytest` : **320 verts**.
 
 **F3 est fermé depuis la phase 9** (17-18/8, six étapes) — c'était le dernier
 défaut structurel ouvert. Écrire un chapitre et avancer `chapitres_traduits`
 sont désormais **une seule transaction** (`store.ecrire_chapitre_et_etat`), et
 l'écriture du `.md` est idempotente.
 
-⚠️ **La double écriture JSON + SQLite est encore active, et le JSON reste la
-source de vérité.** Le store est alimenté et la migration faite, mais rien ne
-lit encore le store en premier. Le retrait du JSON est la moitié restante de la
-feature 328 — il n'apporte qu'un gain de propreté, aucune garantie nouvelle.
+**La lecture est store-primaire depuis le 21/8 (feature 328, terminée) — le
+JSON reste écrit indéfiniment, par choix.** Correction au passage : cette
+section affirmait « le store est alimenté et la migration faite », ce qui
+était faux — vérifié directement, `toledo.db` avait ses 4 tables vides malgré
+7 entrées dans `bibliotheque.json`. `scripts/migrer_vers_store.py --appliquer`
+n'avait jamais tourné dans cet environnement. Lancée puis vérifiée par un
+aller-retour **octet pour octet** (`scripts/verifier_migration_store.py`,
+lecture seule — ne jamais utiliser `_regenerer_sortie` pour ça, elle écrit sur
+le vrai fichier) : 3 documents réels migrés, 2/3 identiques à l'octet près, le
+troisième avec un unique écart d'un saut de ligne au raccord d'une ancienne
+annexe insérée en milieu de fichier (traduction en plusieurs passes,
+antérieure à la phase 9) — contenu des 22 chapitres et de l'annexe retrouvé
+intégralement, donc **pas** une récidive du bug des 90 %, une simple
+différence de mise en forme.
+
+Une fois la migration vérifiée, la bascule de lecture a été faite pour l'état
+(`job_manager.charger_etat`) et le registre (`bibliotheque._charger`) — mais
+**pas de la même façon**. Pour l'état, le store ne fait foi que s'il est **au
+moins aussi récent** que le JSON (`store.lire_etat_horodate`, comparé au mtime
+du `.state.json`) : comme le JSON est toujours écrit avec succès avant que le
+store ne soit tenté (`sauvegarder_etat`), le store peut être en retard si une
+de ses écritures a raté en silence — le préférer à l'aveugle aurait ressuscité
+une progression périmée, une régression du type F3. Pour le registre, **le
+store ne sert que de filet** (repli dégradé si le JSON est vide/illisible),
+jamais d'une fusion façon cache : la table `documents` n'a ni `nom`, ni
+`cree_a`, ni `qualite` (annotation feature 320), et une fusion « le store
+gagne » aurait perdu ces champs en silence dès qu'un document existe des deux
+côtés. Le cache, lui, n'a pas eu besoin d'y toucher : sa fusion
+`{**json, **store}` (store gagnant sur les clés qu'il connaît) était déjà
+correcte, ces trois champs n'existant pas côté cache.
+
+⚠️ **La double écriture JSON + SQLite reste active, pour toujours** — décision
+explicite : `.state.json`/`.cache.json` restent un filet lisible à la main,
+leur retrait n'apporterait qu'un gain de propreté, aucune garantie nouvelle.
+Seule la priorité de LECTURE a basculé.
 
 Nouveaux modules backend, à connaître avant d'en écrire un sixième :
 

@@ -9,6 +9,7 @@ import datetime
 import os
 import threading
 
+from app.services import store
 from app.services.job_manager import charger_etat
 from app.services.persistance import ecrire_json_atomique, lire_json_tolerant
 
@@ -19,11 +20,50 @@ _lock = threading.Lock()
 
 
 def _charger() -> list[dict]:
+    """
+    Registre. Le JSON reste la source PRIORITAIRE (feature 328) : il a
+    strictement plus de champs que la table `documents` du store (`nom`,
+    `cree_a`, `qualite` n'existent que côté JSON — `qualite` en particulier
+    n'est écrite que par `annoter_document`, jamais mirroée). Une fusion
+    « le store gagne » comme pour le cache perdrait ces champs en silence dès
+    qu'un document existe des deux côtés — ce n'est PAS le bon patron ici.
+
+    Le store ne sert donc que de FILET si le JSON est vide/illisible —
+    reconstruction dégradée (sans `nom` précis/`qualite`/`cree_a`), toujours
+    préférable à une Bibliothèque vide.
+    """
     donnees = lire_json_tolerant(_FICHIER_BIBLIO, defaut={})
-    if not isinstance(donnees, dict):
+    documents = donnees.get("documents", []) if isinstance(donnees, dict) else []
+    if not isinstance(documents, list):
+        documents = []
+    if documents:
+        return documents
+
+    try:
+        depuis_store = store.lister_documents()
+    except Exception as e:  # noqa: BLE001 — le store ne doit jamais casser la Bibliothèque
+        print(f"[bibliotheque] repli store ignoré : {e}", flush=True)
         return []
-    documents = donnees.get("documents", [])
-    return documents if isinstance(documents, list) else []
+    if not depuis_store:
+        return []
+    print(
+        f"[bibliotheque] {_FICHIER_BIBLIO} vide/illisible — repli dégradé sur le "
+        f"store ({len(depuis_store)} document(s), sans nom/qualité/date précis)",
+        flush=True,
+    )
+    return [
+        {
+            "chemin_source": d["chemin_source"],
+            "chemin_sortie": d["chemin_sortie"],
+            "nom": os.path.basename(d["chemin_source"]),
+            "modele": d["modele"],
+            "langue_source": d["langue_source"],
+            "langue_cible": d["langue_cible"],
+            "cree_a": "",
+            "maj_a": "",
+        }
+        for d in depuis_store
+    ]
 
 
 def _sauvegarder(documents: list[dict]) -> None:

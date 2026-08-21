@@ -216,3 +216,63 @@ def test_un_etat_d_avant_la_bascule_reste_lisible(tmp_path):
     )
     assert store.lire_etat(sortie) is None                    # rien dans le store
     assert job_manager.charger_etat(sortie).derniere_section_completee == 42
+
+
+# ── Feature 328 : bascule de lecture store-primaire ───────────────────────────
+
+def test_le_store_a_jour_est_prefere_au_json(tmp_path):
+    """
+    Une fois la double écriture réussie, c'est le store qui est lu — pas
+    seulement un repli. Le prouver en modifiant le JSON sur disque APRÈS coup,
+    pour un contenu que seul le store peut avoir renvoyé.
+    """
+    from app.services import job_manager
+
+    sortie = str(tmp_path / "doc_traduit.md")
+    job_manager.sauvegarder_etat(_etat(sortie, faites=5))
+
+    # Le JSON est modifié furtivement APRÈS l'écriture double, sans passer par
+    # sauvegarder_etat — si charger_etat lisait encore le JSON en priorité, il
+    # verrait cette valeur trafiquée plutôt que celle du store. Le mtime est
+    # remis dans le passé : ce test isole "le store est préféré à contenu
+    # équivalent ou plus récent", pas la règle de fraîcheur elle-même (couverte
+    # par le test suivant) — sans ça, la réécriture avancerait le mtime du JSON
+    # et invaliderait le test qu'on cherche justement à écrire.
+    chemin = job_manager.chemin_fichier_etat(sortie)
+    donnees = json.loads(open(chemin, encoding="utf-8").read())
+    donnees["derniere_section_completee"] = 999
+    with open(chemin, "w", encoding="utf-8") as f:
+        json.dump(donnees, f)
+    os.utime(chemin, (0, 0))
+
+    recharge = job_manager.charger_etat(sortie)
+    assert recharge.derniere_section_completee == 5, (
+        "le store aurait dû faire foi (il est au moins aussi récent) — "
+        "999 signifierait que le JSON trafiqué a été lu à sa place"
+    )
+
+
+def test_un_store_perime_ne_ressuscite_pas_une_progression_obsolete(tmp_path, monkeypatch):
+    """
+    Le risque central de la bascule : si l'écriture store échoue en silence une
+    fois (comme le prévoit déjà `sauvegarder_etat`), le store garde l'ANCIENNE
+    progression. charger_etat ne doit alors PAS la préférer au JSON, plus récent
+    et toujours écrit avec succès en premier.
+    """
+    from app.services import job_manager
+
+    sortie = str(tmp_path / "doc_traduit.md")
+    job_manager.sauvegarder_etat(_etat(sortie, faites=3))   # store ET json à 3
+
+    # Le prochain appel réussit le JSON (toujours en premier) mais rate le store
+    # — exactement le scénario que le try/except de sauvegarder_etat masque déjà.
+    def _store_echoue(*a, **k):
+        raise sqlite3.OperationalError("simulation d'échec du store")
+    monkeypatch.setattr(store, "ecrire_etat", _store_echoue)
+    job_manager.sauvegarder_etat(_etat(sortie, faites=8))    # json=8, store reste à 3
+
+    recharge = job_manager.charger_etat(sortie)
+    assert recharge.derniere_section_completee == 8, (
+        "le store périmé (resté à 3) n'aurait jamais dû être préféré au JSON, "
+        "plus récent — préférer le store ici ressusciterait une progression obsolète"
+    )

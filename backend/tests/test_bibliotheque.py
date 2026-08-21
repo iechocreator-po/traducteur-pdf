@@ -4,8 +4,12 @@ d'intérêt pour les fonctionnalités en développement.
 """
 
 from app.models.schemas import EtatJob, Langue, StatutJob
-from app.services import bibliotheque, interet
+from app.services import bibliotheque, interet, store
 from app.services.job_manager import sauvegarder_etat
+
+# Le store SQLite est déjà isolé globalement (fixture autouse `store_isole`,
+# voir conftest.py) — feature 328 : `bibliotheque._charger` s'y replie
+# désormais si le JSON est vide/illisible.
 
 
 def _registre_temporaire(tmp_path, monkeypatch):
@@ -88,6 +92,51 @@ def test_fichiers_disparus_ignores(tmp_path, monkeypatch):
 def test_registre_absent_retourne_vide(tmp_path, monkeypatch):
     _registre_temporaire(tmp_path, monkeypatch)
     assert bibliotheque.lister_documents() == []
+
+
+# ── Feature 328 : le store n'est qu'un filet, jamais une fusion ──────────────
+
+def test_qualite_survit_meme_si_le_document_existe_aussi_dans_le_store(tmp_path, monkeypatch):
+    """
+    Le store ne connaît pas `qualite` (colonne absente de la table `documents`).
+    Une fusion "le store gagne" comme pour le cache la perdrait en silence dès
+    qu'un document existe des deux côtés — ce test aurait attrapé ce bug-là.
+    """
+    _registre_temporaire(tmp_path, monkeypatch)
+    sortie = tmp_path / "doc_traduit_ll.md"
+    sortie.write_text("contenu traduit")
+    bibliotheque.enregistrer_document(
+        chemin_source=str(tmp_path / "doc.pdf"), chemin_sortie=str(sortie),
+        modele="llama3.1", langue_source="anglais", langue_cible="français",
+    )
+    bibliotheque.annoter_document(str(sortie), qualite="bonne")
+    store.enregistrer_document(
+        chemin_sortie=str(sortie), chemin_source=str(tmp_path / "doc.pdf"),
+        modele="llama3.1", langue_source="anglais", langue_cible="français",
+    )
+
+    docs = bibliotheque.lister_documents()
+    assert len(docs) == 1
+    assert docs[0]["qualite"] == "bonne", "le JSON doit rester prioritaire, pas fusionné"
+
+
+def test_repli_degrade_sur_le_store_si_le_json_est_vide(tmp_path, monkeypatch):
+    """
+    Le store ne sert QUE de filet de récupération, jamais de source normale —
+    ici le JSON est absent/vide, donc le repli doit s'activer.
+    """
+    _registre_temporaire(tmp_path, monkeypatch)
+    sortie = tmp_path / "doc_traduit_ll.md"
+    store.enregistrer_document(
+        chemin_sortie=str(sortie), chemin_source=str(tmp_path / "doc.pdf"),
+        modele="llama3.1", langue_source="anglais", langue_cible="français",
+    )
+
+    docs = bibliotheque._charger()
+    assert len(docs) == 1
+    assert docs[0]["chemin_sortie"] == str(sortie)
+    assert docs[0]["nom"] == "doc.pdf"          # dérivé, pas un vrai `nom` du JSON
+    assert "qualite" not in docs[0], "le store ne connaît pas ce champ — ne pas l'inventer"
 
 
 # ── Capture d'intérêt ─────────────────────────────────────────────────────────

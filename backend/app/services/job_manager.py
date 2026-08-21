@@ -57,16 +57,30 @@ def charger_etat(chemin_sortie: str) -> EtatJob | None:
     Ne lève jamais : un seul état corrompu ne doit pas faire tomber la Bibliothèque
     entière (F1). Le fichier illisible est mis en quarantaine par la couche
     persistance, donc l'appel suivant repart proprement.
+
+    Priorité de lecture (feature 328, bascule store-primaire) : le store fait
+    foi SEULEMENT s'il est au moins aussi récent que le JSON. `sauvegarder_etat`
+    écrit toujours le JSON avant de tenter le store (best-effort), donc le JSON
+    n'est jamais en retard sur le store — mais le store PEUT être en retard si
+    une de ses écritures a raté en silence. Préférer le store à l'aveugle
+    ressusciterait alors une progression périmée (régression du type F3). Voir
+    `store.lire_etat_horodate`.
     """
-    data = lire_json_tolerant(chemin_fichier_etat(chemin_sortie))
-    if data is None:
-        # Repli sur le store (étape C) : le JSON peut avoir été mis en
-        # quarantaine par la couche persistance alors que le store, lui, a
-        # toujours l'état. C'est le même gain que pour le cache — une corruption
-        # ne fait plus perdre la progression, seulement le fichier.
-        data = _etat_depuis_store(chemin_sortie)
-        if data is None:
-            return None
+    chemin_json = chemin_fichier_etat(chemin_sortie)
+    data_json = lire_json_tolerant(chemin_json)
+    mtime_json = os.path.getmtime(chemin_json) if os.path.exists(chemin_json) else None
+
+    donnees_store, maj_a_store = _etat_horodate_depuis_store(chemin_sortie)
+
+    if donnees_store is not None and (mtime_json is None or maj_a_store >= mtime_json):
+        data = donnees_store  # le store est au moins aussi récent que le JSON
+    elif data_json is not None:
+        data = data_json  # store absent, périmé ou illisible — JSON fait foi
+    elif donnees_store is not None:
+        data = donnees_store  # JSON absent/corrompu, store seul recours
+    else:
+        return None
+
     try:
         return EtatJob(**data)
     except Exception as e:
@@ -79,20 +93,21 @@ def charger_etat(chemin_sortie: str) -> EtatJob | None:
         return None
 
 
-def _etat_depuis_store(chemin_sortie: str) -> dict | None:
-    """État sérialisé du store, ou None. Ne lève jamais : c'est un repli."""
+def _etat_horodate_depuis_store(chemin_sortie: str) -> tuple[dict | None, float | None]:
+    """(données désérialisées, maj_a) du store, ou (None, None). Ne lève jamais."""
     import json as _json
     try:
-        brut = store.lire_etat(chemin_sortie)
+        paire = store.lire_etat_horodate(chemin_sortie)
     except Exception as e:  # noqa: BLE001
         print(f"[job_manager] store illisible : {e}", flush=True)
-        return None
-    if not brut:
-        return None
+        return None, None
+    if not paire:
+        return None, None
+    brut, maj_a = paire
     try:
-        return _json.loads(brut)
+        return _json.loads(brut), maj_a
     except ValueError:
-        return None
+        return None, None
 
 
 def supprimer_etat(chemin_sortie: str) -> None:
