@@ -929,6 +929,33 @@ défaut durable : rien ne casse, le résultat est seulement moins bon. Quand une
 route gagne un paramètre, **vérifier les DEUX clients** — c'est toujours macOS
 qui décroche, parce que le travail est fait d'abord sur le web.
 
+## Fix — timeout client trop court sur l'analyse PDF (22/8/2026)
+
+**Symptôme** : à l'ajout d'un document dans « Nouveau document », erreur
+`⚠ signal is aborted without reason` (texte brut du navigateur) au lieu
+d'un vrai message d'échec.
+
+**Cause** : `_fetchAvecTimeout()` (`commun.js`) appliquait un timeout unique
+de **15 s** à TOUTES les requêtes API, y compris `/analyser`, `/chapitres` et
+`/convert` — les seules routes qui font un vrai travail (extraction complète
+du texte du PDF, puis appel LLM). Or `analysis_agent.py` s'autorise lui-même
+jusqu'à **60 s** pour cet appel Ollama (`_appel_llm`, `timeout=60`). Le
+client abandonnait donc systématiquement avant le serveur sur un PDF un peu
+long ou un modèle froid, alors que le traitement continuait derrière — zéro
+rapport avec un vrai plantage du backend.
+
+**Fix** : `API_TIMEOUT_LONG_MS` (90 s) ajouté à côté du timeout court
+existant (`API_TIMEOUT_MS`, 15 s, pensé pour du polling léger — F11).
+`apiPost`/`apiGet` acceptent un timeout optionnel en 2ᵉ/3ᵉ argument ; les
+6 appels à `/analyser`/`/chapitres`/`/convert` (`module-import.js`,
+`module-laboratoire.js`) le passent désormais explicitement. Le timeout
+court reste inchangé pour tout le reste (health, feature-flags, bibliothèque…).
+
+⚠️ **Toute nouvelle route qui fait un vrai travail d'extraction ou un appel
+LLM synchrone doit utiliser `API_TIMEOUT_LONG_MS`**, jamais le défaut — le
+timeout court était initialement pensé pour du polling (F11), pas pour ce
+genre d'appel ponctuel plus lourd.
+
 ## Contraintes d'interface à ne pas casser
 
 - **La barre supérieure doit rester sur UNE rangée.** Elle est `sticky` et la

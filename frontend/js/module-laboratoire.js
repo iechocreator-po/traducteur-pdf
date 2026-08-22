@@ -166,7 +166,7 @@ $("bouton-analyser").addEventListener("click", async () => {
   const zone = $("outil-resultat");
   zone.innerHTML = "<em>Analyse en cours…</em>";
   try {
-    const d = await apiPost("/analyser", { chemin_pdf: chemin, modele_ollama: $("modele").value || "llama3.1" });
+    const d = await apiPost("/analyser", { chemin_pdf: chemin, modele_ollama: $("modele").value || "llama3.1" }, API_TIMEOUT_LONG_MS);
     zone.innerHTML = `
       <table class="tableau-analyse">
         <tr><th>Pages analysées</th><td>${d.nb_pages_analysees}</td></tr>
@@ -189,7 +189,7 @@ $("bouton-convertir").addEventListener("click", async () => {
   const zone = $("outil-resultat");
   zone.innerHTML = "<em>Conversion en cours…</em>";
   try {
-    const d = await apiPost("/convert", { chemin_pdf: chemin, extracteur_pdf: $("extracteur-pdf").value });
+    const d = await apiPost("/convert", { chemin_pdf: chemin, extracteur_pdf: $("extracteur-pdf").value }, API_TIMEOUT_LONG_MS);
     zone.innerHTML = `<p>✅ Conversion terminée — ${d.nb_caracteres.toLocaleString()} caractères<br>Fichier : <code>${d.chemin_sortie}</code></p>`;
   } catch (e) {
     zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;

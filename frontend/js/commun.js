@@ -32,8 +32,17 @@ function corpsSource(chemin, extra = {}) {
 
 // Délai au-delà duquel une requête est abandonnée (principe cible ⑥, défaut F11).
 // Sans timeout, un backend qui ralentit à 5 s par réponse laissait `setInterval`
-// empiler une requête toutes les 2 s, indéfiniment.
+// empiler une requête toutes les 2 s, indéfiniment. Pensé pour du polling léger
+// (health, feature-flags…) — PAS pour une extraction/analyse PDF ponctuelle.
 const API_TIMEOUT_MS = 15000;
+
+// Délai long, réservé aux routes qui font un vrai travail d'extraction PDF et/ou
+// un appel Ollama (/analyser, /chapitres, /convert) : le backend s'autorise déjà
+// jusqu'à 60 s pour l'appel LLM dans analysis_agent.py, au-delà de l'extraction
+// de texte elle-même. Un timeout client plus court que le budget serveur garantit
+// un abandon prématuré (message brut du navigateur, "signal is aborted without
+// reason") sur tout PDF un peu long ou un modèle froid — vérifié.
+const API_TIMEOUT_LONG_MS = 90000;
 
 /**
  * Erreur d'API portant l'erreur TYPÉE du backend (principe cible ⑦).
@@ -68,11 +77,11 @@ class ErreurApi extends Error {
   }
 }
 
-async function _fetchAvecTimeout(url, options = {}) {
+async function _fetchAvecTimeout(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
   // AbortController : une requête qui ne revient pas ne doit pas retenir une
   // boucle de poll pour toujours (F11).
   const controleur = new AbortController();
-  const minuteur = setTimeout(() => controleur.abort(), API_TIMEOUT_MS);
+  const minuteur = setTimeout(() => controleur.abort(), timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controleur.signal });
   } finally {
@@ -80,19 +89,19 @@ async function _fetchAvecTimeout(url, options = {}) {
   }
 }
 
-async function apiPost(route, body) {
+async function apiPost(route, body, timeoutMs) {
   const rep = await _fetchAvecTimeout(`${API_BASE}${route}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }, timeoutMs);
   const data = await rep.json().catch(() => ({}));
   if (!rep.ok) throw new ErreurApi(rep.status, data);
   return data;
 }
 
-async function apiGet(route) {
-  const rep = await _fetchAvecTimeout(`${API_BASE}${route}`);
+async function apiGet(route, timeoutMs) {
+  const rep = await _fetchAvecTimeout(`${API_BASE}${route}`, {}, timeoutMs);
   if (!rep.ok) {
     const data = await rep.json().catch(() => ({}));
     throw new ErreurApi(rep.status, data);

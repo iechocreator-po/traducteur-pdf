@@ -67,7 +67,7 @@
     try {
       if (item.type === "MD") {
         // Pas d'analyse LLM pour un Markdown : comptage des chapitres suffit
-        const data = await apiPost("/chapitres", corpsSource(item.chemin));
+        const data = await apiPost("/chapitres", corpsSource(item.chemin), API_TIMEOUT_LONG_MS);
         item.qualite = "Markdown";
         item.eta = null;
         item.chapitres = data.chapitres.length;
@@ -79,7 +79,7 @@
         const data = await apiPost("/analyser", {
           chemin_pdf: item.chemin,
           modele_ollama: $("modele").value || "llama3.1",
-        });
+        }, API_TIMEOUT_LONG_MS);
         item.chapitres = data.nb_chapitres;
         item.eta = data.estimation_temps_secondes;
         item.recommandation = data.recommandation;
@@ -137,7 +137,7 @@
     try {
       const data = await apiPost("/chapitres", corpsSource(item.chemin, {
         extracteur_pdf: $("extracteur-pdf").value,
-      }));
+      }), API_TIMEOUT_LONG_MS);
       initSelectionChapitres(item, data.chapitres);
       // Renseigne le compte (le sélecteur n'est rendu que si chapitres > 0),
       // utile quand on arrive par « ➕ Chapitres » sans passer par l'analyse.
@@ -838,7 +838,7 @@
     etat.chargement = true;
     rafraichir();
     try {
-      const data = await apiPost("/chapitres", corpsSource(doc.chemin_source));
+      const data = await apiPost("/chapitres", corpsSource(doc.chemin_source), API_TIMEOUT_LONG_MS);
       etat.chapitres = data.chapitres;
       // Coche par défaut les chapitres NON traduits.
       etat.coches = new Set(data.chapitres.map(c => c.index).filter(i => !etat.deja.has(i)));
