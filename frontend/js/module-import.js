@@ -179,7 +179,7 @@
           ...(selectionPartielle(item)
             ? { chapitres_selectionnes: [...item.chapitresCoches].sort((a, b) => a - b) }
             : {}),
-        }));
+        }), API_TIMEOUT_LONG_MS);
         item.jobId = data.job_id;
         item.cheminSortie = data.chemin_sortie;  // Nécessaire pour la pause après redémarrage
         lances.push(item.id);
@@ -932,7 +932,7 @@
         langue_cible: doc.langue_cible,
         modele_ollama: doc.modele,
         chapitres_selectionnes: [...etat.coches].sort((a, b) => a - b),
-      }));
+      }), API_TIMEOUT_LONG_MS);
     } catch (e) {
       etat.lancement = false;
       alert(`Lancement impossible : ${e.message}`);
@@ -970,7 +970,7 @@
         langue_cible: doc.langue_cible,
         modele_ollama: doc.modele,
         resume: true,
-      }));
+      }), API_TIMEOUT_LONG_MS);
     } catch (e) {
       bouton.disabled = false;
       bouton.textContent = "⏯ Reprendre";

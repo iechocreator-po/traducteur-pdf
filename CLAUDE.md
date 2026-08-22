@@ -956,6 +956,32 @@ LLM synchrone doit utiliser `API_TIMEOUT_LONG_MS`**, jamais le défaut — le
 timeout court était initialement pensé pour du polling (F11), pas pour ce
 genre d'appel ponctuel plus lourd.
 
+**Régression trouvée le jour même — `/translate` avait été oublié.** Le
+premier passage n'avait couvert que `/analyser`/`/chapitres`/`/convert` ;
+lancer une traduction (« Traduire N chapitres », Reprendre) passe par
+`POST /translate`, qui appelle `soumettre_traduction()` →
+`verifier_ollama_pret()` — le **preflight Ollama synchrone**, plafonné à
+**60 s** côté serveur (`translator.py`, déjà documenté plus haut dans ce
+fichier). Même timeout court, même symptôme : l'utilisateur voyait l'erreur
+alors que la traduction avait démarré et **s'est terminée avec succès**
+côté serveur (vérifié : les deux documents test sont passés à « Terminé »
+pendant l'investigation). Les 4 appels à `/translate` (2× `module-import.js`,
+1× `module-laboratoire.js`) utilisent maintenant `API_TIMEOUT_LONG_MS` aussi.
+**Leçon** : le grep `apiPost(\"/translate\"` aurait dû faire partie du premier
+passage — `/translate` est la route qui déclenche le plus long preflight de
+tout le produit, elle ne pouvait pas rester sur le timeout court par oubli.
+
+**Messages d'erreur améliorés au passage** (`commun.js`, `_fetchAvecTimeout`) :
+un abandon par timeout ne laisse plus fuir le texte brut du navigateur
+(`"signal is aborted without reason"`) — `abort()` reçoit désormais une
+raison lisible (`DOMException` nommée, message en français indiquant que le
+traitement a peut-être démarré côté serveur), avec un filet pour les
+navigateurs qui ignorent cette raison. Un backend injoignable (`TypeError:
+Failed to fetch`) affiche maintenant « Impossible de joindre le serveur
+local — vérifie qu'il est bien lancé. » Les deux cas restent distincts d'une
+vraie `ErreurApi` (échec HTTP avec code/remediation du backend) — cette
+dernière n'est pas touchée par ce changement.
+
 ## Contraintes d'interface à ne pas casser
 
 - **La barre supérieure doit rester sur UNE rangée.** Elle est `sticky` et la

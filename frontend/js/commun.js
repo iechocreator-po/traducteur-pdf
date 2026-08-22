@@ -81,9 +81,29 @@ async function _fetchAvecTimeout(url, options = {}, timeoutMs = API_TIMEOUT_MS) 
   // AbortController : une requête qui ne revient pas ne doit pas retenir une
   // boucle de poll pour toujours (F11).
   const controleur = new AbortController();
-  const minuteur = setTimeout(() => controleur.abort(), timeoutMs);
+  const secondes = Math.round(timeoutMs / 1000);
+  // Raison lisible passée à abort() : sans elle, le navigateur rejette avec un
+  // DOMException générique dont le message brut ("signal is aborted without
+  // reason") fuyait tel quel jusqu'à l'écran — un texte de debug navigateur, pas
+  // un message utilisateur. Certains navigateurs ignorent cette raison et
+  // rejettent quand même avec un AbortError générique : le catch ci-dessous la
+  // réinjecte dans ce cas.
+  const raisonDelai = () => new DOMException(
+    `Le serveur n'a pas répondu en ${secondes} s. Le traitement a peut-être ` +
+    `démarré côté serveur malgré tout — vérifie avant de relancer.`,
+    "TimeoutError",
+  );
+  const minuteur = setTimeout(() => controleur.abort(raisonDelai()), timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controleur.signal });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") throw raisonDelai();
+    // Backend injoignable (arrêté, port fermé…) : fetch lève un TypeError
+    // générique ("Failed to fetch") plutôt qu'une erreur exploitable.
+    if (e instanceof TypeError) {
+      throw new Error("Impossible de joindre le serveur local — vérifie qu'il est bien lancé.");
+    }
+    throw e;
   } finally {
     clearTimeout(minuteur);
   }

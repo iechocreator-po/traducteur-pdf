@@ -229,7 +229,7 @@ $("bouton-reprendre").addEventListener("click", async () => {
       modele_ollama: $("modele").value,
       extracteur_pdf: $("extracteur-pdf").value,
       resume: true,
-    }));
+    }), API_TIMEOUT_LONG_MS);
     $("bouton-reprendre").hidden = true;
     $("outil-resultat").innerHTML = "<p>▶ Traduction reprise — suivi dans « Nouveau document » ou dans la Bibliothèque une fois terminée.</p>";
   } catch (e) {
