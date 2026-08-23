@@ -982,6 +982,69 @@ local — vérifie qu'il est bien lancé. » Les deux cas restent distincts d'un
 vraie `ErreurApi` (échec HTTP avec code/remediation du backend) — cette
 dernière n'est pas touchée par ce changement.
 
+## Fix — génération Ollama sans plafond, boucle de répétition (23/8/2026)
+
+**Symptôme rapporté** : une traduction de 2 chapitres « anormalement lente »,
+27 min sur 1 seul chapitre alors que le rythme habituel est < 5 min/chapitre —
+sans AUCUN message d'erreur cette fois (à distinguer du fix `/translate` de
+la veille : celui-ci touchait l'affichage d'erreur, celui-ci touche la vitesse
+réelle du moteur).
+
+**Diagnostic** : ni le job ni Ollama n'étaient figés — le job a fini par se
+terminer avec succès. La cause a été trouvée en lisant directement
+`~/.ollama/logs/server.log` (jamais consulté avant) : sur les 32 morceaux
+réellement traduits ce matin-là, **un seul** a généré **28 985 jetons** avant
+d'être coupé de force par `--context-shift`, pour une traduction qui en
+demande normalement 200-950. À ~50 tok/s, ça représente **près de 10 minutes**
+de calcul GPU pour UN SEUL morceau — mesuré en sommant les `total time` du
+log : seulement 3,4 min de calcul RÉEL sur 23,5 min d'horloge, le reste étant
+cette unique génération qui tourne en boucle de répétition sans jamais
+émettre de jeton de fin.
+
+**Cause racine** : aucun appel Ollama du produit (`translator.py`,
+`analysis_agent.py`) ne fixait `num_predict` (plafond de jetons *générés*).
+Sans lui, un modèle qui entre en boucle de répétition continue indéfiniment ;
+`llama-server` a `--context-shift` actif par défaut, donc au lieu de s'arrêter
+à `num_ctx` il déplace la fenêtre et continue à générer. Rien dans le produit
+ne pouvait couper court à ce genre d'incident avant ce correctif.
+
+**Fix (2 volets)** :
+1. `OLLAMA_NUM_PREDICT_MAX = 2048` (`settings.py`) ajouté aux `options` des
+   3 call-sites Ollama du backend (`translator.traduire_texte`,
+   `translator.verifier_ollama_pret`, `analysis_agent._appel_llm`). Vérifié
+   contre Ollama en direct : une traduction normale s'arrête par elle-même
+   (`done_reason: "stop"`) bien avant le plafond ; forcer un `num_predict`
+   minuscule confirme la coupure (`done_reason: "length"`).
+2. **Garde qualité symétrique** (`translation_runner._traduire_avec_controle`,
+   `RATIO_TRADUCTION_MAX = 3.0`) : le contrôle anti-résumé existant ne
+   vérifiait qu'un ratio longueur *trop bas*. Un morceau tronqué par le
+   plafond ci-dessus après une boucle de répétition a un ratio **très
+   supérieur à 1** — sans ce garde symétrique, du charabia répété aurait pu
+   finir dans le document traduit sans le moindre avertissement, silencieux
+   comme la classe de défaut F6/341 déjà documentée plus haut. Le nouveau
+   code retient, entre les deux tentatives, celle dont le ratio est le plus
+   proche de 1.0 — un seul critère qui couvre les deux sens du défaut.
+
+⚠️ **`etude.py` (fiches d'étude) a le même angle mort** — ses 2 appels Ollama
+(`_appeler_ollama_json`) n'ont pas non plus de `num_predict`. Volontairement
+**pas corrigé dans ce passage** : une fiche légitime (stratégie `sections` sur
+un gros chapitre) peut demander un JSON bien plus long qu'un morceau de
+traduction, et choisir un plafond sûr sans mesurer d'abord des générations
+réelles risquerait de tronquer une fiche correcte. À mesurer avant de fixer
+une valeur.
+
+**Piège d'investigation à retenir** : `~/.ollama/logs/server.log` mélange des
+lignes timestampées (le wrapper `ollama`) et des lignes SANS timestamp (le
+process `llama-server` lui-même, lancé avec `--no-log-timestamps`). Un `awk`
+par plage de date sur ce fichier peut donc silencieusement inclure des
+centaines de lignes hors de la fenêtre voulue si aucune ligne timestampée ne
+marque la borne de fin — vérifier par les événements de cycle de vie du
+process (`loading model via llama-server`, `loaded runners`) plutôt que par
+une plage de date brute. Les ID de `task` dans les logs `llama-server` NE
+sont PAS un compteur de requêtes — ils avancent d'un pas par étape de décodage
+interne ; un grand écart entre deux ID ne signifie pas des milliers de
+requêtes séparées.
+
 ## Contraintes d'interface à ne pas casser
 
 - **La barre supérieure doit rester sur UNE rangée.** Elle est `sticky` et la

@@ -13,6 +13,7 @@ import requests
 from app.config.settings import (
     OLLAMA_TIMEOUT,
     OLLAMA_NUM_CTX,
+    OLLAMA_NUM_PREDICT_MAX,
     OLLAMA_RETRY_DELAI_INITIAL,
     OLLAMA_RETRY_FACTEUR,
     OLLAMA_RETRY_DELAI_MAX,
@@ -186,7 +187,11 @@ def traduire_texte(
             "system": system,
             "prompt": texte_a_traduire,
             "stream": False,
-            "options": {"temperature": 0.3, "num_ctx": OLLAMA_NUM_CTX},
+            "options": {
+                "temperature": 0.3,
+                "num_ctx": OLLAMA_NUM_CTX,
+                "num_predict": OLLAMA_NUM_PREDICT_MAX,
+            },
         },
         interruption=interruption,
     )
@@ -224,7 +229,11 @@ def verifier_ollama_pret(modele: str, timeout: int = 60) -> tuple[bool, str]:
         "system": "Traduis de anglais vers français. Réponds uniquement la traduction.",
         "prompt": "The cat sleeps.",
         "stream": False,
-        "options": {"temperature": 0.3, "num_ctx": OLLAMA_NUM_CTX},
+        "options": {
+            "temperature": 0.3,
+            "num_ctx": OLLAMA_NUM_CTX,
+            "num_predict": OLLAMA_NUM_PREDICT_MAX,
+        },
     }
     try:
         r = requests.post(OLLAMA_URL, json=payload, timeout=timeout)

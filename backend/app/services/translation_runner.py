@@ -36,6 +36,7 @@ from app.models.schemas import EtatJob, StatutJob, Langue
 from app.config.settings import (
     CHAPITRE_SOUS_CHUNK_TAILLE_MAX,
     RATIO_TRADUCTION_SUSPECT,
+    RATIO_TRADUCTION_MAX,
     CONTROLE_QUALITE_LONGUEUR_MIN,
 )
 from app.services.pdf_extractor import (
@@ -192,6 +193,11 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
       a probablement résumé : une seconde tentative est faite, et un avertissement
       est ajouté au job si le ratio reste suspect (résultat alors non mis en cache,
       pour qu'un re-run retente la section).
+    - Si la traduction est trop LONGUE (ratio > RATIO_TRADUCTION_MAX), le modèle a
+      probablement bouclé en répétition au lieu de traduire — même traitement,
+      symétrique. Sans ce garde, un morceau tronqué par OLLAMA_NUM_PREDICT_MAX
+      après une boucle de répétition passait le contrôle qualité sans le moindre
+      avertissement : son ratio est très supérieur à 1, jamais vérifié avant.
     """
     termes = glossaire.termes_presents(texte)
     cle = cache_traduction.calculer_cle(
@@ -208,21 +214,26 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
         termes_a_conserver=termes, interruption=interruption,
     )
     ratio = len(traduit) / max(len(texte), 1)
+    trop_court = ratio < RATIO_TRADUCTION_SUSPECT
+    trop_long = ratio > RATIO_TRADUCTION_MAX
 
-    if len(texte) >= CONTROLE_QUALITE_LONGUEUR_MIN and ratio < RATIO_TRADUCTION_SUSPECT:
+    if len(texte) >= CONTROLE_QUALITE_LONGUEUR_MIN and (trop_court or trop_long):
         _journaliser(state, f"{etiquette} : traduction suspecte (ratio {ratio:.2f}) — nouvelle tentative")
         nouvelle = traduire_texte(
             texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value,
             termes_a_conserver=termes, interruption=interruption,
         )
         nouveau_ratio = len(nouvelle) / max(len(texte), 1)
-        if nouveau_ratio > ratio:
+        # Garde la tentative la plus proche d'un ratio normal (1.0), quel que
+        # soit le sens du défaut — valable pour le résumé (ratio bas) comme
+        # pour la répétition (ratio haut).
+        if abs(nouveau_ratio - 1) < abs(ratio - 1):
             traduit, ratio = nouvelle, nouveau_ratio
-        if ratio < RATIO_TRADUCTION_SUSPECT:
-            avertissement = (
-                f"{etiquette} : traduction possiblement résumée "
-                f"(ratio longueur {ratio:.2f} < {RATIO_TRADUCTION_SUSPECT})"
-            )
+            trop_court = ratio < RATIO_TRADUCTION_SUSPECT
+            trop_long = ratio > RATIO_TRADUCTION_MAX
+        if trop_court or trop_long:
+            cause = "possiblement résumée" if trop_court else "possiblement en boucle de répétition"
+            avertissement = f"{etiquette} : traduction {cause} (ratio longueur {ratio:.2f})"
             state.avertissements.append(avertissement)
             journaliser_erreur(state.chemin_sortie, avertissement)
             return traduit

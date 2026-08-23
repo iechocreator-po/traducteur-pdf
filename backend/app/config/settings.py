@@ -22,6 +22,19 @@ OLLAMA_MODELE_DEFAUT = "llama3.1"
 # num_ctx=4096 = traduction en ~20 s. Augmenter seulement si un morceau dépasse.
 OLLAMA_NUM_CTX = 4096
 
+# Plafond de jetons GÉNÉRÉS par appel (num_predict). Un morceau de
+# CHAPITRE_SOUS_CHUNK_TAILLE_MAX (1500 car.) produit en pratique 200-950 jetons
+# de traduction — 2048 laisse une marge large tout en bornant le pire cas.
+# SANS ce plafond, un modèle qui entre en boucle de répétition (n'émet jamais
+# de jeton de fin) génère INDÉFINIMENT : llama-server (`--context-shift` actif
+# par défaut) déplace la fenêtre de contexte au lieu de s'arrêter, au lieu de
+# stopper à num_ctx. Mesuré le 23/8/2026 (server.log d'Ollama) : un seul
+# morceau a généré 28 985 jetons avant d'être coupé de force — près de 10 min
+# de calcul pour un morceau qui en prend normalement 5-10 s. C'est la cause
+# du ralentissement massif observé ce jour-là (32 morceaux réels en 23 min au
+# lieu de ~3-4 min), pas un bug du code de traduction lui-même.
+OLLAMA_NUM_PREDICT_MAX = 2048
+
 # ── Retry des appels Ollama ───────────────────────────────────────────────────
 # Une panne d'Ollama (arrêt, redémarrage, Mac réveillé après une mise en veille)
 # ne doit jamais faire perdre des sections : on réessaie avec un backoff
@@ -66,6 +79,17 @@ ETUDE_CONDENSE_CHUNK = 8000
 # (le modèle a probablement résumé au lieu de traduire). Une tentative de plus
 # est faite, puis un avertissement est ajouté au job si le ratio reste bas.
 RATIO_TRADUCTION_SUSPECT = 0.5
+
+# Ratio longueur traduit/source AU-DESSUS duquel une traduction est suspecte
+# dans l'autre sens (le modèle a bouclé en répétition au lieu de traduire).
+# Anglais → français grossit normalement de 10-30 % (ratio ~1.1-1.3) ; 3.0 est
+# donc déjà très généreux. Sans ce garde-fou symétrique, un morceau tronqué par
+# OLLAMA_NUM_PREDICT_MAX après une boucle de répétition (mesuré le 23/8/2026:
+# 28 985 jetons générés pour ~500 attendus) passe le contrôle qualité SANS
+# déclencher de nouvelle tentative — le ratio est très supérieur à 1, jamais
+# vérifié avant ce garde. Du charabia répété aurait donc pu finir dans le
+# document traduit sans le moindre avertissement.
+RATIO_TRADUCTION_MAX = 3.0
 
 # Longueur minimale (caractères) du texte source pour appliquer le contrôle :
 # les très petits chunks (titres, lignes isolées) peuvent légitimement raccourcir.
