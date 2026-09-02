@@ -107,6 +107,12 @@ class EtatJobEtude(BaseModel):
     langue_fiche: str
     nb_points: int = 5
     nb_questions: int = 3
+    # Stratégie de génération des points : « condensation » (historique) ou
+    # « sections ». Portée aussi par le NOM du fichier, pour que deux fiches du
+    # même document produites autrement puissent coexister et être comparées.
+    # Valeur par défaut = comportement d'avant, donc les états existants se
+    # rechargent sans migration.
+    strategie: str = "condensation"
     statut: StatutJob
     chapitres: list[FicheChapitre] = Field(default_factory=list)
     # 2 étapes par chapitre (points puis questions) — granularité de la progression

@@ -157,7 +157,28 @@ def enregistrer_flux(lire_morceau, nom_client: str | None) -> dict:
                 from app.services.pdf_extractor import compter_pages
                 compter_pages(chemin_final)
             except Exception:
-                shutil.rmtree(dossier, ignore_errors=True)
+                # ⚠️ NE JAMAIS `rmtree(dossier)` ici. Le dossier est indexé sur le
+                # CONTENU, donc ré-uploader un document déjà traduit retombe sur le
+                # même dossier — celui qui contient sa traduction, son cache, son
+                # état et ses images extraites. Un `rmtree` détruisait tout ce
+                # travail parce qu'une validation avait échoué sur un fichier
+                # identique à celui déjà accepté auparavant.
+                #
+                # Perte réelle observée le 29/7/2026 : une traduction complète de
+                # Chapter 9 (9 minutes de calcul) effacée par la re-soumission du
+                # même PDF. On ne retire donc QUE ce que CET upload a écrit, et
+                # seulement si le fichier n'existait pas avant.
+                if not deja_present:
+                    try:
+                        os.remove(chemin_final)
+                    except OSError:
+                        pass
+                    # Le dossier n'est retiré que s'il est vide : il ne contient
+                    # alors rien d'autre que ce que l'on vient d'annuler.
+                    try:
+                        os.rmdir(dossier)
+                    except OSError:
+                        pass
                 raise UploadInvalide("PDF illisible ou corrompu.")
 
         return {

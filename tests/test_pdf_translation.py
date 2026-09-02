@@ -129,6 +129,61 @@ Fournir UNIQUEMENT la traduction, sans commentaire."""
         return {"error": "Timeout lors de l'appel Ollama", "status": "timeout"}
 
 
+
+
+def flag_extraction_images() -> str:
+    """
+    Valeur REELLE du flag cote serveur.
+
+    ⚠️ `extraction_images_pdf` n'est PAS un parametre de requete : il vit dans
+    feature_flags.json / bilbao.features.json et se lit via GET /api/feature-flags.
+    T2 et T3 ne pouvaient donc jamais tester deux modes differents — ils envoyaient
+    un champ `extraction_images_pdf` que l'API ignorait, et ne differaient en
+    realite que par un message affiche. Plutot que de faire semblant, on lit et on
+    AFFICHE l'etat du flag : pour comparer les deux modes, il faut le basculer
+    entre deux executions et redemarrer le backend.
+    """
+    try:
+        rep = subprocess.run(["curl", "-s", f"{BACKEND_URL}/api/feature-flags"],
+                             capture_output=True, text=True, timeout=15)
+        flags = json.loads(rep.stdout)
+        return str(flags.get("extraction_images_pdf"))
+    except Exception:
+        return "inconnu"
+
+
+def attendre_fin_job(chemin_sortie: str, timeout_s: int) -> Dict[str, Any]:
+    """
+    Attend qu'un job de traduction atteigne un statut terminal.
+
+    ⚠️ C'est LA correction du 29/7 : sans cette attente, T2 et T3 renvoyaient
+    « SUCCESS » en 0,1 s alors qu'aucun job n'avait meme demarre. Le POST partait
+    avec la cle `source` (inconnue de l'API → 422) et le script ne testait que la
+    presence d'une cle `error`, absente d'un 422 FastAPI qui repond `detail`.
+    Un lancement n'est PAS une traduction : il faut lire le statut final.
+    """
+    debut = time.time()
+    while time.time() - debut < timeout_s:
+        time.sleep(5)
+        rep = subprocess.run(["curl", "-s", f"{BACKEND_URL}/api/bibliotheque"],
+                             capture_output=True, text=True, timeout=30)
+        try:
+            docs = json.loads(rep.stdout).get("documents", [])
+        except json.JSONDecodeError:
+            continue
+        doc = next((d for d in docs if d.get("chemin_sortie") == chemin_sortie), None)
+        if doc is None:
+            continue
+        if doc.get("statut") in ("termine", "erreur", "annule"):
+            return {
+                "statut": doc["statut"],
+                "sections": f"{doc.get('sections_completees')}/{doc.get('total_sections')}",
+                "echecs": doc.get("nb_sections_echouees", 0),
+                "elapsed_s": round(time.time() - debut, 1),
+            }
+    return {"statut": "timeout", "elapsed_s": round(time.time() - debut, 1)}
+
+
 def test_t2_backend_no_images(pdf_path: str) -> Dict[str, Any]:
     """T2: Backend without image extraction."""
     print("\n🧪 TEST T2: Backend (sans extraction images)")
@@ -163,7 +218,7 @@ def test_t2_backend_no_images(pdf_path: str) -> Dict[str, Any]:
             ["curl", "-s", f"{BACKEND_URL}/api/analyser",
              "-X", "POST",
              "-H", "Content-Type: application/json",
-             "-d", json.dumps({"source": chemin_source})],
+             "-d", json.dumps({"chemin_pdf": chemin_source})],
             capture_output=True,
             text=True,
             timeout=60
@@ -177,15 +232,14 @@ def test_t2_backend_no_images(pdf_path: str) -> Dict[str, Any]:
             return {"error": analyze_data["error"], "status": "analyze_failed", "elapsed_s": time.time() - start}
 
         # Start translation (just first 2 chapters for speed)
-        print(f"  Lancement traduction (flag extraction_images=false)...")
+        print(f"  Lancement traduction (flag extraction_images_pdf cote serveur = {flag_extraction_images()})...")
         translate_response = subprocess.run(
             ["curl", "-s", f"{BACKEND_URL}/api/translate",
              "-X", "POST",
              "-H", "Content-Type: application/json",
              "-d", json.dumps({
-                 "source": chemin_source,
+                 "chemin_pdf": chemin_source,
                  "chapitres_selectionnes": list(range(min(2, analyze_data.get("nb_chapitres", 1)))),
-                 "extraction_images_pdf": False
              })],
             capture_output=True,
             text=True,
@@ -201,10 +255,34 @@ def test_t2_backend_no_images(pdf_path: str) -> Dict[str, Any]:
         if "error" in translate_data:
             return {"error": translate_data["error"], "status": "translate_failed", "elapsed_s": elapsed}
 
+        job_id = translate_data.get("job_id")
+        chemin_sortie = translate_data.get("chemin_sortie")
+        if not job_id or not chemin_sortie:
+            # Un 422/503 renvoie `detail`, pas `error` : sans ce garde, le script
+            # annoncait un succes alors qu'aucun job n'existait.
+            return {"error": translate_data.get("detail", translate_data),
+                    "status": "translate_failed", "elapsed_s": elapsed}
+
+        print(f"  Traduction lancee ({job_id[:8]}…), attente de la fin...")
+        fin = attendre_fin_job(chemin_sortie, TIMEOUT_DEFAULT)
+        if fin["statut"] != "termine":
+            return {"error": f"job {fin['statut']} ({fin.get('sections', '?')})",
+                    "status": "translate_failed", "elapsed_s": fin["elapsed_s"]}
+        # « Rien a traduire » n'est PAS une preuve que la traduction fonctionne.
+        # Le flux additif termine instantanement quand les chapitres demandes sont
+        # deja faits : sans ce garde, le test repasserait au vert en ne traduisant
+        # rien du tout — la meme illusion que celle corrigee le 29/7.
+        if fin.get("sections", "0/0").endswith("/0"):
+            return {"error": "aucune section a traduire (document deja traduit) — "
+                             "supprimez la sortie et le cache pour un vrai test",
+                    "status": "rien_a_faire", "elapsed_s": fin["elapsed_s"]}
+
         return {
             "status": "success",
-            "elapsed_s": elapsed,
-            "job_id": translate_data.get("job_id"),
+            "elapsed_s": fin["elapsed_s"],
+            "job_id": job_id,
+            "sections": fin["sections"],
+            "echecs": fin["echecs"],
             "chapitres_traduits": analyze_data.get("nb_chapitres", 1)
         }
     except subprocess.TimeoutExpired:
@@ -247,7 +325,7 @@ def test_t3_backend_with_images(pdf_path: str) -> Dict[str, Any]:
             ["curl", "-s", f"{BACKEND_URL}/api/analyser",
              "-X", "POST",
              "-H", "Content-Type: application/json",
-             "-d", json.dumps({"source": chemin_source})],
+             "-d", json.dumps({"chemin_pdf": chemin_source})],
             capture_output=True,
             text=True,
             timeout=60
@@ -261,15 +339,14 @@ def test_t3_backend_with_images(pdf_path: str) -> Dict[str, Any]:
             return {"error": analyze_data["error"], "status": "analyze_failed", "elapsed_s": time.time() - start}
 
         # Start translation with images
-        print(f"  Lancement traduction (flag extraction_images=true)...")
+        print(f"  Lancement traduction (flag extraction_images_pdf cote serveur = {flag_extraction_images()})...")
         translate_response = subprocess.run(
             ["curl", "-s", f"{BACKEND_URL}/api/translate",
              "-X", "POST",
              "-H", "Content-Type: application/json",
              "-d", json.dumps({
-                 "source": chemin_source,
+                 "chemin_pdf": chemin_source,
                  "chapitres_selectionnes": list(range(min(2, analyze_data.get("nb_chapitres", 1)))),
-                 "extraction_images_pdf": True
              })],
             capture_output=True,
             text=True,
@@ -285,12 +362,36 @@ def test_t3_backend_with_images(pdf_path: str) -> Dict[str, Any]:
         if "error" in translate_data:
             return {"error": translate_data["error"], "status": "translate_failed", "elapsed_s": elapsed}
 
+        job_id = translate_data.get("job_id")
+        chemin_sortie = translate_data.get("chemin_sortie")
+        if not job_id or not chemin_sortie:
+            # Un 422/503 renvoie `detail`, pas `error` : sans ce garde, le script
+            # annoncait un succes alors qu'aucun job n'existait.
+            return {"error": translate_data.get("detail", translate_data),
+                    "status": "translate_failed", "elapsed_s": elapsed}
+
+        print(f"  Traduction lancee ({job_id[:8]}…), attente de la fin...")
+        fin = attendre_fin_job(chemin_sortie, TIMEOUT_DEFAULT)
+        if fin["statut"] != "termine":
+            return {"error": f"job {fin['statut']} ({fin.get('sections', '?')})",
+                    "status": "translate_failed", "elapsed_s": fin["elapsed_s"]}
+        # « Rien a traduire » n'est PAS une preuve que la traduction fonctionne.
+        # Le flux additif termine instantanement quand les chapitres demandes sont
+        # deja faits : sans ce garde, le test repasserait au vert en ne traduisant
+        # rien du tout — la meme illusion que celle corrigee le 29/7.
+        if fin.get("sections", "0/0").endswith("/0"):
+            return {"error": "aucune section a traduire (document deja traduit) — "
+                             "supprimez la sortie et le cache pour un vrai test",
+                    "status": "rien_a_faire", "elapsed_s": fin["elapsed_s"]}
+
         return {
             "status": "success",
-            "elapsed_s": elapsed,
-            "job_id": translate_data.get("job_id"),
+            "elapsed_s": fin["elapsed_s"],
+            "job_id": job_id,
+            "sections": fin["sections"],
+            "echecs": fin["echecs"],
             "chapitres_traduits": analyze_data.get("nb_chapitres", 1),
-            "extraction_images": True
+            "extraction_images_serveur": flag_extraction_images()
         }
     except subprocess.TimeoutExpired:
         return {"error": "Timeout", "status": "timeout", "elapsed_s": time.time() - start}

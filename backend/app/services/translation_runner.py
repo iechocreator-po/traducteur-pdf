@@ -36,6 +36,7 @@ from app.models.schemas import EtatJob, StatutJob, Langue
 from app.config.settings import (
     CHAPITRE_SOUS_CHUNK_TAILLE_MAX,
     RATIO_TRADUCTION_SUSPECT,
+    RATIO_TRADUCTION_MAX,
     CONTROLE_QUALITE_LONGUEUR_MIN,
 )
 from app.services.pdf_extractor import (
@@ -50,7 +51,8 @@ from app.services.translator import (
     OllamaIndisponible,
     AppelInterrompu,
 )
-from app.services import cache_traduction, glossaire
+from app.services import cache_traduction, glossaire, store
+from app.services.persistance import ecrire_texte_atomique
 from app.services.job_manager import (
     sauvegarder_etat,
     charger_etat,
@@ -92,19 +94,76 @@ def _base_depuis_source(chemin: str) -> str:
     return base
 
 
+def suffixe_modele(modele: str) -> str:
+    """
+    Suffixe de fichier identifiant le modèle, sans ambiguïté.
+
+    Historiquement `modele[:2]` — DEUX caractères. Suffisant tant qu'un seul
+    modèle était installé, ambigu dès qu'il y en a deux de la même famille :
+
+        llama3.1 → « ll »     qwen2.5 → « qw »     gemma2 → « ge »
+        llama3.2 → « ll »     qwen3   → « qw »     gemma3 → « ge »
+
+    Deux modèles partageant leurs deux premières lettres écrivaient donc dans le
+    MÊME fichier de sortie, le MÊME `.state.json` et le MÊME cache. Or comparer
+    la qualité de deux modèles sur un même document est précisément la raison
+    d'en installer un second — le défaut mordait exactement là où on l'attendait
+    le moins.
+
+    On garde un suffixe lisible plutôt qu'un hash : les fichiers vivent à côté
+    des documents de l'utilisateur, il doit pouvoir dire d'un coup d'œil lequel
+    vient de quel modèle.
+    """
+    if not modele:
+        return ""
+    # « qwen2.5:latest » → « qwen2.5 » : la balise Ollama ne distingue pas un
+    # contenu, et l'inclure produirait « qwen2-5-latest », plus long sans gain.
+    base = modele.split(":")[0]
+    return re.sub(r"[^a-z0-9]+", "-", base.lower()).strip("-")
+
+
 def build_output_path(source_path: str, modele: str = "") -> str:
+    """
+    Chemin du fichier traduit pour ce couple (source, modèle).
+
+    ⚠️ Consulte le disque, à dessein : un document traduit AVANT le passage au
+    suffixe long garde son nom historique (`_traduit_ll.md`). Sans cela, sa
+    reprise et son ajout de chapitres repartiraient de zéro dans un fichier neuf,
+    et l'ancien deviendrait orphelin — une régression silencieuse sur du travail
+    déjà payé.
+    """
     base = _base_depuis_source(source_path)
-    suffixe = modele[:2] if modele else ""
-    return f"{base}_traduit_{suffixe}.md" if suffixe else f"{base}_traduit.md"
+    if not modele:
+        return f"{base}_traduit.md"
+
+    nouveau = f"{base}_traduit_{suffixe_modele(modele)}.md"
+    if os.path.exists(nouveau):
+        return nouveau
+
+    ancien = f"{base}_traduit_{modele[:2]}.md"
+    if os.path.exists(ancien):
+        return ancien
+    return nouveau
 
 
-def _trouver_etat_existant(chemin: str) -> "EtatJob | None":
-    """Cherche un fichier .state.json correspondant à ce fichier source (PDF ou MD)."""
+def _trouver_etat_existant(chemin: str, modele: str = "") -> "EtatJob | None":
+    """
+    Cherche l'état d'un job pour ce fichier source (PDF ou MD).
+
+    ⚠️ `modele` n'est pas cosmétique. Sans lui, on prend le PREMIER `.state.json`
+    que renvoie le glob — c'est-à-dire un état arbitraire, dans l'ordre du
+    système de fichiers. Avec deux modèles installés, « Reprendre » pouvait donc
+    repartir sur le travail de l'AUTRE modèle, et l'ajout de chapitres mélanger
+    les deux dans un même document. Quand le modèle est connu, on ne consulte
+    que son état, et on ne retombe jamais sur celui d'un voisin.
+    """
+    if modele:
+        return charger_etat(build_output_path(chemin, modele))
+
+    # Sans modèle (sondes de statut génériques) : comportement historique.
     base = _base_depuis_source(chemin)
-    candidats = _glob.glob(f"{_glob.escape(base)}_traduit*.state.json")
-    for chemin_etat in candidats:
-        chemin_md = chemin_etat.replace(".state.json", ".md")
-        etat = charger_etat(chemin_md)
+    for chemin_etat in _glob.glob(f"{_glob.escape(base)}_traduit*.state.json"):
+        etat = charger_etat(chemin_etat.replace(".state.json", ".md"))
         if etat:
             return etat
     return None
@@ -134,6 +193,11 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
       a probablement résumé : une seconde tentative est faite, et un avertissement
       est ajouté au job si le ratio reste suspect (résultat alors non mis en cache,
       pour qu'un re-run retente la section).
+    - Si la traduction est trop LONGUE (ratio > RATIO_TRADUCTION_MAX), le modèle a
+      probablement bouclé en répétition au lieu de traduire — même traitement,
+      symétrique. Sans ce garde, un morceau tronqué par OLLAMA_NUM_PREDICT_MAX
+      après une boucle de répétition passait le contrôle qualité sans le moindre
+      avertissement : son ratio est très supérieur à 1, jamais vérifié avant.
     """
     termes = glossaire.termes_presents(texte)
     cle = cache_traduction.calculer_cle(
@@ -150,21 +214,26 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
         termes_a_conserver=termes, interruption=interruption,
     )
     ratio = len(traduit) / max(len(texte), 1)
+    trop_court = ratio < RATIO_TRADUCTION_SUSPECT
+    trop_long = ratio > RATIO_TRADUCTION_MAX
 
-    if len(texte) >= CONTROLE_QUALITE_LONGUEUR_MIN and ratio < RATIO_TRADUCTION_SUSPECT:
+    if len(texte) >= CONTROLE_QUALITE_LONGUEUR_MIN and (trop_court or trop_long):
         _journaliser(state, f"{etiquette} : traduction suspecte (ratio {ratio:.2f}) — nouvelle tentative")
         nouvelle = traduire_texte(
             texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value,
             termes_a_conserver=termes, interruption=interruption,
         )
         nouveau_ratio = len(nouvelle) / max(len(texte), 1)
-        if nouveau_ratio > ratio:
+        # Garde la tentative la plus proche d'un ratio normal (1.0), quel que
+        # soit le sens du défaut — valable pour le résumé (ratio bas) comme
+        # pour la répétition (ratio haut).
+        if abs(nouveau_ratio - 1) < abs(ratio - 1):
             traduit, ratio = nouvelle, nouveau_ratio
-        if ratio < RATIO_TRADUCTION_SUSPECT:
-            avertissement = (
-                f"{etiquette} : traduction possiblement résumée "
-                f"(ratio longueur {ratio:.2f} < {RATIO_TRADUCTION_SUSPECT})"
-            )
+            trop_court = ratio < RATIO_TRADUCTION_SUSPECT
+            trop_long = ratio > RATIO_TRADUCTION_MAX
+        if trop_court or trop_long:
+            cause = "possiblement résumée" if trop_court else "possiblement en boucle de répétition"
+            avertissement = f"{etiquette} : traduction {cause} (ratio longueur {ratio:.2f})"
             state.avertissements.append(avertissement)
             journaliser_erreur(state.chemin_sortie, avertissement)
             return traduit
@@ -184,6 +253,166 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
 
 
 TITRE_ANNEXE_LIENS = "## Liens du document original"
+
+
+_RE_MARQUEUR_CHAPITRE = re.compile(r"<!-- === chapitre \d+ : .*? === -->")
+
+
+def _marqueur_chapitre(index: int, titre: str) -> str:
+    """Marqueur inséré avant chaque chapitre traduit. Sert AUSSI de sentinelle
+    d'idempotence (voir _ecrire_chapitre) et de découpage côté Bibliothèque."""
+    return f"<!-- === chapitre {index} : {titre} === -->"
+
+
+def _ecrire_chapitre(
+    output_path: str, chap: dict, traduit: str, implicite: bool, state: EtatJob
+) -> None:
+    """
+    Écrit un chapitre terminé — ÉTAPE D de la phase 9, là où F3 disparaît.
+
+    Le défaut : le chapitre était ajouté au `.md` puis `chapitres_traduits`
+    n'était persisté qu'au `sauvegarder_etat` suivant. Un arrêt dans cet
+    intervalle laissait le chapitre DANS le fichier sans qu'il soit marqué comme
+    fait — donc retraduit ET réajouté à la reprise. Duplication silencieuse, à
+    chaque chapitre de chaque document.
+
+    Deux garanties, complémentaires :
+
+    1. **Transaction** : le contenu et l'état partent ensemble dans le store.
+       Soit les deux, soit aucun — plus d'état intermédiaire.
+    2. **Append idempotent** : le `.md` reste la source de vérité jusqu'à
+       l'étape E, donc la transaction seule ne suffit pas à le protéger. On
+       vérifie donc que le marqueur du chapitre n'y est pas DÉJÀ avant
+       d'ajouter. C'est une vérification par le CONTENU du fichier, pas par
+       l'état — donc juste même si l'état a été perdu, ce qui est précisément
+       le cas après un arrêt brutal.
+
+    Coût assumé : relire la sortie à chaque chapitre. Sur un livre de 500 Ko et
+    100 chapitres, c'est 50 Mo de lecture locale — négligeable devant une seule
+    requête Ollama, et le prix d'une garantie qui ne dépend pas de l'état.
+    """
+    marqueur = "" if implicite else _marqueur_chapitre(chap["index"], chap["titre"])
+
+    # 1. Transaction : contenu + état, atomiquement.
+    try:
+        store.ecrire_chapitre_et_etat(
+            chemin_sortie=output_path,
+            index_chapitre=chap["index"],
+            titre=chap["titre"],
+            contenu=traduit,
+            ordre=chap["index"],
+            etat_json=state.model_dump_json(),
+        )
+    except Exception as e:  # noqa: BLE001 — le store ne doit jamais casser un job
+        print(f"[traduction] écriture store ignorée : {e}", flush=True)
+
+    # 2. Le .md est REGENERE depuis le store (étape E) quand celui-ci fait foi.
+    if _regenerer_sortie(output_path, state, implicite):
+        return
+
+    # 3. Repli : append idempotent (étape D). Sert aux documents traduits AVANT
+    #    la phase 9, dont le store ne connaît pas les chapitres.
+    if marqueur and _sortie_contient(output_path, marqueur):
+        _journaliser(state, f"Chapitre {chap['index']} déjà présent dans la sortie — non réécrit")
+        return
+    with open(output_path, "a", encoding="utf-8") as f:
+        if marqueur:
+            f.write(f"\n{marqueur}\n\n")
+        f.write(traduit + "\n")
+
+
+def _regenerer_sortie(output_path: str, state: EtatJob, implicite: bool) -> bool:
+    """
+    Réécrit le `.md` ENTIER depuis le store — étape E de la phase 9.
+
+    Le fichier cesse d'être construit par ajouts successifs pour devenir un
+    EXPORT du store. Deux gains : il ne peut plus diverger de ce que la base
+    sait, et la réécriture est naturellement idempotente — plus besoin de la
+    sentinelle de l'étape D quand ce chemin s'applique.
+
+    ⚠️ Le `.md` continue d'être ÉCRIT SUR LE DISQUE, il ne devient pas virtuel.
+    Le frontend dérive le dossier des images de `chemin_sortie`
+    (`module-bibliotheque.js`, `urlImage`) : un fichier purement en base ferait
+    disparaître les images, en silence.
+
+    ⚠️ REFUSE de régénérer quand le store ne connaît pas tous les chapitres déjà
+    traduits. C'est le cas des documents traduits AVANT la phase 9 : leur
+    contenu n'est que dans le `.md`, et le régénérer depuis une base vide
+    DÉTRUIRAIT la traduction. On retourne alors False et l'appelant garde
+    l'append idempotent de l'étape D.
+
+    Retourne True si la sortie a été régénérée.
+    """
+    try:
+        chapitres = store.lire_chapitres(output_path)
+    except Exception as e:  # noqa: BLE001
+        print(f"[traduction] store illisible, régénération abandonnée : {e}", flush=True)
+        return False
+
+    if not chapitres:
+        return False
+    indices_store = {c["index_chapitre"] for c in chapitres}
+    if not set(state.chapitres_traduits).issubset(indices_store):
+        # Le store est en retard sur la réalité du fichier — ne rien réécrire.
+        return False
+
+    annexe = _extraire_annexe_liens(output_path)
+
+    indices_str = ", ".join(str(i) for i in sorted(state.chapitres_traduits))
+    morceaux = [
+        f"<!-- modèle : {state.modele_ollama} | source : {state.langue_source.value}"
+        f" → {state.langue_cible.value} | chapitres traduits : {indices_str} -->\n"
+    ]
+    for c in chapitres:
+        if not implicite:
+            morceaux.append(f"\n{_marqueur_chapitre(c['index_chapitre'], c['titre'] or '')}\n\n")
+        morceaux.append(c["contenu"] + "\n")
+    if annexe:
+        morceaux.append(annexe)
+
+    # Écriture ATOMIQUE : régénérer, c'est écraser un fichier qui contient TOUT
+    # le travail. Un `open("w")` interrompu ici le détruirait — exactement le
+    # défaut que la phase 1 a corrigé partout ailleurs.
+    ecrire_texte_atomique(output_path, "".join(morceaux))
+    return True
+
+
+def _extraire_annexe_liens(output_path: str) -> str:
+    """
+    Récupère l'annexe des liens si la sortie en a déjà une.
+
+    Elle est ajoutée APRÈS tous les chapitres ; une régénération l'effacerait
+    sans ça. `_annexer_liens_source` la reconstruirait au prochain passage, mais
+    seulement si la source est encore un PDF lisible — on ne parie pas dessus.
+    """
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            contenu = f.read()
+    except OSError:
+        return ""
+    position = contenu.find(TITRE_ANNEXE_LIENS)
+    if position == -1:
+        return ""
+    # On remonte au séparateur qui précède le titre, pour garder la mise en forme.
+    debut = contenu.rfind("\n\n---\n\n", 0, position)
+    debut = debut if debut != -1 else position
+
+    # ⚠️ BORNER la fin. L'annexe n'est PAS forcément en fin de fichier : un
+    # document traduit en plusieurs passes la voit ajoutée après la première,
+    # puis d'autres chapitres s'ajoutent APRÈS elle. Constaté sur un livre réel
+    # de 716 Ko — annexe ligne 393 sur 3327, suivie de 15 chapitres. Renvoyer
+    # « jusqu'à la fin » aurait réinjecté ces 15 chapitres à la régénération,
+    # donc dupliqué 90 % du document.
+    suite = _RE_MARQUEUR_CHAPITRE.search(contenu, position)
+    return contenu[debut : suite.start()] if suite else contenu[debut:]
+
+
+def _sortie_contient(output_path: str, marqueur: str) -> bool:
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            return marqueur in f.read()
+    except OSError:
+        return False
 
 
 def _annexer_liens_source(state: EtatJob) -> None:
@@ -412,15 +641,12 @@ def _executer_traduction(state: EtatJob, chapitres: list[dict], implicite: bool)
 
             if chapitre_ok:
                 traduit = "\n\n".join(parties)
-                with open(output_path, "a", encoding="utf-8") as f:
-                    if not implicite:
-                        f.write(f"\n<!-- === chapitre {chap['index']} : {chap['titre']} === -->\n\n")
-                    f.write(traduit + "\n")
                 if chap["index"] not in state.chapitres_traduits:
                     state.chapitres_traduits.append(chap["index"])
                 # Un chapitre qui réussit après un échec antérieur quitte la liste des échoués.
                 if chap["index"] in state.chapitres_echoues:
                     state.chapitres_echoues.remove(chap["index"])
+                _ecrire_chapitre(output_path, chap, traduit, implicite, state)
 
             unites_faites += nb_sc
             state.derniere_section_completee = unites_faites  # aligne la barre après le chapitre
@@ -509,10 +735,24 @@ def demarrer_traduction(
         langue_source=langue_source.value,
         langue_cible=langue_cible.value,
     )
+    # Double écriture (feature 328) : best-effort, ne doit jamais casser le
+    # lancement d'un job — le JSON ci-dessus a déjà réussi.
+    try:
+        store.enregistrer_document(
+            chemin_sortie=output_path,
+            chemin_source=source_path,
+            modele=modele,
+            langue_source=langue_source.value,
+            langue_cible=langue_cible.value,
+        )
+    except Exception as e:  # noqa: BLE001
+        print(f"[traduction] enregistrement store ignoré : {e}", flush=True)
 
     tous_chapitres, implicite = _chapitres_ou_implicite(source_path, extracteur)
     tous_index = {c["index"] for c in tous_chapitres}
-    existing = _trouver_etat_existant(source_path)
+    # Modèle transmis : l'état consulté est celui de CE modèle, jamais celui d'un
+    # autre (voir _trouver_etat_existant).
+    existing = _trouver_etat_existant(source_path, modele)
 
     reprendre = bool(resume and existing and existing.statut in STATUTS_REPRENABLES)
     ajout = bool(

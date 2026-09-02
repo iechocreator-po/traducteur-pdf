@@ -10,6 +10,7 @@ In 1931, three years before his death, Santiago Ramón y Cajal gave the Cajal In
 
 Most of these drawings were of different parts of the nervous system and were produced via a laborious cell-staining process. It started with a live animal, which was sacrificed and its tissues preserved. A chunk of the brain was then removed and soaked in a solution for two days, dried and soaked in a different solution – this one containing silver that would penetrate the cell structures – for another two days. At the end of this, the brain tissue was rinsed, dried again and cut into slices thin enough to fit on a microscope slide. Cajal looked at these slides through the eyepiece of his microscope and sketched what he saw. Starting first with pencil, he outlined every nook and cranny of each neuron’s shape on a piece of cardboard, including the thick cell bodies and the thin appendages that emerged from them. He then darkened in the cells with India ink, occasionally using watercolours to add texture and dimension. The result was a set of haunting silhouettes of stark, black spider-like figures against beige and yellow backgrounds.<sup>1</sup> The exact contours and configurations depended on the animal and the nerve fibres in question; more than 50 different species and nearly 20 different parts of the nervous system are portrayed on Cajal’s cardboard canvases. 
 
+
 These hundreds of portraits represent the infatuation Cajal had with the _structure_ of the nervous system. He sought enlightenment in the basic unit of the brain – the neuron. He fixated on how they were shaped and how they were arranged. A focus on its physical foundations was Cajal’s inroad to understanding how the brain worked. Function, he believed, could be found in structure. 
 
 And he was right. Cajal was able to deduce important facts about the workings of the brain by looking long and hard at how it was built. One of his significant findings was about how signals flow through neurons. Through his many observations of different neurons in different sensory organs, Cajal noticed that the cells were always arranged a certain way. The many branched dendrites of a cell would face the direction the signal was coming from. The long singular axon, on the other hand, went towards the brain. In the olfactory system, for example, neurons with the chemical receptors capable of picking up odour molecules exist in the mucousy skin inside the nose. These neurons send their axons up into the brain and make contact with the dendrites of cells in the olfactory bulb. These neurons then have axons that go further on into other parts of the brain. 
@@ -17,6 +18,7 @@ And he was right. Cajal was able to deduce important facts about the workings of
 This pattern – which Cajal saw over and over – strongly suggested that signals flow from dendrites through to axons. Dendrites, he concluded, act as the receiver of signals for a cell and axons the sender of signals on to the next cell. So clear was Cajal on this that he added little arrows to his drawings of circuits like the olfactory system, indicating the presumed direction of information flow. Cajal, as we now know, was exactly correct. 
 
 Cajal was one of the founding fathers of modern neuroscience. As such, his belief in the relationship between structure and function was entered into the DNA of the field. Reflections of this idea are peppered throughout neuroscience’s history. In a 1989 article, Peter Getting wrote that researchers in the 1960s could see, even through their limited data, that ‘the abilities of a network arose from the interconnection of simple elements into complex networks, thus, from connectivity emerged function’. Studies in the 1970s, he goes on to say, ‘were approached with several expectations in mind: first, a knowledge of the connectivity would explain how neural networks operated’. This attitude persists. A review written in 2016 by professors Xiao-Jing Wang and Henry Kennedy ends with the statement: 
+
 
 ‘Establishing a firm link from structure to function is essential to understand complex neural dynamics.’ 
 
@@ -30,7 +32,22 @@ A much-needed method, however, has been found in a particular subfield of mathem
 
 In the eighteenth-century East Prussian capital of Königsberg, a river branched in two as it cut through the town, creating a small island in the middle. Connecting this island with parts of the town north, south and east of it were seven bridges. At some point a question arose among the citizens of Königsberg: is there a way to navigate through the city that crosses each 
 
-Map of K6nigsberg As a graph 35 ®—2 = @ Each land mass is a node = river [| = land oy = bridge given a letter name and the bridges form the edges 
+
+of the bridges once and only once? When this playful question met the famous mathematician Leonhard Euler, the field of graph theory was born. 
+
+Euler, a polymath who was born in Switzerland but lived in Russia, wrote ‘ _Solutio problematis ad geometriam situs pertinentis_ ’ or ‘The solution of a problem relating to the geometry of position’ in 1736. In the paper, he answered the question definitively: a Königsberger could _not_ take a walk through their town crossing each bridge exactly once. To prove this he had to simplify the town map into a skeleton of its full structure and work logically with it. He had shown, without using the word, how to turn data into a _graph_ and how to perform computations on it (see Figure 20). 
+
+Within the context of graph theory, the word ‘graph’ does not refer to a chart or a plot, as it does in common language. Rather, a graph is a mathematical object, composed of _nodes_ and _edges_ (in the modern parlance). Nodes are the base units of the graph and edges represent the connections between them. In the Königsberg example, the bridges serve as edges that connect the four different land masses, the nodes. The degree of a node is the number of edges it has; the ‘degree’ of a land mass is thus the number of bridges that reach it. 
+
+
+
+**_Figure 20_** 
+
+Euler approached the bridge-crossing question by first noting that a path through town could be written down as a list of nodes. Giving each land mass a letter name, the list ‘ABDC’, for example, would represent a path 
+
+
+
+![](Models of the Mind_ Chapter 9_images/img-0.jpeg)
 
 that goes from the island at the centre to the land at the bottom (via any bridge that connects them), then from there to the land mass on the right and then on to the land at the top. In such a path through a graph, one edge is traversed between each pair of nodes. Therefore, the number of bridges crossed is equal to the number of letters in the list minus one. For example, if you’ve crossed two bridges, you’d have three land masses on your list. 
 
@@ -44,11 +61,13 @@ More than that, it doesn’t matter if we are talking about land and bridges at 
 
 Given this feature, graph theory found purpose in many fields. Chemists in the nineteenth century wrestled for some time with how to represent the structure of molecules. By the 1860s, a system was developed that is still in use today: atoms are drawn as letters and the bonds between them as lines. 
 
+
 In 1877, English mathematician James Joseph Sylvester saw in this graphical representation of molecules a parallel to the work being done by descendants of Euler in mathematics. He published a paper drawing out the analogy and used, for the first time, the word ‘graph’ to refer to this form. Since then, graph theory has helped solve many problems in chemistry. One of its most common applications is finding isomers – sets of molecules that are each made up of the same type and number of atoms, but differ in how those atoms are arranged. Because graph theory provides a formal language for describing the structure of atoms in a molecule, it is also well suited for enumerating all the structures that are possible given a particular set of atoms. Algorithms that do this can aid in the design of drugs and other desirable compounds. 
 
 Like a chemical compound, the structure of the brain lends itself well to a graph. In the most basic mapping, neurons are the nodes and the connections between them are the edges. Alternatively, the nodes can be brain areas and the nerve tracts that connect them the edges. Whether working on the microscale of neurons or the macroscale of brain regions, putting the brain into the terms of graph theory exposes it to all the tools of analysis this field has developed. It is a way of formalising the informal quest that has always guided neuroscience. To speak of how structure births function first requires the ability to speak clearly about structure. Graph theory provides the language. 
 
 Of course, there are differences between the brain and a Prussian town or a chemical compound. The connections in the brain aren’t always a twoway street like they are on a bridge or in a bond. One neuron can connect to another without it receiving a connection back. This unidirectional nature of neural connections is important for the way information flows through neural circuits. The most basic graph structures don’t capture this, but by the late 1800s, the concept of _directed_ graphs had been added to the arsenal of mathematical descriptors. In a directed graph, edges are arrows that only flow one way. The degree of a node in a directed graph is thus broken down into two categories: the in-degree (for example, how many connections a neuron receives) and the out-degree (how many connections it sends out to other neurons). A study done on neurons in the cortex of monkeys found these two types of degree to be roughly equal, meaning neurons give as much as they receive. 
+
 
 In 2018, mathematicians Katherine Morrison and Carina Curto built a model of a neural circuit with directed edges in order to answer a question not so dissimilar to the Königsberg bridge problem. Rather than determining what walks through town a certain set of bridges can support, they explored what sequence of neural firing a given circuit could produce. By bringing in tools from graph theory, Morrison and Curto figured out how to look at a structure of up to five model neurons and predict the order in which they will fire. Ordered patterns of neuronal firing are important for many of the brain’s functions, including memory and navigation. This fiveneuron model may only be a toy example, but it perfectly encapsulates the power promised by bringing graph theory into the study of the brain. 
 
@@ -62,6 +81,7 @@ The phrase ‘it’s a small world’ is usually uttered when two strangers meet
 
 In a bold attempt to answer this question, Milgram chose a target person (in this case, the Massachusetts stockbroker) and several starters: unrelated people in another part of the country (in this case, mostly Omaha, Nebraska). The starters were given a package with a folder and information about the target person. The instructions were simple: if you know the 
 
+
 target, give the folder to them; otherwise, send it on to a friend of yours who you think has a better shot of knowing them. The next person would be told to follow the same instructions and, hopefully, eventually the folder would end up with the target. The senders were also asked to write their name in a register that was sent along with the package, so that Milgram could trace the path the folder took. 
 
 Looking at a total of 44 folders that made it back to the stockbroker, Milgram found that the shortest path consisted of just two intermediate people and the longest had 10. The median was just five. Getting the folder through five people between the starter and the target involved six handoffs and thus the notion of ‘six degrees of separation’ – already posited by observant scientists and sociologists – was solidified.<sup>2</sup> 
@@ -72,6 +92,7 @@ In 1998, Watts and Strogatz published a paper laying out just what it takes for 
 
 So, Watts and Strogatz limited their network simulations to those with sparse connections, but varied exactly what those connections looked like. They noticed that it was possible to have short path lengths in a network that was highly _clustered_ . A cluster refers to a subset of nodes that are heavily interconnected, like the members of a family. In these networks, most nodes form edges just with other nodes in their cluster, but occasionally a connection is sent to a node in a distant cluster. The same 
 
+
 way a train between two cities makes interactions between their citizens easier, these connections between different clusters in a network keeps the average path length low. 
 
 Once these characteristics were identified in their models, Watts and Strogatz went looking for them in real data – and found them. The power grid system of the United States – turned into a graph by considering any generator or substation as a node and transmission lines as edges – has the low path length and high clustering of a small world network. A graph made of actors with edges between any pairs that have starred in a movie together is the same. And the final place that they looked for, and found, a small world network was in the brain. 
@@ -81,6 +102,7 @@ More specifically, the structure Watts and Strogatz analysed was the nervous sys
 Why should the nervous system of a nematode have the same shape as the social network of humans? The biggest reason may be energy costs. Neurons are hungry. They require a lot of energy to stay in working order and adding more or longer axons and dendrites only ups the bill. A fully interconnected brain is, thus, a prohibitively expensive brain. Yet if connections become too sparse the very function of the brain – processing and routing information – breaks down. A balance must be struck between the cost of wiring and the benefit of information sharing. Small worlds do just this. In a small world, the more common connections are the relatively cheap ones between cells in a local cluster. The pricey connections between faraway neurons are rare, but there are enough to keep information flowing. Evolution, it seems, has found small worldness to be the smart solution. 
 
 Watts and Strogatz’s finding in the roundworm was the first time the nervous system was described in the language of graph theory. Putting it into these terms made visible some of the constraints that are shared by the brain and other naturally occurring networks. Connections can be expensive to maintain, be they acquaintanceships or axons, and if these similarities 
+
 
 exist between the roundworm and social networks it’s reasonable to expect that the structure of other nervous systems is dictated by them as well. 
 
@@ -94,6 +116,7 @@ This lack of connectomic data is due largely to the gruelling process by which i
 
 Luckily more indirect methods are available that allow for a rough draft of connectomes in many individuals and species. One approach involves recording from a neuron while electrically stimulating others around it. If stimulation of one of these nearby neurons reliably causes a spike in the 
 
+
 recorded one, there’s likely a connection between them. Another option is tracers: chemicals that act like dyes that colour in a neuron. To see where inputs are coming from or outputs are going to, one just needs to look at where the dye shows up. None of these methods can create a complete connectome, but they do work to give a snapshot of connectivity in a certain area. 
 
 While connectivity had been studied long before it, the word ‘connectome’ wasn’t coined until 2005. In a visionary paper, psychologist Olaf Sporns and colleagues called on their fellow scientists to help build the connectome of the human brain, promising it would ‘significantly increase our understanding of how functional brain states emerge from their underlying structural substrate’. Getting connection data from humans is a staggering challenge, as many of the invasive methods used in animals are, for obvious reasons, not permissible. A quirk of brain biology, however, allows for a clever alternative. 
@@ -101,6 +124,7 @@ While connectivity had been studied long before it, the word ‘connectome’ wa
 When the brain builds connections, protecting the cargo is key. Like water leaking out of a seeping hose, the electrical signal carried by an axon is at risk of fading away. This isn’t much of a problem for short axons connecting nearby cells, but those carrying signals from one region of the brain to another need protection. Long-range axons therefore get wrapped in layers and layers of a waxy blanket. This waxy substance, called myelin, contains a lot of water molecules. Magnetic resonance imaging (the same technology used to take pictures of tumours, aneurysms and head injuries) can detect the movement of these water molecules – information that is used to reconstruct the tracts of axons in the brain. Through this, it’s possible to see which brain regions are connected to each other. After the publication of Sporns’s plea, the Human Connectome Project was launched to map out the brain using this technique. 
 
 Identifying long-range axons this way doesn’t produce the same kind of connectome that single-cell tracing methods do. It requires that scientists chunk the brain into rough and possibly arbitrary regions; it’s therefore a much coarser description of connectivity. In addition, measuring water molecules isn’t a perfect way to pick up the axons between these areas, leading to errors or ambiguities. Even David Van Essen, one of the key scientists of the Human Connectome Project, warned the neuroscience community in 2016 that there are major technical limitations to this 
+
 
 approach that shouldn’t be underappreciated. On the other hand, it is one of the only means by which we can peer into a living human brain; the desire to press forward with it makes sense. As Van Essen wrote: ‘Be optimistic, yet critical of glasses half full and half empty.’ 
 
@@ -112,23 +136,18 @@ Universal findings are a rare sight in neuroscience; the principles that operate
 
 On 10 February 2010, approximately 23 per cent of all flights originating in the United States were cancelled. This historically large disruption was the result of a snowstorm in the north-east that closed a handful of airports, including Ronald Reagan in Washington DC and JFK in New York. Such a sizable dent in travel wouldn’t ordinarily come from closing a handful of airports – but these were not just any airports, they were hubs in the aviation network. 
 
-Degree distribution 
 
-
-![](Models of the Mind_ Chapter 9_images/img-0.png)
-
-
-many nodes, ao have low, degree, @, 3 a small number, = of nodes have, o high degree, ° t, degree
+Hubs are nodes in a graph that have a high degree – that is, they’re highly connected. They reside in the tails of the degree distribution: a plot that shows, for each degree value, how many nodes in the network have that degree (see Figure 21). For graphs like the aviation network or the structure of servers that make up the internet, this graph starts high – meaning that there are many nodes that have only a small number of connections – and fades as the number of connections increases, leading to a long, low tail that represents the small number of nodes with very high degree, such as JFK airport. The high degree of hubs makes them powerful but also a potential vulnerability. Like removing the keystone from a stone archway, a targeted attack on one of its hubs can cause a network to collapse. 
 
 
 
-![](Models of the Mind_ Chapter 9_images/img-1.png)
+**_Figure 21_** 
+
+The brain has hubs. In humans, they’re found sprinkled throughout the lobes. The cingulate, for example, which curves around the centre of the brain, serves as a hub; as does the precuneus, which sits atop the back of the cingulate.<sup>4</sup> In studies of sleep, anaesthesia and people in comas, activity in these areas correlates with consciousness. The size of another hub, the superior frontal cortex, appears correlated with impulsivity and attention. Lesions of a fourth hub, located in the parietal cortex on the side of the brain, cause patients to lose a sense of direction. In total, the population of hubs appears diverse in both location and function. The connective thread, if there is any between them, is just how complicated each one is. Regions 
 
 
-An example hub
 
-
-The node at the centre has degree 10 while the rest have degree 3 
+![](Models of the Mind_ Chapter 9_images/img-1.jpeg)
 
 of the brain like the visual cortex, auditory cortex and olfactory bulb – regions with clear and identifiable roles present right there in their names – don’t make it on to the list of hubs. Hub regions are complex; they pull in information from multiple sources and spread it out just as far. Their role as integrators seems a clear result of their placement in the network architecture. 
 
@@ -140,6 +159,7 @@ If hubs are so central to brain function, what role might they play in _dys_ fun
 
 In the early 2000s, when the methods of graph theory were first being unfurled across the field of neuroscience, Bassett was a college student studying physics. At that time, it might have been a surprise to her to hear she’d go on to be called the ‘doyenne of network science’ by a well-known neuroscientist.<sup>5</sup> Though working towards a physics degree was itself 
 
+
 already somewhat surprising given her upbringing: Bassett was one of 11 children home-schooled in a religious family where women were expected to play more traditional roles. Her transition to neuroscience came during her PhD, when she worked with Edward Bullmore, a neuropsychiatrist at Cambridge University who was part of an initial wave of neuroscientists eager to apply graph theory to the brain. One of Bassett’s first projects was to see how the structure of the brain is affected by the common and crippling mental disorder schizophrenia. 
 
 Schizophrenia is a disease characterised by delusions and disordered thought. Comparing the brains of people with the disease to those without, Bassett found several differences in their network properties, including in the hubs. Regions in the frontal cortex that form hubs in healthy people, for example, don’t do so in schizophrenics. A disruption to the frontal cortex and its ability to rein in and control other parts of the brain could relate to the hallucinations and paranoia schizophrenia can elicit. And while the brain of a schizophrenic is still a small world, both the average path length and the strength of clustering are higher than in healthy people, making it seemingly more difficult for two disparate areas to communicate and get on the same page. 
@@ -147,6 +167,7 @@ Schizophrenia is a disease characterised by delusions and disordered thought. Co
 As the first study to approach this disease from the perspective of graph theory, this work helped bring an old idea about ‘disconnection syndromes’ into the quantitative age. As early as the late nineteenth century, neurologists hypothesised that a disruption in anatomical connections could lead to disorders of thought. German physician Carl Wernicke in particular believed that higher cognitive functions did not reside in any single brain region, but rather emerged from interactions between them. As he wrote in 1885: ‘Any higher psychic process … rested on the mutual interaction of … fundamental psychic elements mediated by means of their manifold connections via the association fibres.’ Lesioning these ‘association fibres’, he posited, would impair complex functions like language, awareness and planning. 
 
 Now that the tools of graph theory have met the study of ‘disconnection syndromes’, more diseases of this kind are being explored with modern approaches. One common example is Alzheimer’s disease. When the brainwide connectivity of older patients with Alzheimer’s was compared to those without it, it was found that those with Alzheimer’s had longer path lengths 
+
 
 between brain areas. The confusion and cognitive impairment of Alzheimer’s disease may result, in part, from the breakdown of efficient communication between distant brain regions. Similar changes in brain network structures are seen to a lesser extent with normal ageing. 
 
@@ -158,6 +179,7 @@ The hope that the metrics of graph theory may serve as markers of disease – po
 
 A developing brain is an eruption. Neurons bubble out of a neuronal nursery called the ventricular zone at a breakneck pace and pour into all corners of the burgeoning brain. Once there, they start making connections. These 
 
+
 indiscriminate neurons form synapse after synapse with each other, frenetically linking cells near and far. At the height of synapse building in the human brain – during the third trimester of pregnancy – 40,000 such connections are constructed every second. Development is an explosion of neuronal and synaptic genesis. 
 
 But just as soon as they come, many of these cells and connections go. An adult has far fewer neurons than they had in the womb; as many as half the neurons produced during development die. The number of connections a neuron in the cortex makes peaks around the first year of life and gets reduced by a third thereafter. The brain is thus built via a surge and a retreat, a swelling and a shrinking. During development, the pruning of neurons and synapses is ruthless; only the useful survive. Synapses, for example, are built to carry signals between neurons. If no signal flows, the synapse must go. Out of this turmoil and turnover emerge operational neural circuits. It’s like encouraging the overgrowth of shrubbery for the purpose of carving delicate topiary out of it. 
@@ -165,6 +187,7 @@ But just as soon as they come, many of these cells and connections go. An adult 
 Such is the way biology found to build the brain. But if you asked a graph theorist how to make a network, they’d give the exact opposite answer. The designer of a public transit system, for example, wouldn’t start by building a bunch of train stations and bus stops and connecting them all up just to see what gets used. No government would approve such a waste of resources. Rather, most graphs are built from the bottom up. For example, one strategy graph theorists use is to first build a graph that – using the fewest edges possible – has a path between any two nodes. This means some paths may be quite long, but by observing what paths get used the most (by commuters on a train or information travelling between servers on the internet) the network designer can identify where it would be useful to add a shortcut. Thus, the network gets more efficient by adding well-placed edges. 
 
 The brain, however, doesn’t have a designer. There is no central planner that can look down and say: ‘It looks like signals would flow better if that neuron over there was connected to this one here.’<sup>6</sup> That is why the brain needs to overproduce and prune. The only way the brain can make decisions about which connections should exist is by calculating the activity that passes through those connections. Individual neurons and synapses 
+
 
 have elaborate molecular machinery for measuring how much use they’re getting and growing or shrivelling as a result. If the connection doesn’t exist in the first place, though, the activity on it can’t be measured. 
 
@@ -176,6 +199,7 @@ Network neuroscience, the name given to this practice of using the equipment of 
 
 A reason for caution, however, may be found in the stomach of a lobster. 
 
+
 The stomatogastric ganglion is a circuit of 25–30 neurons located in the gut of lobsters and other crustaceans. These neurons conspire through their connections to perform a basic but crucial job: produce the rhythmic muscle contractions that guide digestion. Eve Marder, a professor at Brandeis University in Massachusetts, has spent half a century studying this handful of neurons. 
 
 Marder was born and raised in New York but her education took her to Massachusetts and then California.<sup>7</sup> While her doctorate work at the University of California, San Diego, was solidly in neuroscience, Marder always had an aptitude for mathematics: in primary school, she worked her way through maths textbooks meant for students two years her senior. This polymath personality permeates her science. Throughout her career she has collaborated with researchers from many backgrounds, including Larry Abbott (mentioned in Chapter 1), as he was making his transition from a particle physicist to renowned theoretical neuroscientist. Blending experimental exactness with a mathematical mindset, Marder has thoroughly probed the functioning of this little lobster circuit both physically and in computer simulations. 
@@ -183,6 +207,7 @@ Marder was born and raised in New York but her education took her to Massachuset
 The connectome of the lobster stomatogastric ganglion has been known since the 1980s. The 30 neurons of this ganglion form 195 connections and send outputs to the muscles of the stomach. For her PhD, Marder worked out what chemicals these neurons use to communicate. In addition to standard neurotransmitters – the chemicals that traverse the small synaptic cleft between the neuron releasing them and the one receiving them – Marder also found a panoply of neuromodulators at play. 
 
 Neuromodulators are chemicals that fiddle with the settings of a neural circuit. They can turn the strength of connections between neurons up or down and make neurons fire more, less or in different patterns. Neuromodulators effect these changes by latching on to receptors embedded in a neuron’s cell membrane. Part of what’s noteworthy about neuromodulators is where they come from and how they get to the neuron. In the most extreme case, a neuromodulator could be released from a different part of the brain or body and travel through the blood to its destination. Other times, a neuromodulator is released locally from nearby neurons – but whether from near or afar, neuromodulators tend to bathe a 
+
 
 circuit indiscriminately, touching many neurons and synapses in a diffuse way. Whereas regular neurotransmission is like a letter sent between two neurons, neuromodulation is a leaflet sent out to the whole community. 
 
@@ -193,6 +218,7 @@ Importantly, throughout these experiments the underlying network never changed. 
 The massive effort poured into getting a connectome presupposes a certain amount of payoff that will come from having it, but the payoff is less if the structure-function relationship is looser than it may have seemed. If neuromodulators can release the activity of neurons in a circuit from the strict constraints of their architecture, then structure is not destiny. Perhaps this wouldn’t be such a concern if neuromodulation were a phenomenon specific to the stomatogastric ganglion. This, however, is far from the truth. Brains are constantly bathing in modulating molecules. Across species, neuromodulators are responsible for everything from sleeping to learning, moulting to eating. Neuromodulation is the rule, not the exception. 
 
 Through mathematical simulations of the circuits she studies, Marder has explored not just how different behaviours arise from the same structure, but also how _different_ structures can produce the _same_ behaviours. Specifically, each lobster has a slightly different configuration of its gut 
+
 
 circuitry: connections may be built stronger or weaker in one animal versus another. By simulating as many as 20 million possible ganglion circuits, Marder’s lab found that the vast majority aren’t capable of producing the needed rhythms, but certain specific configurations are. Each lobster, through some combination of genes and development, finds its way to one of these functioning configurations. The work makes an important point about individual brains: diversity doesn’t always mean difference. What may look like a deviation from the structural norm could in fact be a perfectly valid way to achieve the same outcomes. That these diverse structures create the same rhythms adds another wrinkle to the structurefunction relationship. 
 
@@ -205,6 +231,7 @@ So, it may not be possible to satisfy Cajal’s vision of intuiting the function
 - 1  The images were attractive enough to be the centrepiece of a travelling art exhibition called _The Beautiful Brain_ , a fate that surely would ’ ve pleased Cajal. Before succumbing to his father ’ s wishes that he be a physician, Cajal dreamt of being an artist. 
 
 - 2  Milgram ’ s experiment has been criticised by later researchers for lacking rigour. He didn ’ t, for example, take into account the folders that never made it to the target person. As a result, whether six really is the magic number when it comes to degrees of separation between people has remained an open question. Luckily, data from social media sites is offering new ways to answer it. 
+
 
 - 3  There are currently some successful attempts to automate this arduous process. In the meantime, desperate scientists have also tried to turn this work into a game and get people all over the world to play it. It can be found at  eyewire.org . 
 

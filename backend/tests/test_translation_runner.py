@@ -128,6 +128,32 @@ def test_progression_avance_au_grain_du_sous_morceau(tmp_path, monkeypatch):
     assert intermediaires, f"aucune progression intermédiaire observée : {vues}"
 
 
+def test_demarrer_traduction_enregistre_le_document_dans_le_store(tmp_path, monkeypatch):
+    """
+    Feature 328 (double écriture du registre) : `store.enregistrer_document`
+    doit être appelé au lancement, comme `bibliotheque.enregistrer_document` —
+    seul moyen pour `bibliotheque._charger` de disposer un jour d'un filet de
+    récupération pour ce document.
+    """
+    from app.services import store
+
+    source = tmp_path / "doc.md"
+    source.write_text("# Section 0\n\n" + "mot " * 200, encoding="utf-8")
+
+    def traducteur(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+
+    _, sortie = _demarrer(str(source))
+    _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+
+    doc = store.lire_document(sortie)
+    assert doc is not None, "le document aurait dû être enregistré dans le store aussi"
+    assert doc["chemin_source"] == str(source)
+    assert doc["modele"] == "llama3.1"
+
+
 def test_document_sans_titre_traduit_en_chapitre_implicite(tmp_path, monkeypatch):
     """Un document sans aucun titre `#` est traité comme un chapitre implicite
     couvrant tout le texte, et se termine normalement."""
@@ -572,3 +598,314 @@ def test_annexe_liens_ignoree_pour_source_markdown(tmp_path, monkeypatch):
 
     translation_runner._annexer_liens_source(state)
     assert "## Liens du document original" not in sortie.read_text()
+
+
+# ── F3 : la fenêtre de duplication (phase 9, étape D) ────────────────────────
+
+def _fausse_traduction(texte, modele, langue_source, langue_cible,
+                       termes_a_conserver=None, interruption=None):
+    return texte
+
+
+def test_F3_un_chapitre_deja_dans_la_sortie_n_est_jamais_reecrit(tmp_path, monkeypatch):
+    """
+    F3 — LE défaut que la phase 9 vise.
+
+    Le chapitre était ajouté au `.md`, puis `chapitres_traduits` n'était persisté
+    qu'au `sauvegarder_etat` SUIVANT. Un arrêt dans cet intervalle laissait le
+    chapitre DANS le fichier sans qu'il soit marqué comme fait : la reprise le
+    retraduisait et le RÉAJOUTAIT. Duplication silencieuse, à chaque chapitre.
+
+    On reproduit exactement cet état — sortie complète, état en retard — puis on
+    reprend. Le fichier ne doit pas doubler.
+    """
+    monkeypatch.setattr(translation_runner, "traduire_texte", _fausse_traduction)
+    source = _ecrire_source_md(tmp_path, "doc.md", nb_sections=3)
+
+    _, sortie = _demarrer(source)
+    _attendre_statut(sortie, {StatutJob.TERMINE})
+
+    contenu_avant = open(sortie, encoding="utf-8").read()
+    marqueurs_avant = contenu_avant.count("<!-- === chapitre")
+    assert marqueurs_avant == 3
+
+    # ── On fabrique la fenêtre de crash : l'état « oublie » le dernier chapitre,
+    # alors que la sortie le contient déjà.
+    etat = charger_etat(sortie)
+    etat.chapitres_traduits = [0, 1]          # le chapitre 2 n'est plus marqué
+    etat.statut = StatutJob.EN_PAUSE
+    sauvegarder_etat(etat)
+
+    # ── Reprise.
+    translation_runner.demarrer_traduction(
+        source_path=source,
+        langue_source=Langue.ANGLAIS,
+        langue_cible=Langue.FRANCAIS,
+        modele="llama3.1",
+        resume=True,
+    )
+    _attendre_statut(sortie, {StatutJob.TERMINE})
+
+    contenu_apres = open(sortie, encoding="utf-8").read()
+    assert contenu_apres.count("<!-- === chapitre") == 3, (
+        "un chapitre a été réécrit alors qu'il était déjà dans la sortie"
+    )
+    assert contenu_apres.count("<!-- === chapitre 2 ") == 1
+
+
+def test_le_contenu_et_l_etat_partent_ensemble_dans_le_store(tmp_path, monkeypatch):
+    """
+    Étape D : `ecrire_chapitre_et_etat` écrit les deux en UNE transaction. Après
+    une traduction, le store doit contenir autant de chapitres que la sortie, et
+    un état qui les déclare tous faits — jamais l'un sans l'autre.
+    """
+    from app.services import store
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", _fausse_traduction)
+    source = _ecrire_source_md(tmp_path, "doc.md", nb_sections=3)
+
+    _, sortie = _demarrer(source)
+    _attendre_statut(sortie, {StatutJob.TERMINE})
+
+    chapitres = store.lire_chapitres(sortie)
+    assert len(chapitres) == 3
+    # Les chapitres ressortent dans l'ordre du document.
+    assert [c["index_chapitre"] for c in chapitres] == [0, 1, 2]
+
+    import json
+    etat_store = json.loads(store.lire_etat(sortie))
+    assert sorted(etat_store["chapitres_traduits"]) == [0, 1, 2]
+
+
+# ── Étape E : le .md devient un export régénéré ──────────────────────────────
+
+def test_E_la_sortie_est_regeneree_depuis_le_store_sans_doublon(tmp_path, monkeypatch):
+    """
+    Le `.md` cesse d'être construit par ajouts pour devenir un export du store.
+    La régénération est naturellement idempotente : réécrire deux fois donne le
+    même fichier, là où l'ancien append doublait.
+    """
+    monkeypatch.setattr(translation_runner, "traduire_texte", _fausse_traduction)
+    source = _ecrire_source_md(tmp_path, "doc.md", nb_sections=3)
+
+    _, sortie = _demarrer(source)
+    _attendre_statut(sortie, {StatutJob.TERMINE})
+
+    contenu = open(sortie, encoding="utf-8").read()
+    assert contenu.count("<!-- === chapitre") == 3
+    # L'en-tête reflète les chapitres faits.
+    assert "chapitres traduits : 0, 1, 2" in contenu.split("\n", 1)[0]
+
+    # Régénérer à nouveau ne change rien.
+    etat = charger_etat(sortie)
+    assert translation_runner._regenerer_sortie(sortie, etat, implicite=False) is True
+    assert open(sortie, encoding="utf-8").read() == contenu
+
+
+def test_E_un_document_d_avant_la_phase_9_n_est_JAMAIS_ecrase(tmp_path):
+    """
+    LE garde-fou de l'étape E. Un document traduit avant la phase 9 n'a son
+    contenu QUE dans le `.md` — le store ignore ses chapitres. Le régénérer
+    depuis une base vide produirait un fichier vide et DÉTRUIRAIT la traduction.
+    """
+    from app.models.schemas import EtatJob, StatutJob as SJ
+
+    sortie = tmp_path / "ancien_traduit_ll.md"
+    contenu_original = (
+        "<!-- modèle : llama3.1 | source : anglais → français | chapitres traduits : 0, 1 -->\n"
+        "\n<!-- === chapitre 0 : Un === -->\n\ntexte du chapitre 0\n"
+        "\n<!-- === chapitre 1 : Deux === -->\n\ntexte du chapitre 1\n"
+    )
+    sortie.write_text(contenu_original, encoding="utf-8")
+
+    etat = EtatJob(
+        job_id="job-legacy",
+        chemin_pdf=str(tmp_path / "ancien.pdf"),
+        chemin_sortie=str(sortie),
+        langue_source=Langue.ANGLAIS,
+        langue_cible=Langue.FRANCAIS,
+        modele_ollama="llama3.1",
+        statut=SJ.EN_PAUSE,
+        chapitres_traduits=[0, 1],
+    )
+
+    # Le store ne connaît rien de ce document.
+    assert translation_runner._regenerer_sortie(str(sortie), etat, implicite=False) is False
+    # Et le fichier est INTACT.
+    assert sortie.read_text(encoding="utf-8") == contenu_original
+
+
+def test_E_un_store_incomplet_ne_declenche_pas_la_regeneration(tmp_path):
+    """
+    Variante plus insidieuse : le store connaît UNE PARTIE des chapitres. Une
+    régénération produirait un fichier amputé — pire qu'un doublon, parce que
+    silencieuse. On exige que le store couvre tout `chapitres_traduits`.
+    """
+    from app.models.schemas import EtatJob, StatutJob as SJ
+    from app.services import store
+
+    sortie = tmp_path / "partiel_traduit_ll.md"
+    original = "en-tete\n\n<!-- === chapitre 0 : Un === -->\n\nc0\n\n<!-- === chapitre 1 : Deux === -->\n\nc1\n"
+    sortie.write_text(original, encoding="utf-8")
+
+    # Le store n'a QUE le chapitre 0.
+    store.ecrire_chapitre_et_etat(str(sortie), 0, "Un", "c0", 0, "{}")
+
+    etat = EtatJob(
+        job_id="job-partiel", chemin_pdf=str(tmp_path / "p.pdf"), chemin_sortie=str(sortie),
+        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS,
+        modele_ollama="llama3.1", statut=SJ.EN_PAUSE, chapitres_traduits=[0, 1],
+    )
+    assert translation_runner._regenerer_sortie(str(sortie), etat, implicite=False) is False
+    assert sortie.read_text(encoding="utf-8") == original
+
+
+def test_E_l_annexe_des_liens_survit_a_la_regeneration(tmp_path):
+    """
+    L'annexe est ajoutée APRÈS tous les chapitres. Une régénération naïve
+    l'effacerait ; `_annexer_liens_source` ne la reconstruirait que si la source
+    est encore un PDF lisible — on ne parie pas là-dessus.
+    """
+    from app.models.schemas import EtatJob, StatutJob as SJ
+    from app.services import store
+
+    sortie = tmp_path / "avec_annexe_traduit_ll.md"
+    annexe = f"\n\n---\n\n{translation_runner.TITRE_ANNEXE_LIENS}\n\n- <https://exemple.org>\n"
+    sortie.write_text("en-tete\n\ncontenu\n" + annexe, encoding="utf-8")
+
+    store.ecrire_chapitre_et_etat(str(sortie), 0, "Un", "contenu du chapitre", 0, "{}")
+    etat = EtatJob(
+        job_id="j", chemin_pdf=str(tmp_path / "a.pdf"), chemin_sortie=str(sortie),
+        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS,
+        modele_ollama="llama3.1", statut=SJ.EN_PAUSE, chapitres_traduits=[0],
+    )
+    assert translation_runner._regenerer_sortie(str(sortie), etat, implicite=False) is True
+
+    apres = sortie.read_text(encoding="utf-8")
+    assert translation_runner.TITRE_ANNEXE_LIENS in apres
+    assert "https://exemple.org" in apres
+    assert "contenu du chapitre" in apres
+
+
+def test_E_l_annexe_du_milieu_n_avale_pas_les_chapitres_suivants(tmp_path):
+    """
+    RÉGRESSION jumelle de celle de la migration : `_extraire_annexe_liens`
+    renvoyait tout jusqu'à la FIN du fichier. Sur un document dont l'annexe est
+    au milieu (traduction en plusieurs passes), elle emportait les chapitres
+    suivants — qui auraient été réinjectés à la régénération, donc dupliqués.
+    """
+    md = tmp_path / "doc.md"
+    md.write_text(
+        "<!-- en-tête -->\n"
+        "\n<!-- === chapitre 0 : Un === -->\n\nc0\n"
+        f"\n\n---\n\n{translation_runner.TITRE_ANNEXE_LIENS}\n\n- <https://exemple.org>\n"
+        "\n<!-- === chapitre 1 : Deux === -->\n\nc1\n",
+        encoding="utf-8",
+    )
+    annexe = translation_runner._extraire_annexe_liens(str(md))
+
+    assert translation_runner.TITRE_ANNEXE_LIENS in annexe
+    assert "exemple.org" in annexe
+    assert "chapitre 1" not in annexe, "l'annexe a emporté le chapitre suivant"
+    assert "c1" not in annexe
+
+
+# ── Titre traduit dans la table des matières (feature bilbao 348) ───────────
+# Option A retenue : le titre affiché vient du corps déjà traduit (pas d'appel
+# LLM en plus), le marqueur garde le titre SOURCE pour l'alignement de la
+# relecture comparative (feature 297). Trois angles couverts sur une vraie
+# exécution du pipeline, pas seulement les tests unitaires de pdf_extractor :
+# le cas normal, la persistance à travers une régénération depuis le store, et
+# un arrêt impromptu qui laisse un document incomplet sur disque.
+
+def test_titre_traduit_disponible_apres_une_traduction_reelle(tmp_path, monkeypatch):
+    """Le titre affiché vient du corps traduit, sans appel LLM supplémentaire."""
+    def traducteur(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+    source = _ecrire_source_md(tmp_path, "doc_titres.md", nb_sections=2)
+    _, sortie = _demarrer(source)
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+    assert etat.statut == StatutJob.TERMINE
+
+    from app.services.pdf_extractor import identifier_chapitres
+    chapitres = identifier_chapitres(sortie)
+
+    assert len(chapitres) == 2
+    for i, chap in enumerate(chapitres):
+        assert chap["titre"] == f"Section {i}"           # source, inchangé (feature 297)
+        assert chap["titre_traduit"] == f"SECTION {i}"    # traduit, tiré du corps
+
+
+def test_titre_traduit_survit_a_la_regeneration_depuis_le_store(tmp_path, monkeypatch):
+    """
+    Persistance à travers un redémarrage : après une traduction, forcer la
+    réécriture du `.md` DEPUIS LE STORE (étape E, ce qui se produit après un
+    redémarrage de l'app) ne doit rien changer au titre affiché — la lecture
+    du titre traduit ne dépend pas du chemin d'écriture (append vs export).
+    """
+    def traducteur(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+    source = _ecrire_source_md(tmp_path, "doc_regen.md", nb_sections=2)
+    _, sortie = _demarrer(source)
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+    assert etat.statut == StatutJob.TERMINE
+
+    assert translation_runner._regenerer_sortie(sortie, etat, implicite=False) is True
+
+    from app.services.pdf_extractor import identifier_chapitres
+    chapitres = identifier_chapitres(sortie)
+    assert [c["titre_traduit"] for c in chapitres] == ["SECTION 0", "SECTION 1"]
+
+
+def test_titre_traduit_apres_un_arret_impromptu(tmp_path, monkeypatch):
+    """
+    Même scénario que test_ollama_indisponible_arrete_le_job_sans_bruler_les_chapitres :
+    Ollama meurt au chapitre 1, le job finit en ERREUR, seul le chapitre 0 est
+    sur disque. Lire les titres d'un document INCOMPLET (chapitres 1 à 3
+    absents, pas seulement vides) ne doit ni planter ni inventer un titre pour
+    ce qui n'a jamais été écrit.
+    """
+    def ollama_mort(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        if "Section 1" in texte:
+            raise OllamaIndisponible("Ollama injoignable, budget épuisé")
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", ollama_mort)
+    source = _ecrire_source_md(tmp_path, "doc_arret.md")  # 4 sections par défaut
+    _, sortie = _demarrer(source)
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+    assert etat.statut == StatutJob.ERREUR
+    assert etat.chapitres_traduits == [0]
+
+    from app.services.pdf_extractor import identifier_chapitres
+    chapitres = identifier_chapitres(sortie)  # ne doit lever aucune exception
+
+    assert len(chapitres) == 1  # seul le chapitre 0 a un marqueur dans le fichier
+    assert chapitres[0]["titre"] == "Section 0"
+    assert chapitres[0]["titre_traduit"] == "SECTION 0"
+
+
+def test_titre_traduit_absent_sur_un_fichier_tronque_par_un_crash(tmp_path):
+    """
+    `_ecrire_chapitre` ajoute au fichier avec un simple `open(..., "a")`, pas
+    une écriture atomique (voir sa docstring : le `.md` reste la source de
+    vérité jusqu'à l'étape E) — un crash en plein milieu de la ligne de titre
+    est un scénario réel, pas hypothétique. Reconstitué à la main ici : le
+    fichier s'arrête net après « # » sans le reste du titre.
+    """
+    sortie = tmp_path / "doc_tronque_ll.md"
+    sortie.write_text(
+        "<!-- en-tête -->\n"
+        "\n<!-- === chapitre 0 : Un === -->\n\n# ",
+        encoding="utf-8",
+    )
+
+    from app.services.pdf_extractor import identifier_chapitres
+    chapitres = identifier_chapitres(str(sortie))  # ne doit pas lever
+
+    assert chapitres[0]["titre"] == "Un"         # le marqueur, lui, est intact
+    assert chapitres[0]["titre_traduit"] is None  # jamais un titre coupé en deux

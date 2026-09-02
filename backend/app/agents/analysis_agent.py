@@ -9,7 +9,7 @@ import re
 import requests
 
 from app.models.schemas import ResultatAnalyse
-from app.config.settings import CHAPITRE_SOUS_CHUNK_TAILLE_MAX
+from app.config.settings import CHAPITRE_SOUS_CHUNK_TAILLE_MAX, OLLAMA_NUM_PREDICT_MAX
 from app.services.pdf_extractor import compter_pages, extraire_texte, decouper_en_chunks, extraire_toc_pdf
 from app.services.translation_runner import SECONDES_PAR_CHUNK_ESTIME
 
@@ -36,7 +36,7 @@ def _appel_llm(prompt: str, modele: str = "llama3.1") -> str:
         r = requests.post(
             OLLAMA_URL,
             json={"model": modele, "prompt": prompt, "stream": False,
-                  "options": {"temperature": 0.1}},
+                  "options": {"temperature": 0.1, "num_predict": OLLAMA_NUM_PREDICT_MAX}},
             timeout=60,
         )
         r.raise_for_status()

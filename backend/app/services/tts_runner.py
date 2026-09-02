@@ -6,7 +6,7 @@ de la file d'attente (comme les traductions). Annulation entre les sections.
 
 import datetime
 import glob as _glob
-import json
+from app.services.persistance import ecrire_json_atomique, lire_json_tolerant
 import os
 import time
 import uuid
@@ -35,8 +35,8 @@ def _chemin_etat(chemin_wav: str) -> str:
 
 
 def _sauvegarder_etat(etat: dict) -> None:
-    with open(_chemin_etat(etat["chemin_sortie"]), "w", encoding="utf-8") as f:
-        json.dump(etat, f, indent=2, ensure_ascii=False)
+    """Écriture atomique — même exposition que la traduction (principe cible ③)."""
+    ecrire_json_atomique(_chemin_etat(etat["chemin_sortie"]), etat)
 
 
 def lire_etat(chemin_md: str) -> dict | None:
@@ -45,10 +45,8 @@ def lire_etat(chemin_md: str) -> dict | None:
     candidats = _glob.glob(f"{_glob.escape(base)}_audio_*.wav.tts.state.json")
     plus_recent = None
     for chemin in candidats:
-        try:
-            with open(chemin, "r", encoding="utf-8") as f:
-                etat = json.load(f)
-        except (json.JSONDecodeError, OSError):
+        etat = lire_json_tolerant(chemin)
+        if not isinstance(etat, dict):
             continue
         if plus_recent is None or etat.get("demarre_a", 0) > plus_recent.get("demarre_a", 0):
             plus_recent = etat

@@ -166,7 +166,7 @@ $("bouton-analyser").addEventListener("click", async () => {
   const zone = $("outil-resultat");
   zone.innerHTML = "<em>Analyse en cours…</em>";
   try {
-    const d = await apiPost("/analyser", { chemin_pdf: chemin, modele_ollama: $("modele").value || "llama3.1" });
+    const d = await apiPost("/analyser", { chemin_pdf: chemin, modele_ollama: $("modele").value || "llama3.1" }, API_TIMEOUT_LONG_MS);
     zone.innerHTML = `
       <table class="tableau-analyse">
         <tr><th>Pages analysées</th><td>${d.nb_pages_analysees}</td></tr>
@@ -189,7 +189,7 @@ $("bouton-convertir").addEventListener("click", async () => {
   const zone = $("outil-resultat");
   zone.innerHTML = "<em>Conversion en cours…</em>";
   try {
-    const d = await apiPost("/convert", { chemin_pdf: chemin, extracteur_pdf: $("extracteur-pdf").value });
+    const d = await apiPost("/convert", { chemin_pdf: chemin, extracteur_pdf: $("extracteur-pdf").value }, API_TIMEOUT_LONG_MS);
     zone.innerHTML = `<p>✅ Conversion terminée — ${d.nb_caracteres.toLocaleString()} caractères<br>Fichier : <code>${d.chemin_sortie}</code></p>`;
   } catch (e) {
     zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
@@ -229,7 +229,7 @@ $("bouton-reprendre").addEventListener("click", async () => {
       modele_ollama: $("modele").value,
       extracteur_pdf: $("extracteur-pdf").value,
       resume: true,
-    }));
+    }), API_TIMEOUT_LONG_MS);
     $("bouton-reprendre").hidden = true;
     $("outil-resultat").innerHTML = "<p>▶ Traduction reprise — suivi dans « Nouveau document » ou dans la Bibliothèque une fois terminée.</p>";
   } catch (e) {
@@ -391,13 +391,21 @@ $("bouton-demarrer-enr").addEventListener("click", async () => {
   try {
     fluxMicroEnr = await navigator.mediaDevices.getUserMedia({ audio: true });
     contexteAudioEnr = new (window.AudioContext || window.webkitAudioContext)();
+    // AudioWorkletNode plutôt que ScriptProcessorNode (déprécié par le W3C) :
+    // le traitement tourne sur le thread audio dédié, jamais sur le thread
+    // principal. Le module doit être (ré)ajouté à chaque nouveau contexte —
+    // l'enregistrement d'un processeur ne survit pas d'un AudioContext à l'autre.
+    await contexteAudioEnr.audioWorklet.addModule("js/enregistreur-processor.js?v=1");
     noeudSourceEnr = contexteAudioEnr.createMediaStreamSource(fluxMicroEnr);
-    noeudProcesseurEnr = contexteAudioEnr.createScriptProcessor(4096, 1, 1);
+    noeudProcesseurEnr = new AudioWorkletNode(contexteAudioEnr, "enregistreur-pcm");
     morceauxPcmEnr = [];
-    noeudProcesseurEnr.onaudioprocess = (e) => {
-      morceauxPcmEnr.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    noeudProcesseurEnr.port.onmessage = (e) => {
+      morceauxPcmEnr.push(e.data);
     };
     noeudSourceEnr.connect(noeudProcesseurEnr);
+    // Connecté à destination pour que le graphe sollicite le nœud (sinon un
+    // nœud non relié à la sortie n'est jamais traité) — sans écho : le
+    // processeur n'écrit jamais dans ses sorties, qui restent silencieuses.
     noeudProcesseurEnr.connect(contexteAudioEnr.destination);
 
     $("bouton-demarrer-enr").hidden = true;

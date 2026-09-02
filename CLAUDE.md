@@ -70,7 +70,7 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   ne révélant jamais le chemin disque d'un fichier, l'upload envoie les octets ; le backend
   les écrit dans `backend/uploads/<hash-contenu>/` (`services/uploads.py`) et retourne un
   chemin absolu réinjecté tel quel dans le flux existant. Puis : analyse auto (qualité /
-  durée / chapitres), réglages du lot (langues ; extracteur et modèle en mode avancé),
+  durée / chapitres), réglages du lot (langues et modèle ; extracteur en mode avancé),
   lancement en lot (file séquentielle backend), planification. La gestion des traductions
   existantes se fait dans la section **« Vos traductions »** (décrite plus haut) :
   Pause / Reprendre (`POST /api/job/{job_id}/pause`, `POST /api/translate` `resume=true`,
@@ -111,7 +111,8 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
 
 - **Mode avancé** (`appliquerModeAvance` dans `commun.js`) : bascule `.hidden` sur tous
   les `[data-avance]` et une classe `.avance` sur `<html>` (pour le reflow CSS de la
-  grille Bibliothèque). Éléments gated : réglages extracteur/modèle de l'Import, onglet +
+  grille Bibliothèque). Éléments gated : extracteur de l'Import (le **modèle** en est sorti
+  le 17/8, voir « Plusieurs modèles Ollama cohabitent »), onglet +
   contenu du **Laboratoire**, section **Résumé & Quiz** de la Bibliothèque. `activerModule`
   redirige vers l'Import si on tente d'ouvrir le Laboratoire hors mode avancé. Le **bouton**
   « mode avancé » lui-même est gated par le flag `mode_avance` (off → bouton masqué et
@@ -194,9 +195,10 @@ document est désormais traité comme une **liste ordonnée de chapitres** ; s'i
   le registre Bibliothèque et bascule tout `.state.json` resté `en_cours` → `en_pause` (au
   redémarrage le registre mémoire est vide : un `en_cours` est forcément un job coupé par un
   arrêt/crash serveur). Il redevient ainsi reprenable depuis « Nouveau document ».
-- **Endpoints associés** : `GET /api/jobs/reprenables` (documents non terminaux, filtre sur
-  `STATUTS_NON_TERMINAUX`) ; `DELETE /api/bibliotheque` (`bibliotheque.retirer_document` : retire
-  du registre, **ne touche pas** aux fichiers disque).
+- **Endpoints associés** : `DELETE /api/bibliotheque` (`bibliotheque.retirer_document` : retire
+  du registre, **ne touche pas** aux fichiers disque). *(`GET /api/jobs/reprenables` a existé un
+  temps pour ça mais n'a jamais eu de client — retiré le 5/8/2026 avec le reste du code mort F8,
+  voir « Architecture cible » plus bas.)*
 - **Perf mesurée** : Ollama ~29 tok/s sur M2 Pro. Le parallélisme des sous-morceaux reste mesuré
   **inutile** (1,04× — Ollama 0.32 sérialise sans `OLLAMA_NUM_PARALLEL`), donc non construit ;
   l'architecture (file d'unités) le rendrait toutefois facile à ajouter. Items encore ouverts :
@@ -568,6 +570,12 @@ intégré » du document).
   `AnnulationDemandee`, statut `annule`, branches de rendu) et **aucun bouton
   « Annuler » n'existe dans aucune des deux interfaces** — les deux savent
   afficher un job annulé, aucune ne sait en provoquer un.
+  **Code mort retiré depuis le 5/8/2026** (branche `feat/architecture-cible`,
+  voir « Architecture cible » plus bas) : les 4 routes et les 5 éléments JS
+  ci-dessus, plus leurs deux wrappers Swift. La machinerie d'annulation active
+  (`demander_annulation`/`est_annule`/`AnnulationDemandee`) n'a pas bougé —
+  toujours aucun bouton « Annuler », c'était la façade HTTP inutilisée qui a
+  disparu, pas le mécanisme.
 
 - **Le planificateur est une 5ᵉ famille de jobs, hors de tout le reste** (addendum
   du 28/7/2026). Il n'est pas sur la file du `job_manager` : il a son propre thread
@@ -612,6 +620,536 @@ chemin absolu dans le Laboratoire, lui-même en mode avancé) ; et `reprendre()`
 passe `env.modeleChoisi` — le menu *courant* — au lieu du modèle du document, or
 `build_output_path()` dérive le nom de sortie de `modele[:2]`, d'où un fichier
 fantôme si le menu a changé. Le web ne l'a pas : il renvoie `doc.modele`.
+**F4 et F6 sont corrigés depuis le 29/7** (branche `feat/architecture-cible`,
+voir plus bas) ; la liste de reprise macOS aussi.
+
+## Pertes de données réelles — quatre pièges vérifiés (29-30/7 et 18/8/2026)
+
+Ces quatre défauts ont **détruit ou amputé du travail pour de vrai**, pas en
+théorie. Tous corrigés sur `feat/architecture-cible`, tous couverts par un test
+de non-régression. À lire avant de toucher à l'extraction, aux uploads ou à la
+migration.
+
+- **Un upload rejeté détruisait les traductions déjà présentes**
+  (`services/uploads.py`). Le dossier d'upload est indexé sur le **contenu**
+  (sha256), donc ré-uploader un document déjà traduit retombe forcément sur le
+  dossier qui contient sa sortie, son cache, son état et ses images. En cas
+  d'échec de la validation PDF, le code faisait `shutil.rmtree(dossier)` — il
+  détruisait donc un travail sans rapport avec l'upload en cours, pour un
+  fichier *identique* à celui déjà accepté. Une traduction complète de Chapter 9
+  (9 minutes) a disparu ainsi. ⚠️ **Ne jamais `rmtree` un dossier d'upload** :
+  ne retirer que ce que l'upload courant a écrit, et seulement si le fichier
+  n'existait pas avant (`deja_present`).
+
+- **pymupdf4llm remplaçait le texte réel par de l'OCR** (`pdf_extractor.py`).
+  Depuis la version 1.28, la librairie active Tesseract **d'elle-même** dès
+  qu'elle le détecte (`select_ocr_function` teste `pymupdf.get_tessdata()`, qui
+  trouve le dossier Homebrew même sans `TESSDATA_PREFIX`). Sur une page
+  contenant une figure, elle OCR-ise la page et **remplace son texte**. Mesuré
+  sur Chapter 9 : page 4, 1 495 caractères réels (« …the famous mathematician
+  **Leonhard Euler**, the field of graph theory was born… ») → 148 caractères
+  d'OCR (« Map of K6nigsberg As a graph 35 ®—2 = @ … »). Une page entière du
+  livre disparaissait de la traduction, et le charabia partait chez Ollama.
+  ⚠️ `use_ocr=OCRMode.NEVER` est **obligatoire** et s'applique aux **deux**
+  chemins (flag actif ou non) : c'est une perte de contenu, pas une option
+  d'affichage. Notre extracteur `tesseract` reste disponible séparément et
+  explicitement, pour les PDF scannés — c'est là que l'OCR a sa place.
+
+- **Les images extraites n'étaient pas les figures du PDF.** `embed_images=True`
+  ne rend pas les images du document mais des **rognures de l'analyse de mise en
+  page** : sur Chapter 9, un demi-panneau de la figure 21 (395×311) et le simple
+  fragment de texte « An example hub » (263×33) pris pour une image, tandis que
+  la figure 20 (carte de Königsberg) n'était jamais extraite. On lit désormais
+  les images **réellement embarquées** via PyMuPDF (`page.get_images` +
+  `extract_image`), assemblées page par page — les deux figures complètes, à
+  leur résolution d'origine (500×271 et 500×257).
+
+- **La migration vers le store perdait 90 % d'un livre, en annonçant un succès**
+  (`backend/scripts/migrer_vers_store.py`, 18/8). Le corps était tronqué à
+  l'**annexe des liens**, supposée en fin de fichier. Elle ne l'est pas : un
+  document traduit **en plusieurs passes** la voit suivie d'autres chapitres.
+  Mesuré sur un livre de 716 Ko : **7 chapitres migrés sur 22**, 78 043
+  caractères au lieu de 691 654 — et le script affichait « 3 documents migrés ».
+  Le même défaut existait dans `translation_runner._extraire_annexe_liens()`,
+  désormais borné par `_RE_MARQUEUR_CHAPITRE`. ⚠️ **Ne jamais supposer qu'un
+  marqueur est en fin de fichier** parce qu'il y est *la première fois*.
+  Ce défaut n'a été vu que par un **contrôle aller-retour** (régénérer depuis la
+  base et comparer à l'original, au caractère près) — un simple compte de
+  documents migrés le déclarait vert, et il cachait un jumeau qui *dupliquait*
+  les mêmes chapitres.
+
+**Conséquence sur la référence golden** : `tests/reference/Chapter9_*_reference.md`
+encodait ces défauts, donc validait une sortie défectueuse contre une référence
+défectueuse. Régénérée le 31/7 (`RESULTS_2026-07-31.txt`) — source 50 950 octets,
+traduit 60 019. Après tout correctif d'extraction, **régénérer la référence**,
+sinon elle fige le défaut.
+
+## Architecture cible — branche `feat/architecture-cible` (29/7 → 20/8/2026)
+
+Mise en œuvre des 12 principes de l'audit. Plan complet dans
+[docs/architecture-cible-plan.md](docs/architecture-cible-plan.md), état dans
+[docs/architecture-cible-etat.md](docs/architecture-cible-etat.md).
+**Phases 1 à 7 et 9 livrées** ; reste la génération des clients (⑤, feature 328).
+`pytest` : **320 verts**.
+
+**F3 est fermé depuis la phase 9** (17-18/8, six étapes) — c'était le dernier
+défaut structurel ouvert. Écrire un chapitre et avancer `chapitres_traduits`
+sont désormais **une seule transaction** (`store.ecrire_chapitre_et_etat`), et
+l'écriture du `.md` est idempotente.
+
+**La lecture est store-primaire depuis le 21/8 (feature 328, terminée) — le
+JSON reste écrit indéfiniment, par choix.** Correction au passage : cette
+section affirmait « le store est alimenté et la migration faite », ce qui
+était faux — vérifié directement, `toledo.db` avait ses 4 tables vides malgré
+7 entrées dans `bibliotheque.json`. `scripts/migrer_vers_store.py --appliquer`
+n'avait jamais tourné dans cet environnement. Lancée puis vérifiée par un
+aller-retour **octet pour octet** (`scripts/verifier_migration_store.py`,
+lecture seule — ne jamais utiliser `_regenerer_sortie` pour ça, elle écrit sur
+le vrai fichier) : 3 documents réels migrés, 2/3 identiques à l'octet près, le
+troisième avec un unique écart d'un saut de ligne au raccord d'une ancienne
+annexe insérée en milieu de fichier (traduction en plusieurs passes,
+antérieure à la phase 9) — contenu des 22 chapitres et de l'annexe retrouvé
+intégralement, donc **pas** une récidive du bug des 90 %, une simple
+différence de mise en forme.
+
+Une fois la migration vérifiée, la bascule de lecture a été faite pour l'état
+(`job_manager.charger_etat`) et le registre (`bibliotheque._charger`) — mais
+**pas de la même façon**. Pour l'état, le store ne fait foi que s'il est **au
+moins aussi récent** que le JSON (`store.lire_etat_horodate`, comparé au mtime
+du `.state.json`) : comme le JSON est toujours écrit avec succès avant que le
+store ne soit tenté (`sauvegarder_etat`), le store peut être en retard si une
+de ses écritures a raté en silence — le préférer à l'aveugle aurait ressuscité
+une progression périmée, une régression du type F3. Pour le registre, **le
+store ne sert que de filet** (repli dégradé si le JSON est vide/illisible),
+jamais d'une fusion façon cache : la table `documents` n'a ni `nom`, ni
+`cree_a`, ni `qualite` (annotation feature 320), et une fusion « le store
+gagne » aurait perdu ces champs en silence dès qu'un document existe des deux
+côtés. Le cache, lui, n'a pas eu besoin d'y toucher : sa fusion
+`{**json, **store}` (store gagnant sur les clés qu'il connaît) était déjà
+correcte, ces trois champs n'existant pas côté cache.
+
+⚠️ **La double écriture JSON + SQLite reste active, pour toujours** — décision
+explicite : `.state.json`/`.cache.json` restent un filet lisible à la main,
+leur retrait n'apporterait qu'un gain de propreté, aucune garantie nouvelle.
+Seule la priorité de LECTURE a basculé.
+
+Nouveaux modules backend, à connaître avant d'en écrire un sixième :
+
+| Module | Rôle |
+|---|---|
+| `services/persistance.py` | Écriture atomique (`tmp` + `fsync` + `os.replace`) et lecture tolérante (quarantaine `.corrompu-<horodatage>` + journal). Les 8 points d'écriture JSON y passent. |
+| `services/soumission.py` | **Point d'entrée UNIQUE** d'une traduction : preflight Ollama + clé d'idempotence. |
+| `services/recuperation.py` | Récupération au démarrage des **quatre** familles de jobs (F7). |
+| `services/energie.py` | `caffeinate` pendant le travail. Le réveil programmé (`pmset`) exige les droits admin : la commande est **rendue, jamais exécutée**. |
+| `api/erreurs.py` | Erreurs typées `{code, message, remediation}`. `detail` est conservé pour compat. |
+| `services/store.py` | Store SQLite (WAL, une connexion **par thread**). Porte les morceaux traduits, l'état et le registre. `ecrire_chapitre_et_etat()` fait le tout en une transaction — c'est ce qui ferme F3. |
+
+⚠️ **`PRAGMA journal_mode=WAL` exige un verrou exclusif**, et `busy_timeout` ne
+couvre PAS ce conflit-là : sans le `_verrou_ouverture` (module) qui sérialise
+l'ouverture, le test à 3 threads échouait `database is locked` **1 fois sur 5**.
+Le worker, le planificateur et uvicorn ouvrent tous leur connexion au démarrage,
+donc simultanément. Ne pas retirer ce verrou en le croyant redondant.
+
+⚠️ **La connexion est liée au chemin de base**, pas seulement au thread : un
+changement de `CHEMIN_BASE` (tests) doit rouvrir, sinon un thread garde la base
+précédente. Voir `reinitialiser_pour_tests()`.
+
+Migration : `backend/scripts/migrer_vers_store.py`, **dry-run par défaut**,
+`--appliquer` obligatoire pour écrire. ⚠️ Il a perdu 90 % d'un livre avant
+correction — voir la section « Pertes de données réelles » : l'annexe des liens
+**n'est pas forcément en fin de fichier**.
+
+⚠️ **Ne JAMAIS rappeler `demarrer_traduction()` directement** depuis une route ou
+le planificateur : c'est ainsi que le planificateur avait fini par contourner le
+preflight (F9). Tout passe par `soumettre_traduction()`.
+
+Changements de contrat : le statut `declenche` du planificateur **n'existe plus**
+(`planifie | annule | expire | abandonne`, avec compteur de tentatives et
+rattrapage borné à 24 h) ; `POST /translate` renvoie un champ `deja_soumis` ;
+nouvelle route `GET /api/scheduler/sante` (dernier tick, prochaine échéance,
+échéances dépassées, corruptions rencontrées) ; `GET /api/jobs/events` en SSE.
+
+**`xcodebuild` reste absent sur cette machine** (Command Line Tools seulement,
+pas Xcode.app sélectionné — `sudo xcode-select -s` demanderait le mot de passe
+admin de JP). Tout le Swift continue de passer par
+`swiftc -typecheck -sdk $(xcrun --show-sdk-path)`, ce qui attrape les erreurs de
+type mais **pas** les erreurs de projet Xcode ni l'exécution — **builds réels
+confirmés par JP dans Xcode le 5/8 puis le 20/8/2026**, voir ci-dessous.
+
+⚠️ Le correctif macOS de la feature 341 (20/8) est **postérieur** à la dernière
+confirmation : il n'a passé que `swiftc -typecheck`. Ce filet a déjà laissé
+passer **deux** erreurs de build (un fichier absent du projet Xcode le 31/7, un
+`import Combine` manquant le 5/8) — donc un build Xcode reste à faire.
+
+### F8 nettoyé, message sur le réveil programmé, et un 2ᵉ piège de typecheck (5/8/2026)
+
+Une vérification par lecture directe du code (pas seulement des docs) a confirmé
+que F1, F2, F4, F6, F7, F9, F10, F11, F13 étaient déjà réellement corrigés sur
+cette branche. F3 (fenêtre de duplication) reste **atténuée** par ③ mais pas
+éliminée — la vraie correction exige le store transactionnel ②, laissé tel
+quel (décision explicite : hors périmètre pour l'instant). **F8**, lui, ne
+l'était pas : le code mort décrit plus haut était toujours présent — retiré
+(4 routes backend, le polling/pause mort du module Import web, les 2 wrappers
+Swift correspondants dans `APIService.swift`).
+
+Ajouté dans la foulée, web **et** macOS, un message près du bouton « Planifier
+le lot » : le Mac doit rester éveillé à l'heure prévue, le réveil automatique
+programmé (`services/energie.py`, `pmset schedule wake`) reste bloqué faute de
+droits admin — jusqu'ici l'interface laissait croire le contraire.
+
+**Second piège du même genre que celui du 31/7** (fichier Swift absent du
+projet Xcode, voir plus haut) : `VosTraductionsView.swift` déclarait un
+`ObservableObject` avec `@Published` sans `import Combine`. Ça passait
+`swiftc -typecheck` en compilant tous les fichiers ensemble (résolution
+laxiste inter-fichiers) mais cassait le vrai build Xcode
+(« does not conform to protocol 'ObservableObject' »). Corrigé — et vérifié
+que tous les autres fichiers du projet utilisant `@Published`/`ObservableObject`
+importent déjà `Combine`, celui-ci était le seul manquant. **Leçon à retenir** :
+`swiftc -typecheck` multi-fichiers ne remplace toujours pas un vrai build Xcode
+pour ce genre d'erreur — deuxième fois que ce filet précis laisse passer un
+défaut. Build Xcode réel confirmé propre par JP le 5/8/2026, première
+confirmation de ce type sur cette branche.
+
+## Plusieurs modèles Ollama cohabitent (feature 338, 17/8/2026)
+
+Ajouter un modèle ne demande **aucun code** : `GET /api/modeles` interroge Ollama
+et le menu recopie la liste telle quelle. Aucune liste blanche nulle part —
+`OLLAMA_MODELE_DEFAUT` dans `settings.py` est une constante **orpheline**,
+utilisée nulle part. Un `ollama pull qwen2.5` suffit.
+
+Mais deux défauts latents mordaient dès qu'un **second** modèle existait, c'est-à-dire
+exactement dans le cas d'usage visé — comparer deux modèles sur un même document.
+
+- **Collision des fichiers de sortie.** Le suffixe était `modele[:2]`, deux
+  caractères : `llama3.1` et `llama3.2` donnaient tous deux `ll`, `qwen2.5` et
+  `qwen3` donnaient `qw`. Deux modèles d'une même famille écrivaient donc dans le
+  MÊME `.md`, le MÊME `.state.json` et le MÊME cache. `suffixe_modele()` produit
+  désormais un slug lisible (`qwen2-5`, `llama3-1`) — lisible plutôt que haché,
+  ces fichiers vivant à côté des documents de l'utilisateur.
+  ⚠️ `build_output_path()` **consulte le disque** à dessein : un document traduit
+  avant ce changement garde son nom historique `_traduit_ll.md`, sinon sa reprise
+  repartirait de zéro dans un fichier neuf et l'ancienne deviendrait orpheline.
+
+- **État de reprise choisi au hasard.** `_trouver_etat_existant()` renvoyait le
+  PREMIER `.state.json` trouvé par un glob — un état arbitraire, dans l'ordre du
+  système de fichiers. Avec deux modèles, « Reprendre » pouvait poursuivre le
+  travail de l'AUTRE, et l'ajout de chapitres mélanger les deux. La fonction prend
+  maintenant le modèle et ne consulte que son état, sans repli sur un voisin.
+
+**Le choix du modèle est un réglage ordinaire**, sorti du mode avancé (web et
+macOS) : on en change d'un document à l'autre. Le moteur de conversion, lui, y
+reste — on n'y touche qu'en cas de PDF récalcitrant, et un mauvais choix y coûte
+cher (`tesseract` sur un PDF à couche texte donnerait de l'OCR là où le texte
+réel existe). Le sélecteur n'apparaît toutefois qu'une fois **un fichier ajouté
+au lot** : `#zone-lot` est masqué tant que le lot est vide.
+
+## Relecture comparative (feature 297, 17/8/2026)
+
+Bouton « ⇄ Comparer » du bandeau de lecture : la version d'origine à gauche, la
+traduction à droite, sur le **même chapitre**.
+
+Ça ne marche que parce que les index concordent : la Bibliothèque tire ses
+chapitres des marqueurs écrits par le moteur, qui portent l'index ET le titre de
+la **source** (feature 327). Le chapitre n de la traduction est donc le chapitre n
+de l'original. **Vérifier cet alignement avant de toucher au découpage** — sans
+lui, la comparaison afficherait deux passages sans rapport.
+
+`rendreContenu(markdown, cible)` prend une cible optionnelle : la colonne
+d'origine réutilise le même moteur de rendu plutôt qu'une seconde version qui
+divergerait. La source est lue via `POST /api/chapitres/contenu` sur
+`chemin_source` — aucune route ajoutée.
+
+## Fiches d'étude — deux stratégies cohabitent (18-19/8/2026)
+
+`services/etude.py` sait produire les points clés de deux façons, et les deux
+restent disponibles pour être **comparées sur un même chapitre** :
+
+- **`condensation`** (historique) : le chapitre est condensé, puis les points
+  sont tirés du condensé.
+- **`sections`** (**défaut depuis le 19/8**, `STRATEGIE_PAR_DEFAUT`) : le
+  chapitre est découpé, chaque section donne ses points, puis
+  `consolider_points()` fusionne.
+
+Le déclencheur était un vrai retour — « le contenu généré est trop simpliste ».
+Mesuré sur Chapter 9 : `condensation` restait bloquée sur les **20 premiers pour
+cent** du chapitre (7 points sur 12 décrivaient le protocole de coloration de
+Cajal), là où `sections` couvre tout, en **203 s contre 400 s**. Ce n'était donc
+pas un problème de modèle mais de **stratégie** — changer de modèle n'y faisait
+rien.
+
+Deux dimensionnements automatiques : `calculer_nb_points()` (3/5/8/12) et
+`calculer_nb_questions()` (2/3/4/6). Côté API, **`nb_points`/`nb_questions` à 0
+= automatique** ; une valeur explicite reste respectée.
+
+⚠️ **Pièges à ne pas « corriger »** :
+
+- `schemas.py` : `EtatJobEtude.strategie` vaut **`"condensation"`**, PAS
+  `STRATEGIE_PAR_DEFAUT`. C'est le défaut de **désérialisation** des
+  `.state.json` écrits avant que la stratégie n'existe — ils ont forcément été
+  produits par condensation. L'aligner sur le défaut du moment relabelliserait
+  d'anciennes fiches en « sections ».
+- `study_runner.build_output_path()` : le repli vers le nom historique
+  (`_fiche_<modele>.md`, sans stratégie) est ancré sur `STRATEGIE_CONDENSATION`,
+  pour la même raison. Même piège, même conséquence.
+- Le nom du fichier porte **modèle ET stratégie**
+  (`<base>_fiche_<modele-slug>_<strategie>.md`) — c'est ce qui permet aux deux
+  fiches de coexister. Le suffixe était `modele[:2]`, le défaut de la feature
+  338 répliqué ici.
+- `study_runner` compare les options (`memes_options`) et **efface
+  silencieusement** les fiches déjà générées quand elles divergent. D'où la
+  règle ci-dessous.
+
+## Les options suivent le DOCUMENT, jamais les menus (F6, feature 341, 20/8/2026)
+
+Règle générale du produit, violée quatre fois à ce jour : **toute option envoyée
+au backend pour un document existant se lit sur le document** (`doc.modele`,
+`doc.langue_cible`), jamais sur le menu affiché à l'écran.
+
+Changer un menu ne doit pas changer le sort d'un travail déjà commencé. Deux
+conséquences distinctes selon le domaine : en **traduction**, `build_output_path`
+dérive le nom du fichier du modèle, donc un menu changé crée un fichier fantôme
+(c'est F6) ; en **étude**, `study_runner` efface les fiches déjà générées.
+
+Historique : corrigé côté web, puis sur macOS pour `reprendre()` et
+`basculerPause()` le 1/8 (F6), puis **de nouveau** sur macOS pour
+`genererFiche()` le 20/8 — une quatrième fonction que le correctif de F6 n'avait
+pas touchée. **Corriger les appelants connus d'un défaut ne protège pas les
+suivants**, et rien dans le code ne fait respecter cette règle.
+
+**Parité macOS des fiches (feature 341)** — trois autres écarts corrigés le même
+jour, tous silencieux : `strategie` n'était pas envoyée ; `nbPoints`/`nbQuestions`
+étaient codés en dur à 5 et 3, donc **le dimensionnement automatique ne
+s'appliquait pas** (5 points pour un chapitre de 55 000 caractères) ; et
+`etudeStatut()` ne ciblait ni modèle ni stratégie, si bien que la route retombait
+sur « la plus récente » et affichait **une fiche sur deux au hasard**.
+
+⚠️ **Un paramètre optionnel omis ne se signale jamais.** Il prend le défaut du
+serveur, raisonnable en général et faux ici. C'est ce qui rend cette classe de
+défaut durable : rien ne casse, le résultat est seulement moins bon. Quand une
+route gagne un paramètre, **vérifier les DEUX clients** — c'est toujours macOS
+qui décroche, parce que le travail est fait d'abord sur le web.
+
+## Fix — timeout client trop court sur l'analyse PDF (22/8/2026)
+
+**Symptôme** : à l'ajout d'un document dans « Nouveau document », erreur
+`⚠ signal is aborted without reason` (texte brut du navigateur) au lieu
+d'un vrai message d'échec.
+
+**Cause** : `_fetchAvecTimeout()` (`commun.js`) appliquait un timeout unique
+de **15 s** à TOUTES les requêtes API, y compris `/analyser`, `/chapitres` et
+`/convert` — les seules routes qui font un vrai travail (extraction complète
+du texte du PDF, puis appel LLM). Or `analysis_agent.py` s'autorise lui-même
+jusqu'à **60 s** pour cet appel Ollama (`_appel_llm`, `timeout=60`). Le
+client abandonnait donc systématiquement avant le serveur sur un PDF un peu
+long ou un modèle froid, alors que le traitement continuait derrière — zéro
+rapport avec un vrai plantage du backend.
+
+**Fix** : `API_TIMEOUT_LONG_MS` (90 s) ajouté à côté du timeout court
+existant (`API_TIMEOUT_MS`, 15 s, pensé pour du polling léger — F11).
+`apiPost`/`apiGet` acceptent un timeout optionnel en 2ᵉ/3ᵉ argument ; les
+6 appels à `/analyser`/`/chapitres`/`/convert` (`module-import.js`,
+`module-laboratoire.js`) le passent désormais explicitement. Le timeout
+court reste inchangé pour tout le reste (health, feature-flags, bibliothèque…).
+
+⚠️ **Toute nouvelle route qui fait un vrai travail d'extraction ou un appel
+LLM synchrone doit utiliser `API_TIMEOUT_LONG_MS`**, jamais le défaut — le
+timeout court était initialement pensé pour du polling (F11), pas pour ce
+genre d'appel ponctuel plus lourd.
+
+**Régression trouvée le jour même — `/translate` avait été oublié.** Le
+premier passage n'avait couvert que `/analyser`/`/chapitres`/`/convert` ;
+lancer une traduction (« Traduire N chapitres », Reprendre) passe par
+`POST /translate`, qui appelle `soumettre_traduction()` →
+`verifier_ollama_pret()` — le **preflight Ollama synchrone**, plafonné à
+**60 s** côté serveur (`translator.py`, déjà documenté plus haut dans ce
+fichier). Même timeout court, même symptôme : l'utilisateur voyait l'erreur
+alors que la traduction avait démarré et **s'est terminée avec succès**
+côté serveur (vérifié : les deux documents test sont passés à « Terminé »
+pendant l'investigation). Les 4 appels à `/translate` (2× `module-import.js`,
+1× `module-laboratoire.js`) utilisent maintenant `API_TIMEOUT_LONG_MS` aussi.
+**Leçon** : le grep `apiPost(\"/translate\"` aurait dû faire partie du premier
+passage — `/translate` est la route qui déclenche le plus long preflight de
+tout le produit, elle ne pouvait pas rester sur le timeout court par oubli.
+
+**Messages d'erreur améliorés au passage** (`commun.js`, `_fetchAvecTimeout`) :
+un abandon par timeout ne laisse plus fuir le texte brut du navigateur
+(`"signal is aborted without reason"`) — `abort()` reçoit désormais une
+raison lisible (`DOMException` nommée, message en français indiquant que le
+traitement a peut-être démarré côté serveur), avec un filet pour les
+navigateurs qui ignorent cette raison. Un backend injoignable (`TypeError:
+Failed to fetch`) affiche maintenant « Impossible de joindre le serveur
+local — vérifie qu'il est bien lancé. » Les deux cas restent distincts d'une
+vraie `ErreurApi` (échec HTTP avec code/remediation du backend) — cette
+dernière n'est pas touchée par ce changement.
+
+## Fix — génération Ollama sans plafond, boucle de répétition (23/8/2026)
+
+**Symptôme rapporté** : une traduction de 2 chapitres « anormalement lente »,
+27 min sur 1 seul chapitre alors que le rythme habituel est < 5 min/chapitre —
+sans AUCUN message d'erreur cette fois (à distinguer du fix `/translate` de
+la veille : celui-ci touchait l'affichage d'erreur, celui-ci touche la vitesse
+réelle du moteur).
+
+**Diagnostic** : ni le job ni Ollama n'étaient figés — le job a fini par se
+terminer avec succès. La cause a été trouvée en lisant directement
+`~/.ollama/logs/server.log` (jamais consulté avant) : sur les 32 morceaux
+réellement traduits ce matin-là, **un seul** a généré **28 985 jetons** avant
+d'être coupé de force par `--context-shift`, pour une traduction qui en
+demande normalement 200-950. À ~50 tok/s, ça représente **près de 10 minutes**
+de calcul GPU pour UN SEUL morceau — mesuré en sommant les `total time` du
+log : seulement 3,4 min de calcul RÉEL sur 23,5 min d'horloge, le reste étant
+cette unique génération qui tourne en boucle de répétition sans jamais
+émettre de jeton de fin.
+
+**Cause racine** : aucun appel Ollama du produit (`translator.py`,
+`analysis_agent.py`) ne fixait `num_predict` (plafond de jetons *générés*).
+Sans lui, un modèle qui entre en boucle de répétition continue indéfiniment ;
+`llama-server` a `--context-shift` actif par défaut, donc au lieu de s'arrêter
+à `num_ctx` il déplace la fenêtre et continue à générer. Rien dans le produit
+ne pouvait couper court à ce genre d'incident avant ce correctif.
+
+**Fix (2 volets)** :
+1. `OLLAMA_NUM_PREDICT_MAX = 2048` (`settings.py`) ajouté aux `options` des
+   3 call-sites Ollama du backend (`translator.traduire_texte`,
+   `translator.verifier_ollama_pret`, `analysis_agent._appel_llm`). Vérifié
+   contre Ollama en direct : une traduction normale s'arrête par elle-même
+   (`done_reason: "stop"`) bien avant le plafond ; forcer un `num_predict`
+   minuscule confirme la coupure (`done_reason: "length"`).
+2. **Garde qualité symétrique** (`translation_runner._traduire_avec_controle`,
+   `RATIO_TRADUCTION_MAX = 3.0`) : le contrôle anti-résumé existant ne
+   vérifiait qu'un ratio longueur *trop bas*. Un morceau tronqué par le
+   plafond ci-dessus après une boucle de répétition a un ratio **très
+   supérieur à 1** — sans ce garde symétrique, du charabia répété aurait pu
+   finir dans le document traduit sans le moindre avertissement, silencieux
+   comme la classe de défaut F6/341 déjà documentée plus haut. Le nouveau
+   code retient, entre les deux tentatives, celle dont le ratio est le plus
+   proche de 1.0 — un seul critère qui couvre les deux sens du défaut.
+
+⚠️ **`etude.py` (fiches d'étude) a le même angle mort** — ses 2 appels Ollama
+(`_appeler_ollama_json`) n'ont pas non plus de `num_predict`. Volontairement
+**pas corrigé dans ce passage** : une fiche légitime (stratégie `sections` sur
+un gros chapitre) peut demander un JSON bien plus long qu'un morceau de
+traduction, et choisir un plafond sûr sans mesurer d'abord des générations
+réelles risquerait de tronquer une fiche correcte. À mesurer avant de fixer
+une valeur.
+
+**Piège d'investigation à retenir** : `~/.ollama/logs/server.log` mélange des
+lignes timestampées (le wrapper `ollama`) et des lignes SANS timestamp (le
+process `llama-server` lui-même, lancé avec `--no-log-timestamps`). Un `awk`
+par plage de date sur ce fichier peut donc silencieusement inclure des
+centaines de lignes hors de la fenêtre voulue si aucune ligne timestampée ne
+marque la borne de fin — vérifier par les événements de cycle de vie du
+process (`loading model via llama-server`, `loaded runners`) plutôt que par
+une plage de date brute. Les ID de `task` dans les logs `llama-server` NE
+sont PAS un compteur de requêtes — ils avancent d'un pas par étape de décodage
+interne ; un grand écart entre deux ID ne signifie pas des milliers de
+requêtes séparées.
+
+## Titre traduit dans la table des matières (feature bilbao 348, 2/9/2026)
+
+Signalé par JP : les titres de chapitres affichés (barre latérale, en-tête de
+lecture, fiche IA, exports HTML) restaient dans la langue SOURCE — pas un
+oubli, c'était le comportement voulu depuis la feature 327 (le marqueur
+`<!-- === chapitre N : titre === -->` porte le titre source pour garantir un
+alignement exact index-par-index avec « Nouveau document » et la relecture
+comparative, feature 297).
+
+**Option retenue (A)** : le corps d'un chapitre traduit commence, par
+construction (`_extraire_chapitres` inclut la ligne `#` dans le contenu), par
+son titre — déjà traduit puisque tout le corps passe chez Ollama. Aucun appel
+LLM supplémentaire : `chapitres_depuis_marqueurs` (`pdf_extractor.py`) expose
+désormais `titre_traduit`, extrait de la **première ligne non vide** du corps.
+Le marqueur garde le titre SOURCE intact (`titre`) — l'alignement feature 297
+reste par **index**, jamais par titre, donc rien ne casse. ⚠️ **Ne jamais
+scanner tout le corps** pour trouver un titre : ça reproduirait exactement le
+bug qui a motivé le marqueur source (feature 327) — un `#` injecté ailleurs
+par Ollama (ex. un séparateur mal préfixé) serait pris à tort pour un titre.
+Seule la première ligne compte ; sinon repli sur le titre source, jamais une
+chaîne vide ou du charabia.
+
+Frontend (`module-bibliotheque.js`) : un helper `titreAffiche(chap)` (`chap.titre_traduit
+|| chap.titre`) appliqué aux 5 endroits où un titre est montré au lecteur —
+barre latérale, en-tête de lecture, bloc de fiche IA, table des matières et
+titres de section des deux exports HTML (fiche d'étude et document complet).
+
+8 tests ajoutés (`test_pdf_extractor.py`, `test_translation_runner.py`),
+`pytest` : 328 verts. Couverture volontairement large sur deux angles
+au-delà du cas normal, demandés explicitement par JP :
+- **Persistance** : le titre traduit survit à une régénération complète du
+  `.md` depuis le store SQLite (`_regenerer_sortie`) — ce qui se produit après
+  un redémarrage de l'app une fois la lecture store-primaire en place
+  (phase 9/toledo, voir plus haut).
+- **Arrêt impromptu** : (1) même scénario qu'un test existant — Ollama meurt
+  au chapitre 1, le job finit en `ERREUR`, lire les titres d'un document
+  INCOMPLET (chapitres 1 à 3 absents, pas seulement vides) ne plante pas ;
+  (2) un `.md` reconstitué à la main, tronqué en plein milieu d'une ligne de
+  titre — `_ecrire_chapitre` ajoute au fichier avec un simple `open(..., "a")`,
+  **pas une écriture atomique** (le `.md` reste la source de vérité jusqu'à
+  l'étape E de la phase 9) — repli propre, jamais un titre coupé en deux.
+
+## Capture voix : AudioWorkletNode remplace ScriptProcessorNode (2/9/2026)
+
+`module-laboratoire.js` capturait le PCM du micro (avant clonage OpenVoice)
+via `createScriptProcessor(4096, 1, 1)` — API dépréciée par le W3C au profit
+d'`AudioWorkletNode`, qui tourne sur le thread audio dédié plutôt que le
+thread principal. Nouveau fichier `frontend/js/enregistreur-processor.js`
+(chargé via `audioContext.audioWorklet.addModule`, versionné `?v=1` comme les
+autres scripts). Même cadence (accumulation par blocs de 4096 échantillons),
+même format de sortie (`Float32Array` transféré via `port.postMessage`, pas
+copié) — `encoderWav()` et tout le flux WAV existant restent inchangés. Le
+nœud reste connecté à `destination` (nécessaire pour que le graphe audio le
+sollicite) mais n'écrit jamais dans ses sorties, qui restent silencieuses :
+aucun écho du micro, comportement identique à avant.
+
+**Vérifié** en le chargeant réellement dans un navigateur avec un oscillateur
+en source (`ctx.createOscillator()` → le nœud → `destination`) : le module se
+charge, s'instancie, et transfère bien des blocs `Float32Array` de 4096
+échantillons. La capture micro réelle n'a pas pu être testée dans
+l'environnement de vérification (accès micro bloqué) — **reste à confirmer
+par JP** : un enregistrement réel au micro puis un clonage de voix complet de
+bout en bout. Loggé dans bilbao : feature 349.
+
+## Incident — `uvicorn --reload` + `uvloop 0.22.1` fait crasher le backend (2/9/2026)
+
+Deux modifications de `pdf_extractor.py` en session ont déclenché le
+rechargement automatique d'`uvicorn --reload` — dont le worker se remettait à
+crasher **immédiatement** (~11 ms de vie) à chaque relance, `SIGSEGV` dans
+`__pyx_tp_dealloc_6uvloop_4loop_Loop`. Diagnostiqué via les rapports de crash
+macOS (`~/Library/Logs/DiagnosticReports/Python-*.ips`, `exception.type:
+EXC_BAD_ACCESS`) : bug connu de la version exacte installée
+(`uvloop==0.22.1`, tirée par `uvicorn[standard]`) sur Python 3.13.15 — voir
+[MagicStack/uvloop#706](https://github.com/MagicStack/uvloop/issues/706),
+reproductible avec FastAPI, aucune version plus récente publiée (0.22.1 est
+la dernière). Aucune trace de code applicatif dans la pile du crash —
+uniquement des internes CPython/uvloop/asyncio.
+
+**Contournement** : relancer avec `--loop asyncio` (désactive uvloop, garde
+`--reload`) :
+```bash
+./venv/bin/python -m uvicorn app.main:app --reload --port 8000 --loop asyncio
+```
+Confirmé sain après relance (toutes les routes API répondent 200). ⚠️ Ce
+contournement n'est PAS encore ajouté à `.claude/launch.json` (JP a choisi un
+correctif ponctuel, pas permanent, le 2/9/2026) — si le crash revient, ajouter
+`--loop asyncio` aux `runtimeArgs` de la config `traducteur-backend`.
+
+## Contraintes d'interface à ne pas casser
+
+- **La barre supérieure doit rester sur UNE rangée.** Elle est `sticky` et la
+  Bibliothèque calcule sa hauteur avec `calc(100vh - var(--hauteur-barre))` : une
+  barre sur deux lignes décalerait toute la mise en page. Sous 800 px les onglets
+  défilent *dans* la barre (`min-width: 0` est indispensable — sans lui un élément
+  flex refuse de passer sous la largeur de son contenu) ; sous 590 px le texte du
+  logo s'efface pour que la navigation ne soit pas écrasée.
+- **`chemin_sortie` doit rester un vrai chemin sur le disque.** Le frontend en
+  dérive le dossier des images (`module-bibliotheque.js`, `urlImage`). Un `.md`
+  purement virtuel casserait l'affichage des images, en silence. À retenir pour la
+  phase 9, où le `.md` devient un export dérivé : il doit continuer d'être écrit.
+- **Le CSS et le JS sont versionnés par un paramètre d'URL** (`style.css?v=N`,
+  `module-bibliotheque.js?v=N`). Sans l'incrémenter, le navigateur sert l'ancienne
+  version — vérifié : une modification de CSS restait sans effet jusqu'à la bascule.
+- **Le bouton du mode avancé n'a de nom accessible que par son `aria-label`.** Le
+  texte « Mode avancé » voisin n'est pas un `<label>`, et il disparaît sous 800 px.
 
 ## Géré par bilbao — ne pas éditer à la main
 _Bloc régénéré par le cockpit bilbao (2026-07-14). La prose hors marqueurs n'est jamais touchée._

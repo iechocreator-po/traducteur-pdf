@@ -16,6 +16,7 @@
 		C3EE385B2FF34B09003E6118 /* ScheduledJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */; };
 		C3EE385E2FF34B09003E6118 /* GlossaireView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EE385D2FF34B09003E6118 /* GlossaireView.swift */; };
 		C3AA100200000000000A0002 /* ImportModuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3AA100100000000000A0001 /* ImportModuleView.swift */; };
+		C3AA900200000000000F0002 /* VosTraductionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3AA900100000000000F0001 /* VosTraductionsView.swift */; };
 		C3AA100400000000000A0004 /* BibliothequeModuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3AA100300000000000A0003 /* BibliothequeModuleView.swift */; };
 		C3AA100600000000000A0006 /* LaboratoireModuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3AA100500000000000A0005 /* LaboratoireModuleView.swift */; };
 /* End PBXBuildFile section */
@@ -51,6 +52,7 @@
 		C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledJobsView.swift; sourceTree = "<group>"; };
 		C3EE385D2FF34B09003E6118 /* GlossaireView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlossaireView.swift; sourceTree = "<group>"; };
 		C3AA100100000000000A0001 /* ImportModuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportModuleView.swift; sourceTree = "<group>"; };
+		C3AA900100000000000F0001 /* VosTraductionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VosTraductionsView.swift; sourceTree = "<group>"; };
 		C3AA100300000000000A0003 /* BibliothequeModuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BibliothequeModuleView.swift; sourceTree = "<group>"; };
 		C3AA100500000000000A0005 /* LaboratoireModuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaboratoireModuleView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -142,6 +144,7 @@
 				C3AA100300000000000A0003 /* BibliothequeModuleView.swift */,
 				C3EE385D2FF34B09003E6118 /* GlossaireView.swift */,
 				C3AA100100000000000A0001 /* ImportModuleView.swift */,
+				C3AA900100000000000F0001 /* VosTraductionsView.swift */,
 				C3AA100500000000000A0005 /* LaboratoireModuleView.swift */,
 				C3EE38592FF34B09003E6118 /* ScheduledJobsView.swift */,
 			);
@@ -298,6 +301,7 @@
 				C3EE385B2FF34B09003E6118 /* ScheduledJobsView.swift in Sources */,
 				C3EE385E2FF34B09003E6118 /* GlossaireView.swift in Sources */,
 				C3AA100200000000000A0002 /* ImportModuleView.swift in Sources */,
+				C3AA900200000000000F0002 /* VosTraductionsView.swift in Sources */,
 				C3AA100400000000000A0004 /* BibliothequeModuleView.swift in Sources */,
 				C3AA100600000000000A0006 /* LaboratoireModuleView.swift in Sources */,
 			);

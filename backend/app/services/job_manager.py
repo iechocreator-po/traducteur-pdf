@@ -5,13 +5,14 @@ et la file d'attente séquentielle : un seul job traduit à la fois pour ne pas
 saturer Ollama.
 """
 
-import json
 import os
 import queue
 import threading
 from typing import Callable
 
 from app.models.schemas import EtatJob
+from app.services import energie, store
+from app.services.persistance import ecrire_texte_atomique, lire_json_tolerant
 
 # Registre en mémoire des jobs actifs — réinitialisé au redémarrage du serveur
 _lock = threading.Lock()
@@ -32,24 +33,100 @@ def chemin_fichier_log(chemin_sortie: str) -> str:
 
 
 def sauvegarder_etat(etat: EtatJob) -> None:
-    chemin = chemin_fichier_etat(etat.chemin_sortie)
-    with open(chemin, "w", encoding="utf-8") as f:
-        f.write(etat.model_dump_json(indent=2))
+    """
+    Persiste l'état du job. Écriture ATOMIQUE : appelée ≈1× par sous-morceau (41×
+    pour un chapitre illustré, des centaines pour un livre), chaque appel était
+    auparavant une fenêtre de corruption qui pouvait faire disparaître TOUS les
+    documents des deux frontends (F1).
+    """
+    donnees = etat.model_dump_json(indent=2)
+    ecrire_texte_atomique(chemin_fichier_etat(etat.chemin_sortie), donnees)
+    # Double écriture (phase 9, étape C). Le JSON reste la source de vérité tant
+    # que la bascule n'est pas terminée ; un échec du store ne doit jamais faire
+    # échouer un job, puisque le fichier a déjà réussi.
+    try:
+        store.ecrire_etat(etat.chemin_sortie, donnees)
+    except Exception as e:  # noqa: BLE001
+        print(f"[job_manager] écriture store ignorée : {e}", flush=True)
 
 
 def charger_etat(chemin_sortie: str) -> EtatJob | None:
-    chemin = chemin_fichier_etat(chemin_sortie)
-    if not os.path.exists(chemin):
+    """
+    Charge l'état d'un job, ou None s'il n'existe pas / n'est plus lisible.
+
+    Ne lève jamais : un seul état corrompu ne doit pas faire tomber la Bibliothèque
+    entière (F1). Le fichier illisible est mis en quarantaine par la couche
+    persistance, donc l'appel suivant repart proprement.
+
+    Priorité de lecture (feature 328, bascule store-primaire) : le store fait
+    foi SEULEMENT s'il est au moins aussi récent que le JSON. `sauvegarder_etat`
+    écrit toujours le JSON avant de tenter le store (best-effort), donc le JSON
+    n'est jamais en retard sur le store — mais le store PEUT être en retard si
+    une de ses écritures a raté en silence. Préférer le store à l'aveugle
+    ressusciterait alors une progression périmée (régression du type F3). Voir
+    `store.lire_etat_horodate`.
+    """
+    chemin_json = chemin_fichier_etat(chemin_sortie)
+    data_json = lire_json_tolerant(chemin_json)
+    mtime_json = os.path.getmtime(chemin_json) if os.path.exists(chemin_json) else None
+
+    donnees_store, maj_a_store = _etat_horodate_depuis_store(chemin_sortie)
+
+    if donnees_store is not None and (mtime_json is None or maj_a_store >= mtime_json):
+        data = donnees_store  # le store est au moins aussi récent que le JSON
+    elif data_json is not None:
+        data = data_json  # store absent, périmé ou illisible — JSON fait foi
+    elif donnees_store is not None:
+        data = donnees_store  # JSON absent/corrompu, store seul recours
+    else:
         return None
-    with open(chemin, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return EtatJob(**data)
+
+    try:
+        return EtatJob(**data)
+    except Exception as e:
+        # JSON valide mais schéma inattendu (état d'une version future, champ
+        # manquant après édition manuelle) : même traitement, on ne fait pas
+        # tomber l'appelant.
+        print(
+            f"[job_manager] état illisible pour {chemin_sortie} : {e}", flush=True
+        )
+        return None
+
+
+def _etat_horodate_depuis_store(chemin_sortie: str) -> tuple[dict | None, float | None]:
+    """(données désérialisées, maj_a) du store, ou (None, None). Ne lève jamais."""
+    import json as _json
+    try:
+        paire = store.lire_etat_horodate(chemin_sortie)
+    except Exception as e:  # noqa: BLE001
+        print(f"[job_manager] store illisible : {e}", flush=True)
+        return None, None
+    if not paire:
+        return None, None
+    brut, maj_a = paire
+    try:
+        return _json.loads(brut), maj_a
+    except ValueError:
+        return None, None
 
 
 def supprimer_etat(chemin_sortie: str) -> None:
+    """
+    Supprime l'état, des DEUX côtés.
+
+    ⚠️ Oublier le store rendrait la suppression illusoire : `charger_etat` se
+    replie dessus quand le fichier est absent, donc l'état « supprimé »
+    ressusciterait au prochain appel. Attrapé par test_supprimer_etat en
+    branchant l'étape C — c'est précisément le genre d'incohérence que la double
+    écriture peut introduire si on ne traite pas les deux sources ensemble.
+    """
     chemin = chemin_fichier_etat(chemin_sortie)
     if os.path.exists(chemin):
         os.remove(chemin)
+    try:
+        store.supprimer_etat(chemin_sortie)
+    except Exception as e:  # noqa: BLE001
+        print(f"[job_manager] suppression store ignorée : {e}", flush=True)
 
 
 def journaliser_erreur(chemin_sortie: str, message: str) -> None:
@@ -123,12 +200,20 @@ _thread_worker: threading.Thread | None = None
 def _boucle_worker() -> None:
     while True:
         job_id, travail = _file_travaux.get()
+        # Assertion d'énergie (principe cible ⑩) : sur une app locale qui traduit
+        # des livres pendant des heures, laisser le Mac s'endormir en plein job
+        # est un défaut fonctionnel, pas un détail. Prise à l'entrée, relâchée
+        # quand la file se vide — jamais autour d'un seul travail, sinon on la
+        # reprend et la relâche à chaque élément de la file.
+        energie.acquerir()
         try:
             travail()
         except Exception as e:
             print(f"[job_manager] erreur non gérée du job {job_id} : {e}", flush=True)
         finally:
             _file_travaux.task_done()
+            if _file_travaux.empty():
+                energie.relacher()
 
 
 def soumettre_travail(job_id: str, travail: Callable[[], None]) -> None:

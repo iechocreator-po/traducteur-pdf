@@ -136,6 +136,51 @@ def test_enregistrer_flux_trop_gros_rejete_sans_laisser_de_trace(monkeypatch):
         assert os.listdir(uploads.DOSSIER_TMP) == []
 
 
+def test_un_upload_rejete_ne_detruit_pas_le_travail_deja_present(monkeypatch):
+    """
+    RÉGRESSION — perte de données réelle du 29/7/2026.
+
+    Le dossier d'upload est indexé sur le CONTENU : ré-uploader un document déjà
+    traduit retombe forcément sur le dossier qui contient sa traduction, son
+    cache, son état et ses images. Un `rmtree(dossier)` en cas d'échec de
+    validation détruisait donc tout ce travail — une traduction complète de
+    Chapter 9 (neuf minutes de calcul) a été effacée ainsi, par la simple
+    re-soumission du même PDF.
+
+    Un rejet ne doit jamais emporter autre chose que ce que CET upload a écrit.
+    """
+    pdf = _pdf_octets()
+    premier = uploads.enregistrer_flux(_flux(pdf), "livre.pdf")
+    dossier = os.path.dirname(premier["chemin"])
+
+    # Le travail produit par une traduction précédente, à côté de la source.
+    traduction = os.path.join(dossier, "livre_traduit_ll.md")
+    with open(traduction, "w", encoding="utf-8") as f:
+        f.write("# Traduction déjà payée\n")
+    etat = os.path.join(dossier, "livre_traduit_ll.state.json")
+    with open(etat, "w", encoding="utf-8") as f:
+        f.write("{}")
+
+    # Le MÊME contenu est re-soumis, mais la validation échoue cette fois
+    # (extracteur momentanément en échec, fichier verrouillé, pression mémoire…).
+    def compter_pages_en_echec(_chemin):
+        raise RuntimeError("extracteur indisponible")
+
+    import app.services.pdf_extractor as pdf_extractor
+    monkeypatch.setattr(pdf_extractor, "compter_pages", compter_pages_en_echec)
+
+    with pytest.raises(uploads.UploadInvalide):
+        uploads.enregistrer_flux(_flux(pdf), "livre.pdf")
+
+    # Le travail est INTACT — c'est tout l'enjeu.
+    assert os.path.isfile(traduction), "la traduction a été détruite par un upload rejeté"
+    assert os.path.isfile(etat)
+    with open(traduction, encoding="utf-8") as f:
+        assert "déjà payée" in f.read()
+    # Et la source, déjà présente avant ce rejet, n'est pas retirée non plus.
+    assert os.path.isfile(premier["chemin"])
+
+
 def test_enregistrer_flux_idempotent_par_contenu():
     pdf = _pdf_octets()
     r1 = uploads.enregistrer_flux(_flux(pdf), "a.pdf")

@@ -9,13 +9,15 @@ La documentation interactive de l'API est alors disponible sur :
 
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from app.api.erreurs import ErreurMetier
 from app.api.routes import router
 from app.api.validation import ORIGINES_LOCALES
+from app.services.recuperation import recuperer_tout
 from app.services.scheduler import demarrer_surveillance
-from app.services.translation_runner import recuperer_jobs_interrompus
 from app.services.uploads import purger_uploads_anciens
 
 
@@ -38,12 +40,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.exception_handler(ErreurMetier)
+def _rendre_erreur_metier(request: Request, exc: ErreurMetier) -> JSONResponse:
+    """
+    Rend une erreur typée (principe cible ⑦) en gardant `detail` pour les clients
+    existants et en ajoutant `erreur` pour ceux qui savent le lire.
+    """
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "erreur": exc.erreur.model_dump()},
+    )
+
+
 app.include_router(router, prefix="/api")
 
 demarrer_surveillance()
 # Ménage des uploads abandonnés (jamais des traductions produites) au démarrage.
 purger_uploads_anciens()
-# Récupère les jobs coupés net par un arrêt du serveur : `en_cours` périmé →
-# `en_pause`, pour qu'ils redeviennent reprenables depuis « Nouveau document ».
-recuperer_jobs_interrompus()
+# Récupère les jobs coupés net par un arrêt du serveur — les QUATRE familles
+# (F7). La traduction repasse `en_pause` donc reprenable ; l'étude, le TTS et le
+# clonage passent à un statut terminal explicite, ce qui débloque leur interface :
+# un job d'étude resté `en_cours` gardait le panneau Résumé & Quiz du document
+# désactivé pour toujours, rechargement de page compris.
+recuperer_tout()
 

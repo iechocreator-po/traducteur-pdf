@@ -30,20 +30,102 @@ function corpsSource(chemin, extra = {}) {
     : { chemin_pdf: chemin, ...extra };
 }
 
-async function apiPost(route, body) {
-  const rep = await fetch(`${API_BASE}${route}`, {
+// Délai au-delà duquel une requête est abandonnée (principe cible ⑥, défaut F11).
+// Sans timeout, un backend qui ralentit à 5 s par réponse laissait `setInterval`
+// empiler une requête toutes les 2 s, indéfiniment. Pensé pour du polling léger
+// (health, feature-flags…) — PAS pour une extraction/analyse PDF ponctuelle.
+const API_TIMEOUT_MS = 15000;
+
+// Délai long, réservé aux routes qui font un vrai travail d'extraction PDF et/ou
+// un appel Ollama (/analyser, /chapitres, /convert) : le backend s'autorise déjà
+// jusqu'à 60 s pour l'appel LLM dans analysis_agent.py, au-delà de l'extraction
+// de texte elle-même. Un timeout client plus court que le budget serveur garantit
+// un abandon prématuré (message brut du navigateur, "signal is aborted without
+// reason") sur tout PDF un peu long ou un modèle froid — vérifié.
+const API_TIMEOUT_LONG_MS = 90000;
+
+/**
+ * Erreur d'API portant l'erreur TYPÉE du backend (principe cible ⑦).
+ *
+ * Le backend répond `{detail, erreur: {code, message, remediation}}`. `message`
+ * reste affichable tel quel ; `code` permet de brancher un bouton (« Redémarrer
+ * Ollama ») sans faire de correspondance de chaînes fragile ; `remediation` dit
+ * à l'utilisateur ce qu'il peut FAIRE.
+ */
+class ErreurApi extends Error {
+  constructor(statut, corps) {
+    const typee = (corps && corps.erreur) || null;
+    // `detail` EN PREMIER, volontairement : le backend y met déjà « message +
+    // remédiation », et tous les appelants existants affichent `e.message`.
+    // Prendre `erreur.message` seul ici ferait DISPARAÎTRE la consigne de
+    // redémarrage d'Ollama des écrans qui l'affichaient — une régression
+    // silencieuse en croyant améliorer les choses.
+    super(
+      (corps && corps.detail) ||
+      (typee && typee.message) ||
+      `Erreur HTTP ${statut}`
+    );
+    this.name = "ErreurApi";
+    this.statut = statut;
+    this.code = (typee && typee.code) || `http_${statut}`;
+    this.cause_ = typee ? typee.message : null;
+    this.remediation = (typee && typee.remediation) || null;
+  }
+
+  get estOllamaIndisponible() {
+    return this.code === "ollama_indisponible";
+  }
+}
+
+async function _fetchAvecTimeout(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
+  // AbortController : une requête qui ne revient pas ne doit pas retenir une
+  // boucle de poll pour toujours (F11).
+  const controleur = new AbortController();
+  const secondes = Math.round(timeoutMs / 1000);
+  // Raison lisible passée à abort() : sans elle, le navigateur rejette avec un
+  // DOMException générique dont le message brut ("signal is aborted without
+  // reason") fuyait tel quel jusqu'à l'écran — un texte de debug navigateur, pas
+  // un message utilisateur. Certains navigateurs ignorent cette raison et
+  // rejettent quand même avec un AbortError générique : le catch ci-dessous la
+  // réinjecte dans ce cas.
+  const raisonDelai = () => new DOMException(
+    `Le serveur n'a pas répondu en ${secondes} s. Le traitement a peut-être ` +
+    `démarré côté serveur malgré tout — vérifie avant de relancer.`,
+    "TimeoutError",
+  );
+  const minuteur = setTimeout(() => controleur.abort(raisonDelai()), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controleur.signal });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") throw raisonDelai();
+    // Backend injoignable (arrêté, port fermé…) : fetch lève un TypeError
+    // générique ("Failed to fetch") plutôt qu'une erreur exploitable.
+    if (e instanceof TypeError) {
+      throw new Error("Impossible de joindre le serveur local — vérifie qu'il est bien lancé.");
+    }
+    throw e;
+  } finally {
+    clearTimeout(minuteur);
+  }
+}
+
+async function apiPost(route, body, timeoutMs) {
+  const rep = await _fetchAvecTimeout(`${API_BASE}${route}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }, timeoutMs);
   const data = await rep.json().catch(() => ({}));
-  if (!rep.ok) throw new Error(data.detail || `Erreur HTTP ${rep.status}`);
+  if (!rep.ok) throw new ErreurApi(rep.status, data);
   return data;
 }
 
-async function apiGet(route) {
-  const rep = await fetch(`${API_BASE}${route}`);
-  if (!rep.ok) throw new Error(`Erreur HTTP ${rep.status}`);
+async function apiGet(route, timeoutMs) {
+  const rep = await _fetchAvecTimeout(`${API_BASE}${route}`, {}, timeoutMs);
+  if (!rep.ok) {
+    const data = await rep.json().catch(() => ({}));
+    throw new ErreurApi(rep.status, data);
+  }
   return rep.json();
 }
 

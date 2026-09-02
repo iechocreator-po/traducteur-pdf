@@ -30,6 +30,10 @@ final class BibliothequeViewModel: ObservableObject {
     @Published var fiches: [Int: FicheChapitre] = [:]
     @Published var iaEnCours = false
     @Published var iaStatut: String? = nil
+    /// Stratégie de fiche demandée — reflet de l'@AppStorage de la vue.
+    /// Traverse `genererEtude` ET `etudeStatut` : sans elle au statut, la route
+    /// retombe sur « la plus récente » et affiche la fiche de l'autre stratégie.
+    @Published var strategie: String = "sections"
 
     // Audio
     @Published var cheminWav: String? = nil
@@ -126,7 +130,8 @@ final class BibliothequeViewModel: ObservableObject {
 
     func chargerFicheExistante() async {
         guard let doc = docActif else { return }
-        if let etat = try? await APIService.shared.etudeStatut(cheminSource: doc.cheminSortie) {
+        if let etat = try? await APIService.shared.etudeStatut(
+            cheminSource: doc.cheminSortie, modele: doc.modele, strategie: strategie) {
             for chap in etat.chapitres where chap.etape == "termine" {
                 fiches[chap.index] = chap
             }
@@ -140,11 +145,18 @@ final class BibliothequeViewModel: ObservableObject {
         guard let doc = docActif, let chap = chapActif else { return }
         guard await env.santeOk() else { return }
         do {
+            // ⚠️ Les options suivent le DOCUMENT, jamais les menus courants.
+            // Avec `env.modeleChoisi`, changer le menu faisait diverger les
+            // options et le backend Étude effaçait silencieusement les fiches
+            // déjà générées (`study_runner.memes_options`). Le web avait déjà
+            // été corrigé ainsi ; macOS portait encore le défaut.
+            // nb_points/nb_questions omis = 0 = dimensionnement automatique.
             try await APIService.shared.genererEtude(
                 cheminMd: doc.cheminSortie,
                 chapitres: [chap.index],
-                modele: env.modeleChoisi,
-                langueFiche: env.langueCible.rawValue)
+                modele: doc.modele,
+                langueFiche: doc.langueCible,
+                strategie: strategie)
             iaEnCours = true
             iaStatut = "⏳ Génération en cours…"
             demarrerPollFiche()
@@ -159,7 +171,9 @@ final class BibliothequeViewModel: ObservableObject {
         pollFiche = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, let doc = self.docActif else { break }
-                guard let etat = try? await APIService.shared.etudeStatut(cheminSource: doc.cheminSortie) else {
+                guard let etat = try? await APIService.shared.etudeStatut(
+                    cheminSource: doc.cheminSortie, modele: doc.modele,
+                    strategie: self.strategie) else {
                     try? await Task.sleep(for: .seconds(2))
                     continue
                 }
@@ -307,6 +321,10 @@ final class BibliothequeViewModel: ObservableObject {
 struct BibliothequeModuleView: View {
     @EnvironmentObject private var env: AppEnvironment
     @StateObject private var vm = BibliothequeViewModel()
+    /// Persistée comme les réglages TTS : on compare deux stratégies sur
+    /// plusieurs documents, le choix ne doit pas se réinitialiser à chaque
+    /// ouverture. Même défaut et mêmes libellés que le sélecteur web.
+    @AppStorage("etudeStrategie") private var etudeStrategie: String = "sections"
     @AppStorage("ttsMoteur") private var ttsMoteur: String = ""
     @AppStorage("ttsVoix") private var ttsVoix: String = ""
 
@@ -321,7 +339,17 @@ struct BibliothequeModuleView: View {
             panneauIA
                 .frame(width: 300)
         }
-        .task { await vm.chargerDocs() }
+        .task {
+            vm.strategie = etudeStrategie
+            await vm.chargerDocs()
+        }
+        .onChange(of: etudeStrategie) { _, nouvelle in
+            // Changer de stratégie doit RECHARGER la fiche, pas seulement
+            // viser la prochaine génération : chaque stratégie a la sienne.
+            vm.strategie = nouvelle
+            vm.fiches = [:]
+            Task { await vm.chargerFicheExistante() }
+        }
     }
 
     // MARK: - Sidebar
@@ -565,7 +593,16 @@ struct BibliothequeModuleView: View {
 
                 let fiche = vm.chapActif.flatMap { vm.fiches[$0.index] }
 
-                Button(fiche != nil ? "↻ Régénérer points clés + quiz" : "Générer les 5 points clés + quiz") {
+                Picker("Stratégie", selection: $etudeStrategie) {
+                    Text("Par sections (recommandée)").tag("sections")
+                    Text("Condensation (historique)").tag("condensation")
+                }
+                .pickerStyle(.menu)
+                .disabled(vm.iaEnCours)
+
+                // Plus de « 5 » dans le libellé : le nombre est désormais
+                // dérivé de la longueur du chapitre par le backend.
+                Button(fiche != nil ? "↻ Régénérer points clés + quiz" : "Générer les points clés + quiz") {
                     Task { await vm.genererFiche(env: env) }
                 }
                 .buttonStyle(.bordered)
