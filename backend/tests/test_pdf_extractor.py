@@ -305,3 +305,69 @@ def test_relier_toc_progression_monotone():
     relies = relier_toc_a_markdown(toc, chapitres_md)
     assert relies[0]["contenu"] == "C3"
     assert relies[1]["contenu"] == "C7"  # pas « C3 » à nouveau
+
+
+# ── titre_traduit (feature bilbao 348) ───────────────────────────────────────
+# Le corps d'un chapitre traduit commence, par construction, par son titre —
+# déjà traduit puisque tout le corps est passé chez Ollama. On l'expose sans
+# appel LLM supplémentaire. Ces tests couvrent le cas normal ET les anomalies
+# qu'un arrêt impromptu (écriture non atomique interrompue) peut produire.
+
+def _texte_marque(titre_source: str, corps_traduit: str, index: int = 0) -> str:
+    return f"<!-- === chapitre {index} : {titre_source} === -->\n\n{corps_traduit}\n"
+
+
+def test_chapitres_depuis_marqueurs_expose_le_titre_traduit_du_corps():
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+
+    texte = _texte_marque("Chapter 9: From Structure to Function", "# Chapitre 9 : de la structure à la fonction\n\nLe reste du texte traduit.")
+    chapitres = chapitres_depuis_marqueurs(texte)
+
+    assert len(chapitres) == 1
+    # Le marqueur garde le titre SOURCE (alignement feature 297) — inchangé.
+    assert chapitres[0]["titre"] == "Chapter 9: From Structure to Function"
+    # Le titre traduit vient du corps, pas du marqueur.
+    assert chapitres[0]["titre_traduit"] == "Chapitre 9 : de la structure à la fonction"
+
+
+def test_chapitres_depuis_marqueurs_titre_traduit_absent_si_le_corps_ne_commence_pas_par_un_titre():
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+
+    # Chapitre implicite ou traduction qui a perdu la mise en forme du titre :
+    # la première ligne non vide n'est pas un « # ».
+    texte = _texte_marque("Introduction", "Ceci commence directement par du texte, sans titre.")
+    chapitres = chapitres_depuis_marqueurs(texte)
+
+    assert chapitres[0]["titre"] == "Introduction"  # repli : le titre source reste exact
+    assert chapitres[0]["titre_traduit"] is None     # jamais une chaîne vide ou du charabia
+
+
+def test_chapitres_depuis_marqueurs_ignore_un_titre_plus_loin_dans_le_corps():
+    """
+    Ne reproduit PAS le bug qui a motivé le marqueur source (feature 327) :
+    un « # » injecté plus loin par Ollama (ex. un séparateur mal préfixé) ne
+    doit jamais être pris pour le titre — seule la première ligne compte.
+    """
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+
+    texte = _texte_marque(
+        "Un",
+        "Un paragraphe d'abord.\n\n# * * *\n\nPuis la suite du chapitre.",
+    )
+    chapitres = chapitres_depuis_marqueurs(texte)
+    assert chapitres[0]["titre_traduit"] is None
+
+
+def test_chapitres_depuis_marqueurs_titre_traduit_absent_sur_corps_vide_ou_tronque():
+    """
+    Simule ce qu'un arrêt impromptu peut laisser sur disque : l'append n'est
+    PAS atomique (voir _ecrire_chapitre) — un crash en plein milieu de la
+    ligne de titre est possible. Ni crash, ni titre garbled : repli propre.
+    """
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+
+    for corps_tronque in ("", "   \n\n  ", "#", "# "):
+        texte = _texte_marque("Un", corps_tronque)
+        chapitres = chapitres_depuis_marqueurs(texte)
+        assert chapitres[0]["titre"] == "Un"
+        assert chapitres[0]["titre_traduit"] is None, repr(corps_tronque)

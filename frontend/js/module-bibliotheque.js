@@ -15,6 +15,15 @@
 
   const audio = $("audio-el");
 
+  // Le corps traduit d'un chapitre commence par son titre déjà traduit — le
+  // backend l'expose dans titre_traduit (feature 348), sans appel LLM
+  // supplémentaire. Le marqueur garde le titre SOURCE (chap.titre) pour
+  // l'alignement de la relecture comparative (feature 297, voir plus bas) :
+  // ne jamais lui substituer titre_traduit pour la logique, seulement pour
+  // ce qui est montré au lecteur. Repli sur le titre source si l'extraction
+  // échoue (chapitre implicite, corps tronqué par un arrêt impromptu…).
+  const titreAffiche = (chap) => chap.titre_traduit || chap.titre;
+
   // ── Affichage du texte (flag biblio_toggle_contenu) ────────────────────────
   // En mode avancé, le panneau Résumé & Quiz occupe le centre et la colonne de
   // lecture est masquée par défaut pour alléger l'écran ; le bouton la révèle.
@@ -273,8 +282,8 @@
       titre.type = "button";
       titre.className = "sidebar-item chap-titre";
       titre.style.paddingLeft = `${8 + (chap.niveau - 1) * 12}px`;
-      titre.textContent = chap.titre;
-      titre.title = chap.titre;
+      titre.textContent = titreAffiche(chap);
+      titre.title = titreAffiche(chap);
       titre.addEventListener("click", () => {
         montrerLecture();
         selectionnerChapitre(chap);
@@ -297,7 +306,7 @@
     chapActif = chap;
     rendreChapitres();
     $("lecture-titre").hidden = false;
-    $("lecture-titre").textContent = chap.titre;
+    $("lecture-titre").textContent = titreAffiche(chap);
     $("lecture-texte").textContent = "Chargement…";
     try {
       const data = await apiPost("/chapitres/contenu", {
@@ -671,7 +680,7 @@
 
     const titre = document.createElement("div");
     titre.className = "ia-bloc-titre";
-    titre.textContent = chap.titre;
+    titre.textContent = titreAffiche(chap);
     bloc.appendChild(titre);
 
     const tPoints = document.createElement("div");
@@ -762,8 +771,8 @@
     // Table des matières : tous les chapitres, indentés par niveau.
     const toc = chapitres.map((c) => {
       const lien = inclus.has(c.index)
-        ? `<a href="#chap-${c.index}">${echapperHtml(c.titre)}</a>`
-        : `<span class="sans-fiche">${echapperHtml(c.titre)}</span>`;
+        ? `<a href="#chap-${c.index}">${echapperHtml(titreAffiche(c))}</a>`
+        : `<span class="sans-fiche">${echapperHtml(titreAffiche(c))}</span>`;
       return `<li style="margin-left:${(Math.max(c.niveau, 1) - 1) * 1.2}rem">${lien}</li>`;
     }).join("\n");
 
@@ -781,7 +790,7 @@
           </div>`).join("\n");
         return `
         <section id="chap-${c.index}">
-          <h2>${echapperHtml(c.titre)}</h2>
+          <h2>${echapperHtml(titreAffiche(c))}</h2>
           <h3>Points à retenir</h3>
           <ol>${points}</ol>
           <h3>Questions de compréhension</h3>
@@ -1071,14 +1080,14 @@
     const chapitresSommet = chapitres.filter((c) => !estChapitreImbrique(c, chapitres));
 
     const toc = chapitresSommet.map((c) =>
-      `<li style="margin-left:${(Math.max(c.niveau, 1) - 1) * 1.2}rem"><a href="#chap-${c.index}">${echapperHtml(c.titre)}</a></li>`
+      `<li style="margin-left:${(Math.max(c.niveau, 1) - 1) * 1.2}rem"><a href="#chap-${c.index}">${echapperHtml(titreAffiche(c))}</a></li>`
     ).join("\n");
 
     const sections = [];
     for (const c of chapitresSommet) {
       const data = await apiPost("/chapitres/contenu", { chemin_md: docActif.chemin_sortie, index: c.index });
       const corps = await chapitreEnHtml(data.contenu);
-      sections.push(`<section id="chap-${c.index}"><h2>${echapperHtml(c.titre)}</h2>${corps}</section>`);
+      sections.push(`<section id="chap-${c.index}"><h2>${echapperHtml(titreAffiche(c))}</h2>${corps}</section>`);
     }
 
     return `<!doctype html>

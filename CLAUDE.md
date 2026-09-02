@@ -1045,6 +1045,94 @@ sont PAS un compteur de requêtes — ils avancent d'un pas par étape de décod
 interne ; un grand écart entre deux ID ne signifie pas des milliers de
 requêtes séparées.
 
+## Titre traduit dans la table des matières (feature bilbao 348, 2/9/2026)
+
+Signalé par JP : les titres de chapitres affichés (barre latérale, en-tête de
+lecture, fiche IA, exports HTML) restaient dans la langue SOURCE — pas un
+oubli, c'était le comportement voulu depuis la feature 327 (le marqueur
+`<!-- === chapitre N : titre === -->` porte le titre source pour garantir un
+alignement exact index-par-index avec « Nouveau document » et la relecture
+comparative, feature 297).
+
+**Option retenue (A)** : le corps d'un chapitre traduit commence, par
+construction (`_extraire_chapitres` inclut la ligne `#` dans le contenu), par
+son titre — déjà traduit puisque tout le corps passe chez Ollama. Aucun appel
+LLM supplémentaire : `chapitres_depuis_marqueurs` (`pdf_extractor.py`) expose
+désormais `titre_traduit`, extrait de la **première ligne non vide** du corps.
+Le marqueur garde le titre SOURCE intact (`titre`) — l'alignement feature 297
+reste par **index**, jamais par titre, donc rien ne casse. ⚠️ **Ne jamais
+scanner tout le corps** pour trouver un titre : ça reproduirait exactement le
+bug qui a motivé le marqueur source (feature 327) — un `#` injecté ailleurs
+par Ollama (ex. un séparateur mal préfixé) serait pris à tort pour un titre.
+Seule la première ligne compte ; sinon repli sur le titre source, jamais une
+chaîne vide ou du charabia.
+
+Frontend (`module-bibliotheque.js`) : un helper `titreAffiche(chap)` (`chap.titre_traduit
+|| chap.titre`) appliqué aux 5 endroits où un titre est montré au lecteur —
+barre latérale, en-tête de lecture, bloc de fiche IA, table des matières et
+titres de section des deux exports HTML (fiche d'étude et document complet).
+
+8 tests ajoutés (`test_pdf_extractor.py`, `test_translation_runner.py`),
+`pytest` : 328 verts. Couverture volontairement large sur deux angles
+au-delà du cas normal, demandés explicitement par JP :
+- **Persistance** : le titre traduit survit à une régénération complète du
+  `.md` depuis le store SQLite (`_regenerer_sortie`) — ce qui se produit après
+  un redémarrage de l'app une fois la lecture store-primaire en place
+  (phase 9/toledo, voir plus haut).
+- **Arrêt impromptu** : (1) même scénario qu'un test existant — Ollama meurt
+  au chapitre 1, le job finit en `ERREUR`, lire les titres d'un document
+  INCOMPLET (chapitres 1 à 3 absents, pas seulement vides) ne plante pas ;
+  (2) un `.md` reconstitué à la main, tronqué en plein milieu d'une ligne de
+  titre — `_ecrire_chapitre` ajoute au fichier avec un simple `open(..., "a")`,
+  **pas une écriture atomique** (le `.md` reste la source de vérité jusqu'à
+  l'étape E de la phase 9) — repli propre, jamais un titre coupé en deux.
+
+## Capture voix : AudioWorkletNode remplace ScriptProcessorNode (2/9/2026)
+
+`module-laboratoire.js` capturait le PCM du micro (avant clonage OpenVoice)
+via `createScriptProcessor(4096, 1, 1)` — API dépréciée par le W3C au profit
+d'`AudioWorkletNode`, qui tourne sur le thread audio dédié plutôt que le
+thread principal. Nouveau fichier `frontend/js/enregistreur-processor.js`
+(chargé via `audioContext.audioWorklet.addModule`, versionné `?v=1` comme les
+autres scripts). Même cadence (accumulation par blocs de 4096 échantillons),
+même format de sortie (`Float32Array` transféré via `port.postMessage`, pas
+copié) — `encoderWav()` et tout le flux WAV existant restent inchangés. Le
+nœud reste connecté à `destination` (nécessaire pour que le graphe audio le
+sollicite) mais n'écrit jamais dans ses sorties, qui restent silencieuses :
+aucun écho du micro, comportement identique à avant.
+
+**Vérifié** en le chargeant réellement dans un navigateur avec un oscillateur
+en source (`ctx.createOscillator()` → le nœud → `destination`) : le module se
+charge, s'instancie, et transfère bien des blocs `Float32Array` de 4096
+échantillons. La capture micro réelle n'a pas pu être testée dans
+l'environnement de vérification (accès micro bloqué) — **reste à confirmer
+par JP** : un enregistrement réel au micro puis un clonage de voix complet de
+bout en bout. Loggé dans bilbao : feature 349.
+
+## Incident — `uvicorn --reload` + `uvloop 0.22.1` fait crasher le backend (2/9/2026)
+
+Deux modifications de `pdf_extractor.py` en session ont déclenché le
+rechargement automatique d'`uvicorn --reload` — dont le worker se remettait à
+crasher **immédiatement** (~11 ms de vie) à chaque relance, `SIGSEGV` dans
+`__pyx_tp_dealloc_6uvloop_4loop_Loop`. Diagnostiqué via les rapports de crash
+macOS (`~/Library/Logs/DiagnosticReports/Python-*.ips`, `exception.type:
+EXC_BAD_ACCESS`) : bug connu de la version exacte installée
+(`uvloop==0.22.1`, tirée par `uvicorn[standard]`) sur Python 3.13.15 — voir
+[MagicStack/uvloop#706](https://github.com/MagicStack/uvloop/issues/706),
+reproductible avec FastAPI, aucune version plus récente publiée (0.22.1 est
+la dernière). Aucune trace de code applicatif dans la pile du crash —
+uniquement des internes CPython/uvloop/asyncio.
+
+**Contournement** : relancer avec `--loop asyncio` (désactive uvloop, garde
+`--reload`) :
+```bash
+./venv/bin/python -m uvicorn app.main:app --reload --port 8000 --loop asyncio
+```
+Confirmé sain après relance (toutes les routes API répondent 200). ⚠️ Ce
+contournement n'est PAS encore ajouté à `.claude/launch.json` (JP a choisi un
+correctif ponctuel, pas permanent, le 2/9/2026) — si le crash revient, ajouter
+`--loop asyncio` aux `runtimeArgs` de la config `traducteur-backend`.
+
 ## Contraintes d'interface à ne pas casser
 
 - **La barre supérieure doit rester sur UNE rangée.** Elle est `sticky` et la

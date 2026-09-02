@@ -808,3 +808,104 @@ def test_E_l_annexe_du_milieu_n_avale_pas_les_chapitres_suivants(tmp_path):
     assert "exemple.org" in annexe
     assert "chapitre 1" not in annexe, "l'annexe a emporté le chapitre suivant"
     assert "c1" not in annexe
+
+
+# ── Titre traduit dans la table des matières (feature bilbao 348) ───────────
+# Option A retenue : le titre affiché vient du corps déjà traduit (pas d'appel
+# LLM en plus), le marqueur garde le titre SOURCE pour l'alignement de la
+# relecture comparative (feature 297). Trois angles couverts sur une vraie
+# exécution du pipeline, pas seulement les tests unitaires de pdf_extractor :
+# le cas normal, la persistance à travers une régénération depuis le store, et
+# un arrêt impromptu qui laisse un document incomplet sur disque.
+
+def test_titre_traduit_disponible_apres_une_traduction_reelle(tmp_path, monkeypatch):
+    """Le titre affiché vient du corps traduit, sans appel LLM supplémentaire."""
+    def traducteur(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+    source = _ecrire_source_md(tmp_path, "doc_titres.md", nb_sections=2)
+    _, sortie = _demarrer(source)
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+    assert etat.statut == StatutJob.TERMINE
+
+    from app.services.pdf_extractor import identifier_chapitres
+    chapitres = identifier_chapitres(sortie)
+
+    assert len(chapitres) == 2
+    for i, chap in enumerate(chapitres):
+        assert chap["titre"] == f"Section {i}"           # source, inchangé (feature 297)
+        assert chap["titre_traduit"] == f"SECTION {i}"    # traduit, tiré du corps
+
+
+def test_titre_traduit_survit_a_la_regeneration_depuis_le_store(tmp_path, monkeypatch):
+    """
+    Persistance à travers un redémarrage : après une traduction, forcer la
+    réécriture du `.md` DEPUIS LE STORE (étape E, ce qui se produit après un
+    redémarrage de l'app) ne doit rien changer au titre affiché — la lecture
+    du titre traduit ne dépend pas du chemin d'écriture (append vs export).
+    """
+    def traducteur(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+    source = _ecrire_source_md(tmp_path, "doc_regen.md", nb_sections=2)
+    _, sortie = _demarrer(source)
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+    assert etat.statut == StatutJob.TERMINE
+
+    assert translation_runner._regenerer_sortie(sortie, etat, implicite=False) is True
+
+    from app.services.pdf_extractor import identifier_chapitres
+    chapitres = identifier_chapitres(sortie)
+    assert [c["titre_traduit"] for c in chapitres] == ["SECTION 0", "SECTION 1"]
+
+
+def test_titre_traduit_apres_un_arret_impromptu(tmp_path, monkeypatch):
+    """
+    Même scénario que test_ollama_indisponible_arrete_le_job_sans_bruler_les_chapitres :
+    Ollama meurt au chapitre 1, le job finit en ERREUR, seul le chapitre 0 est
+    sur disque. Lire les titres d'un document INCOMPLET (chapitres 1 à 3
+    absents, pas seulement vides) ne doit ni planter ni inventer un titre pour
+    ce qui n'a jamais été écrit.
+    """
+    def ollama_mort(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        if "Section 1" in texte:
+            raise OllamaIndisponible("Ollama injoignable, budget épuisé")
+        return texte.upper()
+
+    monkeypatch.setattr(translation_runner, "traduire_texte", ollama_mort)
+    source = _ecrire_source_md(tmp_path, "doc_arret.md")  # 4 sections par défaut
+    _, sortie = _demarrer(source)
+    etat = _attendre_statut(sortie, {StatutJob.TERMINE, StatutJob.ERREUR})
+    assert etat.statut == StatutJob.ERREUR
+    assert etat.chapitres_traduits == [0]
+
+    from app.services.pdf_extractor import identifier_chapitres
+    chapitres = identifier_chapitres(sortie)  # ne doit lever aucune exception
+
+    assert len(chapitres) == 1  # seul le chapitre 0 a un marqueur dans le fichier
+    assert chapitres[0]["titre"] == "Section 0"
+    assert chapitres[0]["titre_traduit"] == "SECTION 0"
+
+
+def test_titre_traduit_absent_sur_un_fichier_tronque_par_un_crash(tmp_path):
+    """
+    `_ecrire_chapitre` ajoute au fichier avec un simple `open(..., "a")`, pas
+    une écriture atomique (voir sa docstring : le `.md` reste la source de
+    vérité jusqu'à l'étape E) — un crash en plein milieu de la ligne de titre
+    est un scénario réel, pas hypothétique. Reconstitué à la main ici : le
+    fichier s'arrête net après « # » sans le reste du titre.
+    """
+    sortie = tmp_path / "doc_tronque_ll.md"
+    sortie.write_text(
+        "<!-- en-tête -->\n"
+        "\n<!-- === chapitre 0 : Un === -->\n\n# ",
+        encoding="utf-8",
+    )
+
+    from app.services.pdf_extractor import identifier_chapitres
+    chapitres = identifier_chapitres(str(sortie))  # ne doit pas lever
+
+    assert chapitres[0]["titre"] == "Un"         # le marqueur, lui, est intact
+    assert chapitres[0]["titre_traduit"] is None  # jamais un titre coupé en deux

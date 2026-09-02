@@ -395,6 +395,34 @@ _RE_MARQUEUR_CHAPITRE = re.compile(
     r"^<!--\s*===\s*chapitre\s+(\d+)\s*:\s*(.*?)\s*===\s*-->\s*$", re.MULTILINE
 )
 
+# Titre traduit d'un chapitre (feature bilbao 348) : ligne 0 SEULEMENT du corps,
+# jamais un scan. _extraire_chapitres inclut la ligne # dans le contenu d'un
+# chapitre, donc le corps traduit commence par le titre traduit — mais scanner
+# tout le corps reproduirait exactement le bug qui a motivé le marqueur source
+# (feature 327) : un « # » injecté ailleurs par Ollama (ex. un séparateur
+# « * * * » préfixé à tort) serait pris pour un titre.
+_RE_PREMIERE_LIGNE_TITRE = re.compile(r"^#{1,6}\s+(.+)")
+
+
+def _titre_traduit_depuis_corps(contenu: str) -> str | None:
+    """
+    Déduit le titre traduit d'un chapitre à partir de son corps déjà traduit —
+    sans appel LLM supplémentaire, le titre est déjà là (voir feature 348).
+
+    Retourne None dès que la première ligne non vide n'est pas un titre
+    Markdown — chapitre implicite sans titre, corps tronqué par un arrêt
+    impromptu (écriture non atomique interrompue en cours de ligne), ou toute
+    autre anomalie. L'appelant se replie alors sur le titre SOURCE du marqueur,
+    jamais sur un titre vide ou une exception.
+    """
+    for ligne in contenu.splitlines():
+        ligne = ligne.strip()
+        if not ligne:
+            continue
+        m = _RE_PREMIERE_LIGNE_TITRE.match(ligne)
+        return m.group(1).strip() if m else None
+    return None
+
 
 def chapitres_depuis_marqueurs(texte: str) -> list[dict]:
     """
@@ -442,6 +470,7 @@ def chapitres_depuis_marqueurs(texte: str) -> list[dict]:
         chapitres.append({
             "index": int(m.group(1)),
             "titre": m.group(2),
+            "titre_traduit": _titre_traduit_depuis_corps(contenu),
             "niveau": max(1, min(niveau, 6)),
             "contenu": contenu,
             "ligne_debut": ligne_debut,
