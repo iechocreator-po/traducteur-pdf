@@ -256,21 +256,31 @@ async function exigerSante() {
 
 let featureFlags = {};
 
+// Cibles qui partagent la même liste de modèles Ollama installés localement
+// (le select de traduction, "Nouveau document", et celui du prototype de
+// segmentation dans le Laboratoire) — un seul appel /modeles pour les deux,
+// chacun garde ensuite sa propre valeur sélectionnée indépendamment.
+const CIBLES_SELECT_MODELE = ["modele", "segmentation-modele"];
+
 async function chargerModeles() {
+  const selects = CIBLES_SELECT_MODELE.map($).filter(Boolean);
   try {
     const data = await apiGet("/modeles");
-    $("modele").innerHTML = "";
-    for (const nom of data.modeles) {
-      const opt = document.createElement("option");
-      opt.value = nom;
-      opt.textContent = nom;
-      $("modele").appendChild(opt);
+    for (const select of selects) {
+      select.innerHTML = "";
+      for (const nom of data.modeles) {
+        const opt = document.createElement("option");
+        opt.value = nom;
+        opt.textContent = nom;
+        select.appendChild(opt);
+      }
+      if (data.modeles.length === 0) {
+        select.innerHTML = '<option value="">Aucun modèle trouvé</option>';
+      }
     }
-    if (data.modeles.length === 0) {
-      $("modele").innerHTML = '<option value="">Aucun modèle trouvé</option>';
-    }
+    document.dispatchEvent(new CustomEvent("modeles-charges", { detail: { modeles: data.modeles } }));
   } catch {
-    $("modele").innerHTML = '<option value="">Erreur de chargement</option>';
+    for (const select of selects) select.innerHTML = '<option value="">Erreur de chargement</option>';
   }
 }
 

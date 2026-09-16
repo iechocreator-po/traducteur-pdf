@@ -833,3 +833,99 @@ def analyser_document(demande: DemandeTraduction) -> ResultatAnalyse:
     from app.agents.analysis_agent import analyser_pdf
 
     return analyser_pdf(chemin_pdf)
+
+
+class EstimationSegmentationRequest(BaseModel):
+    chemin_pdf: str | None = None
+    chemin_md: str | None = None
+    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+
+    @model_validator(mode="after")
+    def valider_source(self):
+        if not self.chemin_pdf and not self.chemin_md:
+            raise ValueError("chemin_pdf ou chemin_md est requis.")
+        return self
+
+
+@router.post("/labo/segmentation/estimation")
+def estimer_segmentation_document(req: EstimationSegmentationRequest) -> dict:
+    """
+    Lecture seule et rapide (AUCUN appel Ollama) : longueur du document et
+    nombre de chapitres suggéré, pour préremplir « Chapitres visés » avant de
+    lancer la vraie segmentation — plutôt que de faire deviner un nombre à
+    l'utilisateur à l'aveugle.
+    """
+    chemin = resoudre_source(req.chemin_pdf, req.chemin_md)
+
+    from app.services.segmentation import estimer_segmentation
+
+    return estimer_segmentation(chemin, req.extracteur_pdf)
+
+
+class SegmentationRequest(BaseModel):
+    chemin_pdf: str | None = None
+    chemin_md: str | None = None
+    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    modele_ollama: str = "llama3.1"
+    cible_max_chapitres: int = 8
+
+    @model_validator(mode="after")
+    def valider_source(self):
+        if not self.chemin_pdf and not self.chemin_md:
+            raise ValueError("chemin_pdf ou chemin_md est requis.")
+        return self
+
+
+@router.post("/labo/segmentation")
+def tester_segmentation(req: SegmentationRequest) -> dict:
+    """
+    Prototype (Laboratoire) : propose une segmentation en chapitres virtuels
+    pour un document SANS structure (transcription brute — aucun signet PDF,
+    aucun titre Markdown), via deux passes Ollama (candidats par fenêtre
+    glissante, puis consolidation). Lecture seule — ne modifie aucun fichier,
+    n'insère aucun marqueur.
+    """
+    chemin = resoudre_source(req.chemin_pdf, req.chemin_md)
+
+    from app.services.segmentation import SegmentationEchec, segmenter_document
+
+    try:
+        return segmenter_document(
+            chemin,
+            modele=req.modele_ollama,
+            extracteur=req.extracteur_pdf,
+            cible_max=req.cible_max_chapitres,
+        )
+    except SegmentationEchec as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+class GenererSegmenteRequest(BaseModel):
+    chemin_pdf: str | None = None
+    chemin_md: str | None = None
+    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    chapitres: list[dict]
+
+    @model_validator(mode="after")
+    def valider_source(self):
+        if not self.chemin_pdf and not self.chemin_md:
+            raise ValueError("chemin_pdf ou chemin_md est requis.")
+        if not self.chapitres:
+            raise ValueError("chapitres est requis — le résultat d'un test de /labo/segmentation.")
+        return self
+
+
+@router.post("/labo/segmentation/generer")
+def generer_document_segmente(req: GenererSegmenteRequest) -> dict:
+    """
+    Écrit un `.md` avec les chapitres consolidés insérés en titres Markdown, à
+    partir d'un résultat DÉJÀ calculé par /labo/segmentation — pas de nouvel
+    appel Ollama, on ne fait qu'insérer ce que l'utilisateur a déjà sous les
+    yeux. Le fichier produit est un document Markdown ordinaire, exploitable
+    partout ailleurs dans l'app (analyse, traduction) sans mécanisme séparé.
+    """
+    chemin = resoudre_source(req.chemin_pdf, req.chemin_md)
+
+    from app.services.segmentation import generer_fichier_segmente
+
+    return generer_fichier_segmente(chemin, req.extracteur_pdf, req.chapitres)

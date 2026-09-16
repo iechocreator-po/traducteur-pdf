@@ -314,6 +314,40 @@
       </div>
     </section>
 
+    <section class="carte" id="carte-segmentation">
+      <h2>Segmentation automatique (prototype)</h2>
+      <p class="aide">
+        Pour un document SANS structure (transcription brute — aucun signet PDF,
+        aucun titre Markdown, donc « 1 chapitre » implicite qui couvre tout le
+        document) : propose des chapitres virtuels via deux passes Ollama
+        (candidats détectés par fenêtre glissante, puis consolidés en un nombre
+        raisonnable de vrais changements de sujet). Lecture seule — rien n'est
+        écrit dans le fichier, aucun marqueur inséré.
+      </p>
+      <div class="ligne-ajout">
+        <input type="text" id="segmentation-chemin" placeholder="/Users/.../document.md ou .pdf">
+        <input type="file" id="segmentation-fichier" accept=".pdf,.md,.markdown" hidden>
+        <button id="bouton-segmentation-parcourir" class="bouton-secondaire">📂 Parcourir…</button>
+      </div>
+      <p id="segmentation-upload-statut" class="aide"></p>
+      <div class="grille-2">
+        <div>
+          <label for="segmentation-modele">Modèle Ollama :</label>
+          <select id="segmentation-modele"></select>
+          <p id="segmentation-modele-aide" class="aide"></p>
+        </div>
+        <div>
+          <label for="segmentation-cible">Chapitres visés (max) :</label>
+          <input type="number" id="segmentation-cible" value="8" min="2" max="20">
+          <p id="segmentation-cible-aide" class="aide">Estimé automatiquement une fois un fichier choisi.</p>
+        </div>
+      </div>
+      <button id="bouton-segmenter" class="bouton-secondaire">🧩 Tester la segmentation</button>
+      <div id="segmentation-resultat" class="outil-resultat"></div>
+      <button id="bouton-segmentation-generer" class="bouton-secondaire" hidden>💾 Générer le .md avec ces chapitres</button>
+      <div id="segmentation-generer-resultat" class="outil-resultat"></div>
+    </section>
+
     <section class="carte" id="carte-voix">
       <h2>Voix clonées</h2>
       <p class="aide">Capture ta voix au micro pour créer une voix TTS personnalisée, sélectionnable dans « Lecture audio » ci-dessus.</p>
@@ -372,9 +406,9 @@
     </section>
   </main>
 
-  <script src="js/commun.js?v=5"></script>
+  <script src="js/commun.js?v=6"></script>
   <script src="js/module-import.js?v=10"></script>
   <script src="js/module-bibliotheque.js?v=9"></script>
-  <script src="js/module-laboratoire.js?v=6"></script>
+  <script src="js/module-laboratoire.js?v=9"></script>
 </body>
 </html>

@@ -237,6 +237,184 @@ $("bouton-reprendre").addEventListener("click", async () => {
   }
 });
 
+// ── Segmentation automatique (prototype) ─────────────────────────────────────
+// Deux passes Ollama, séquentielles, sur un document sans structure — peut
+// prendre plusieurs minutes (une fenêtre de 12k caractères par appel).
+// Chaque appel backend est maintenant borné à 90s SANS retry (voir
+// SEGMENTATION_TIMEOUT_SECONDES, segmentation.py) : ce délai côté frontend
+// doit rester au-dessus du pire cas (fenêtres + 1 consolidation), pas
+// couvrir une attente potentiellement illimitée comme avant.
+const API_TIMEOUT_SEGMENTATION_MS = 15 * 60 * 1000;
+
+function _echapperHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function _rendreListeSegments(titre, segments, avecCitation) {
+  if (!segments.length) return `<p class="aide">${titre} : aucun.</p>`;
+  const items = segments.map((s, i) => `
+    <li>
+      <strong>${i + 1}. ${_echapperHtml(s.titre)}</strong>
+      <span class="aide"> — caractère ${s.position.toLocaleString()}</span>
+      ${avecCitation ? `<br><span class="aide">« ${_echapperHtml(s.citation)} »</span>` : ""}
+    </li>`).join("");
+  return `<p><strong>${titre} (${segments.length})</strong></p><ul class="liste-segmentation" style="list-style:none;padding-left:0;">${items}</ul>`;
+}
+
+// Même mécanisme que « Nouveau document » (js/module-import.js) : le
+// navigateur ne révèle jamais le chemin disque d'un fichier choisi via
+// <input type="file"> — on envoie ses octets à /api/upload, qui écrit le
+// fichier dans backend/uploads/<hash>/ et retourne le chemin absolu réel.
+$("bouton-segmentation-parcourir").addEventListener("click", () => $("segmentation-fichier").click());
+
+$("segmentation-fichier").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = ""; // permet de re-choisir le même fichier une 2e fois
+  if (!file) return;
+  const statut = $("segmentation-upload-statut");
+  statut.textContent = `⏳ Envoi de ${file.name}…`;
+  const form = new FormData();
+  form.append("fichier", file);
+  try {
+    const rep = await fetch(`${API_BASE}/upload`, { method: "POST", body: form });
+    const data = await rep.json().catch(() => ({}));
+    if (!rep.ok) throw new Error(data.detail || `Erreur HTTP ${rep.status}`);
+    $("segmentation-chemin").value = data.chemin;
+    statut.textContent = `✅ ${file.name} envoyé.`;
+    setTimeout(() => { statut.textContent = ""; }, 4000);
+    estimerCibleSegmentation(data.chemin);
+  } catch (err) {
+    statut.textContent = `❌ ${file.name} : ${err.message}`;
+  }
+});
+
+// Chemin saisi/collé à la main (mode avancé) : même estimation, déclenchée à
+// la sortie du champ plutôt qu'à chaque frappe.
+$("segmentation-chemin").addEventListener("change", () => {
+  const chemin = $("segmentation-chemin").value.trim();
+  if (chemin) estimerCibleSegmentation(chemin);
+});
+
+// ── T2 (15/9/2026) : « Chapitres visés » n'est plus un nombre à deviner à
+// l'aveugle — une estimation RAPIDE (aucun appel Ollama, seulement la
+// longueur du texte) préremplit le champ dès qu'un fichier est choisi.
+// Explicitement une approximation, pas une analyse de contenu — voir
+// segmentation.py, SEGMENTATION_CARACTERES_PAR_CHAPITRE_ESTIME.
+async function estimerCibleSegmentation(chemin) {
+  const aide = $("segmentation-cible-aide");
+  if (aide) aide.textContent = "⏳ Estimation…";
+  try {
+    const corps = corpsSource(chemin, { extracteur_pdf: $("extracteur-pdf")?.value || "pymupdf4llm" });
+    const d = await apiPost("/labo/segmentation/estimation", corps, API_TIMEOUT_LONG_MS);
+    $("segmentation-cible").value = d.cible_suggeree;
+    if (aide) {
+      aide.textContent = `💡 ${d.cible_suggeree} suggéré pour ${d.nb_caracteres.toLocaleString()} caractères (estimation par longueur, pas une analyse de contenu — ajuste librement).`;
+    }
+  } catch (e) {
+    if (aide) aide.textContent = `❌ Estimation impossible : ${e.message}`;
+  }
+}
+
+// ── Recommandation de moteur — MESURÉE, pas supposée (deux passages réels sur
+// le même document, 15/9/2026, voir CLAUDE.md du produit section
+// « Comparaison qwen2.5 vs llama3.1 pour la segmentation ») :
+// qwen2.5:latest est ~2x plus rapide (11-25s contre 44-56s) mais détecte
+// nettement MOINS de candidats (5-6 contre 19-37) et laisse de larges pans du
+// document (début, fin) sans aucun chapitre — llama3.1 est donc préféré ici,
+// à l'inverse de sa rapidité qui aurait pu le faire choisir sans vérifier.
+const SEGMENTATION_MODELE_RECOMMANDE = "llama3.1:latest";
+// T1 (15/9/2026) : le sélecteur indique vitesse/couverture pour les deux
+// moteurs déjà mesurés (voir tableau CLAUDE.md) — même patron que le select
+// TTS (js/module-laboratoire.js, chargerMoteursTts) qui annote déjà ses
+// options plutôt que de laisser un nom de modèle nu. Match sur le nom de
+// base (avant le ':tag') : un futur modèle non mesuré reste affiché tel quel,
+// jamais une caractérisation inventée.
+const SEGMENTATION_MODELE_INFO = {
+  "llama3.1": "plus lent, couverture complète — recommandé",
+  "qwen2.5": "rapide, couverture partielle",
+};
+document.addEventListener("modeles-charges", (e) => {
+  const select = $("segmentation-modele");
+  const aide = $("segmentation-modele-aide");
+  if (!select) return;
+  for (const opt of select.options) {
+    const base = opt.value.split(":")[0];
+    if (SEGMENTATION_MODELE_INFO[base]) {
+      opt.textContent = `${opt.value} — ${SEGMENTATION_MODELE_INFO[base]}`;
+    }
+  }
+  if (e.detail.modeles.includes(SEGMENTATION_MODELE_RECOMMANDE)) {
+    select.value = SEGMENTATION_MODELE_RECOMMANDE;
+  }
+  if (aide) {
+    aide.textContent = "💡 llama3.1 recommandé pour cette tâche — plus lent que qwen2.5, mais couvre tout le document (qwen2.5 en a manqué de larges pans en test réel). Voir CLAUDE.md.";
+  }
+});
+
+// Résultat du dernier test réussi, pour « Générer le .md » — pas de nouvel
+// appel Ollama, on insère juste ce que l'utilisateur a déjà sous les yeux.
+let dernierResultatSegmentation = null;
+
+$("bouton-segmenter").addEventListener("click", async () => {
+  const chemin = $("segmentation-chemin").value.trim();
+  if (!chemin) { alert("Indique d'abord le chemin du fichier (.md ou .pdf), ou utilise Parcourir…"); return; }
+  const modele = $("segmentation-modele").value || SEGMENTATION_MODELE_RECOMMANDE;
+  const cible = parseInt($("segmentation-cible").value, 10) || 8;
+
+  const zone = $("segmentation-resultat");
+  const btn = $("bouton-segmenter");
+  btn.disabled = true;
+  btn.textContent = "⏳ Segmentation en cours (peut prendre plusieurs minutes)…";
+  zone.innerHTML = "<em>Détection des candidats, fenêtre par fenêtre…</em>";
+  $("bouton-segmentation-generer").hidden = true;
+  $("segmentation-generer-resultat").innerHTML = "";
+  dernierResultatSegmentation = null;
+
+  try {
+    const corps = corpsSource(chemin, { modele_ollama: modele, cible_max_chapitres: cible });
+    const d = await apiPost("/labo/segmentation", corps, API_TIMEOUT_SEGMENTATION_MS);
+
+    let html = `<p class="aide">${d.nb_caracteres.toLocaleString()} caractères, ${d.nb_fenetres} fenêtre(s) analysée(s), ${d.nb_candidats_bruts} candidat(s) brut(s).</p>`;
+    if (d.consolidation_repli) {
+      html += `<p class="aide">⚠ La consolidation sémantique n'a rien renvoyé d'exploitable — repli sur les ${cible} premiers candidats dans l'ordre chronologique (pas une sélection par importance).</p>`;
+    }
+    html += _rendreListeSegments("Chapitres proposés", d.chapitres, true);
+    zone.innerHTML = html;
+
+    if (d.chapitres.length) {
+      dernierResultatSegmentation = { chemin, chapitres: d.chapitres };
+      $("bouton-segmentation-generer").hidden = false;
+    }
+  } catch (e) {
+    zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🧩 Tester la segmentation";
+  }
+});
+
+$("bouton-segmentation-generer").addEventListener("click", async () => {
+  if (!dernierResultatSegmentation) return;
+  const { chemin, chapitres } = dernierResultatSegmentation;
+  const zone = $("segmentation-generer-resultat");
+  const btn = $("bouton-segmentation-generer");
+  btn.disabled = true;
+  btn.textContent = "⏳ Génération…";
+  zone.innerHTML = "";
+  try {
+    const corps = corpsSource(chemin, { chapitres });
+    const d = await apiPost("/labo/segmentation/generer", corps, API_TIMEOUT_LONG_MS);
+    zone.innerHTML = `<p>✅ Fichier généré — ${d.nb_caracteres.toLocaleString()} caractères<br>Fichier : <code>${d.chemin_sortie}</code></p>`;
+  } catch (e) {
+    zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "💾 Générer le .md avec ces chapitres";
+  }
+});
+
 // ── Voix clonées : capture micro → clonage OpenVoice ─────────────────────────
 // (fonction chargerVoixClonees globale : appelée par reconnecter() dans commun.js)
 

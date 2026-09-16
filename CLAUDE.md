@@ -1133,6 +1133,61 @@ contournement n'est PAS encore ajouté à `.claude/launch.json` (JP a choisi un
 correctif ponctuel, pas permanent, le 2/9/2026) — si le crash revient, ajouter
 `--loop asyncio` aux `runtimeArgs` de la config `traducteur-backend`.
 
+## Segmentation automatique (prototype Laboratoire) — comparaison qwen2.5/llama3.1 (15/9/2026)
+
+Contexte : un document SANS structure (transcription brute — aucun signet PDF,
+aucun titre Markdown) ressort de l'extraction comme **un seul chapitre
+implicite** couvrant tout le texte (`_extraire_chapitres`, `pdf_extractor.py`),
+ce qui rend impossible tout résumé ou toute segmentation par chapitre. Un
+prototype d'inspection (`backend/app/services/segmentation.py`, route
+`POST /api/labo/segmentation`, carte « Segmentation automatique (prototype) »
+dans l'onglet Laboratoire) propose des chapitres virtuels via deux passes
+Ollama — détection de candidats par fenêtre glissante (12 000 caractères),
+puis consolidation (réduit aux `cible_max` vrais changements de sujet et
+reformule les titres génériques). **Lecture seule** : aucun fichier modifié,
+aucun marqueur inséré — ce n'est pas encore branché sur le pipeline de
+traduction réel.
+
+**Le choix du modèle Ollama pour cette tâche a été mesuré, pas supposé** —
+deux runs réels sur le même PDF (`S. Pinker 14 septembre.pdf`, conférence de
+73 minutes, 60 126 caractères) :
+
+| | llama3.1 | qwen2.5 |
+|---|---|---|
+| Candidats bruts détectés | 19 à 37 | 5 à 6 |
+| Couverture du document | début à fin | larges pans manqués (ex. rien avant le caractère 16 900 sur un run) |
+| Temps total (6 fenêtres + consolidation) | 44 à 56 s | 11 à 25 s |
+
+**qwen2.5 est ~2× plus rapide mais nettement moins bon pour cette tâche
+précise** : il détecte beaucoup moins de changements de sujet et laisse de
+larges portions du document sans aucun chapitre proposé — un défaut plus
+grave que sa lenteur pour un outil censé justement combler l'absence de
+structure. **`llama3.1:latest` est donc recommandé et présélectionné par
+défaut** dans le sélecteur de la carte (`SEGMENTATION_MODELE_RECOMMANDE`,
+`js/module-laboratoire.js`) — à l'inverse de ce qu'aurait suggéré sa seule
+vitesse, sans le test réel. Les deux moteurs restent sélectionnables (menu
+peuplé dynamiquement par `GET /api/modeles`, même liste que le sélecteur de
+traduction de « Nouveau document » — un seul appel API partagé,
+`chargerModeles()` dans `commun.js`) : rien n'empêche de rebasculer sur
+qwen2.5 pour un document où la vitesse compte plus que la couverture.
+
+⚠️ **Ce classement est propre à la tâche de segmentation** (extraction
+structurée de plusieurs candidats par fenêtre, JSON strict) — il ne dit rien
+de la qualité comparée des deux modèles pour la traduction elle-même, qui
+reste un choix séparé (feature bilbao 338, « Plusieurs modèles Ollama
+cohabitent »).
+
+**Incident rencontré et corrigé en cours de route** : un premier test a fait
+planter le backend plusieurs minutes après un client (`curl`) tué côté
+utilisateur — la requête a continué de tourner côté serveur, retombée dans le
+budget de retry de 30 minutes d'`appeler_ollama()` (`translator.py`), conçu
+pour un job de traduction en arrière-plan, pas pour cet appel synchrone où un
+humain attend dans le navigateur. Corrigé en donnant à ce prototype son
+propre appel Ollama **sans retry**, borné à 90 secondes
+(`_appeler_ollama_labo`, `segmentation.py`) — un échec ou une lenteur remonte
+tout de suite une erreur 503 claire plutôt que de faire grimper l'attente en
+silence.
+
 ## Contraintes d'interface à ne pas casser
 
 - **La barre supérieure doit rester sur UNE rangée.** Elle est `sticky` et la
