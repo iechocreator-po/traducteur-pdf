@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/components.css?v=1">
   <link rel="stylesheet" href="css/theme-toledo.css?v=1">
-  <link rel="stylesheet" href="css/style.css?v=15">
+  <link rel="stylesheet" href="css/style.css?v=16">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
     (function () {
@@ -29,6 +29,7 @@
       <button type="button" class="onglet-module" data-module="import" role="tab">Nouveau document</button>
       <button type="button" class="onglet-module" data-module="bibliotheque" role="tab">Bibliothèque</button>
       <button type="button" class="onglet-module" data-module="laboratoire" role="tab" data-avance hidden>Laboratoire</button>
+      <button type="button" class="onglet-module" data-module="chronique" role="tab">Chronique</button>
     </nav>
     <div class="barre-espace"></div>
     <div class="statuts-mini">
@@ -289,6 +290,62 @@
     </div>
   </main>
 
+  <!-- ══ Module D : Chronique ══════════════════════════════════════════════
+       Historique de ce que chaque traitement (traduction, fiche d'étude) a RÉELLEMENT coûté :
+       taille du texte, modèle, jetons, durées. Sert aussi à estimer les durées futures.
+       Données : GET /api/stats/traitements (services/stats.py). -->
+  <main id="module-chronique" class="module module-centre" hidden>
+    <div class="labo-entete">
+      <h1>Chronique</h1>
+      <p class="aide">Ce que chaque traduction et chaque fiche d'étude a réellement coûté : taille du texte, modèle, jetons, durée. De quoi estimer le temps des prochains traitements.</p>
+    </div>
+
+    <section class="ds-card carte" id="chronique-vue">
+      <h2>Vue d'ensemble</h2>
+      <div class="chronique-metriques" id="chronique-metriques"></div>
+    </section>
+
+    <section class="ds-card carte" id="chronique-estimateur">
+      <h2>Estimer une durée</h2>
+      <p class="aide">D'après la vitesse médiane du modèle choisi sur vos traitements passés (cache exclu). Le chargement à froid du modèle s'ajoute au premier appel.</p>
+      <div class="chronique-formulaire">
+        <div>
+          <label for="chronique-modele">Modèle</label>
+          <select class="ds-select" id="chronique-modele"></select>
+        </div>
+        <div>
+          <label for="chronique-taille">Taille du texte</label>
+          <input class="ds-input" type="number" id="chronique-taille" min="1" placeholder="ex. 50000">
+        </div>
+        <div>
+          <label for="chronique-unite">Unité</label>
+          <select class="ds-select" id="chronique-unite">
+            <option value="caracteres">caractères</option>
+            <option value="mots">mots</option>
+          </select>
+        </div>
+      </div>
+      <button type="button" id="chronique-estimer" class="ds-btn ds-btn--primary">Estimer</button>
+      <div id="chronique-estimation" class="outil-resultat"></div>
+    </section>
+
+    <section class="ds-card carte" id="chronique-modeles">
+      <h2>Vitesse par modèle</h2>
+      <div class="chronique-tableau"><table class="ds-table" id="chronique-table-modeles"></table></div>
+    </section>
+
+    <section class="ds-card carte" id="chronique-historique">
+      <h2>Historique</h2>
+      <div class="chronique-tableau"><table class="ds-table" id="chronique-table-runs"></table></div>
+      <p class="aide" id="chronique-vide" hidden>Aucun traitement enregistré pour l'instant. Les prochaines traductions et fiches d'étude apparaîtront ici.</p>
+      <div class="ligne-ajout">
+        <button type="button" id="chronique-reconstituer" class="ds-btn ds-btn--sm">Reconstituer depuis les traductions existantes</button>
+      </div>
+      <p class="aide" id="chronique-reconstituer-statut"></p>
+      <p class="aide">Une ligne reconstituée (marquée « reconstitué ») vient du .state.json d'un document déjà traduit : sa durée et ses mots sont connus, mais ni ses jetons ni son temps de calcul. Elle ne sert à estimer qu'à défaut de mesures réelles.</p>
+    </section>
+  </main>
+
   <!-- ══ Module C : Laboratoire ════════════════════════════════════════════ -->
   <main id="module-laboratoire" class="module module-centre" hidden>
     <div class="labo-entete">
@@ -529,10 +586,11 @@
     </div>
   </main>
 
-  <script src="js/commun.js?v=8"></script>
+  <script src="js/commun.js?v=9"></script>
   <script src="js/module-import.js?v=12"></script>
   <script src="js/module-bibliotheque.js?v=10"></script>
   <script src="js/module-laboratoire.js?v=11"></script>
+  <script src="js/module-chronique.js?v=1"></script>
   <script src="js/labo-scan-colonnes.js?v=5"></script>
   <script src="js/ui-ids.js?v=1"></script>
   <script src="js/reglages.js?v=3"></script>

@@ -737,6 +737,51 @@ def telecharger_audio(chemin_wav: str):
     return FileResponse(chemin_wav, media_type="audio/wav", filename=os.path.basename(chemin_wav))
 
 
+# ── Historique des traitements (onglet « Chronique ») ────────────────────────
+
+_TYPES_STATS = ("traduction", "etude")
+
+
+@router.get("/stats/traitements")
+def historique_traitements(type: str | None = None, limite: int = 300) -> dict:
+    """
+    Historique des passages du moteur (traduction, fiche d'étude) : une ligne par passage avec
+    taille du texte, modèle, jetons, durées ; plus des agrégats par modèle (vitesse médiane).
+    Les colonnes « non mesurées » (lignes reconstituées) valent null, jamais 0.
+    """
+    if type is not None and type not in _TYPES_STATS:
+        raise HTTPException(status_code=422, detail=f"type inconnu : {type} (attendu : {', '.join(_TYPES_STATS)})")
+    from app.services import stats
+
+    return {
+        "runs": stats.lister_runs(type, limite),
+        "agregats": stats.agreger(stats.lister_runs(type, 5000)),
+    }
+
+
+@router.post("/stats/reconstituer")
+def reconstituer_historique() -> dict:
+    """Crée des lignes « reconstituées » pour les documents déjà traduits (durée et mots du
+    .state.json ; ni jetons ni durée de calcul). Idempotent."""
+    from app.services import stats
+
+    return {"ajoutes": stats.reconstituer_depuis_documents()}
+
+
+@router.get("/stats/estimation")
+def estimation_duree(modele: str, caracteres: int | None = None, mots: int | None = None,
+                     type: str = "traduction") -> dict:
+    """Durée estimée d'un traitement d'après ce que le même modèle a réellement coûté (fourchette
+    en quartiles). Répond « insuffisant » sous 3 échantillons plutôt qu'un chiffre trompeur."""
+    if type not in _TYPES_STATS:
+        raise HTTPException(status_code=422, detail=f"type inconnu : {type}")
+    if not caracteres and not mots:
+        raise HTTPException(status_code=422, detail="caracteres ou mots est requis.")
+    from app.services import stats
+
+    return stats.estimer(modele, caracteres=caracteres, mots=mots, type_=type)
+
+
 # ── Scan multi-colonnes (Laboratoire) ────────────────────────────────────────
 
 class ScanColonnesRequest(BaseModel):

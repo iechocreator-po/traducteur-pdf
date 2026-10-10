@@ -96,6 +96,46 @@ CREATE TABLE IF NOT EXISTS chapitres (
 
 CREATE INDEX IF NOT EXISTS idx_chapitres_ordre
     ON chapitres (chemin_sortie, ordre);
+
+-- Historique des traitements (10/10/2026) : UNE LIGNE PAR PASSAGE du moteur (un document mis en
+-- pause puis repris en produit deux), jamais mise à jour après coup — c'est un journal. Sert à
+-- estimer les durées futures (services/stats.py). `reconstitue = 1` : ligne recréée à partir des
+-- anciens .state.json, donc sans jetons ni durée de calcul (NULL, jamais 0 : « non mesuré »).
+CREATE TABLE IF NOT EXISTS stats_runs (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    type                  TEXT NOT NULL,          -- 'traduction' | 'etude'
+    job_id                TEXT,
+    nom                   TEXT,
+    chemin_source         TEXT,
+    chemin_sortie         TEXT,
+    modele                TEXT,
+    langue_source         TEXT,
+    langue_cible          TEXT,
+    strategie             TEXT,                   -- fiches d'étude seulement
+    demarre_a             REAL NOT NULL,
+    duree_secondes        REAL,                   -- durée murale de CE passage
+    statut                TEXT,                   -- termine | erreur | en_pause | annule
+    chapitres             INTEGER,
+    morceaux_total        INTEGER,
+    morceaux_traduits     INTEGER,
+    morceaux_cache        INTEGER,
+    caracteres_traites    INTEGER,                -- texte source envoyé au modèle (hors cache)
+    caracteres_cache      INTEGER,
+    caracteres_sortie     INTEGER,
+    mots                  INTEGER,
+    appels                INTEGER,
+    jetons_entree         INTEGER,
+    jetons_sortie         INTEGER,
+    duree_generation_s    REAL,                   -- temps de calcul d'Ollama (eval_duration)
+    duree_chargement_s    REAL,                   -- chargement du modèle en mémoire
+    reponses_tronquees    INTEGER,                -- plafond num_predict atteint
+    nouvelles_tentatives  INTEGER,
+    avertissements        INTEGER,
+    erreurs               INTEGER,
+    reconstitue           INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_stats_runs_date ON stats_runs (demarre_a);
 """
 
 

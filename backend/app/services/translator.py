@@ -10,6 +10,7 @@ from typing import Callable
 
 import requests
 
+from app.services import metriques
 from app.config.settings import (
     OLLAMA_TIMEOUT,
     OLLAMA_NUM_CTX,
@@ -80,7 +81,9 @@ def appeler_ollama(
         try:
             reponse = requests.post(OLLAMA_URL, json=payload, timeout=timeout)
             reponse.raise_for_status()
-            return reponse.json()
+            data = reponse.json()
+            metriques.enregistrer_reponse(data)   # jetons et durées réels, pour l'historique (stats.py)
+            return data
         except requests.HTTPError as e:
             code = getattr(e.response, "status_code", None)
             if code is not None and 400 <= code < 500:

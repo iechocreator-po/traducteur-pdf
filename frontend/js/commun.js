@@ -135,7 +135,7 @@ async function apiGet(route, timeoutMs) {
 function activerModule(nom) {
   // Le Laboratoire n'existe qu'en mode avancé (restauration au démarrage incluse).
   if (nom === "laboratoire" && localStorage.getItem("modeAvance") !== "1") nom = "import";
-  for (const m of ["import", "bibliotheque", "laboratoire"]) {
+  for (const m of ["import", "bibliotheque", "laboratoire", "chronique"]) {
     $(`module-${m}`).hidden = m !== nom;
   }
   document.querySelectorAll(".modules-nav .onglet-module").forEach((b) => {

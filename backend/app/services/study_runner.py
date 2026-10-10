@@ -17,6 +17,7 @@ import time
 import uuid
 
 from app.config.settings import ETUDE_CONTEXTE_MAX, ETUDE_CONDENSE_CHUNK
+from app.services import metriques, stats
 from app.services.persistance import ecrire_texte_atomique, lire_json_tolerant
 from app.models.schemas import EtatJobEtude, FicheChapitre, StatutJob
 from app.services.etude import (
@@ -284,6 +285,11 @@ def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
     _journaliser(etat, "Démarrage de la fiche d'étude")
     _sauvegarder_etat(etat)
     temps_debut_session = time.time()
+    session_debut_stats = time.time()
+    compteurs = metriques.demarrer()   # jetons et durées réels de CE passage (stats.py)
+    caracteres_source = sum(
+        len(contenus.get(c.index, "")) for c in etat.chapitres if c.etape != "termine"
+    )
 
     def _fin_etape() -> None:
         etat.etapes_completees += 1
@@ -395,6 +401,9 @@ def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
         _journaliser(etat, f"Erreur fatale : {e}")
         _sauvegarder_etat(etat)
     finally:
+        # L'historique ne doit JAMAIS faire échouer un traitement : stats.py avale ses propres erreurs.
+        stats.enregistrer_etude(etat, compteurs, session_debut_stats, caracteres_source)
+        metriques.terminer()
         supprimer_job_registre(etat.job_id)
 
 

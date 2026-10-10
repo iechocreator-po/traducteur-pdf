@@ -1322,6 +1322,48 @@ composants du design system (pas de refonte de la navigation), **web + macOS**, 
   800 à **1100 px** ; `.onglet-module` et `.mode-avance` sont en `white-space: nowrap`. À re-mesurer si on
   ajoute encore un élément à la barre.
 
+## Plafond `num_predict` des fiches d'étude + Chronique (historique des traitements) (10/10/2026)
+
+**Plafonds de génération des fiches** (`config/settings.py`, appliqués dans `etude._envoyer`, point unique
+d'appel Ollama de `etude.py`). Suite directe de l'incident du 23/8 (boucle de répétition, 28 985 jetons).
+**Mesurés avant d'être fixés**, sur « Chapter 9 » (50 518 caractères), qwen2.5 et llama3.1, les deux
+stratégies, 5 générations complètes :
+
+| Appels | Maximum observé | Plafond | Marge |
+|---|---|---|---|
+| JSON : points, consolidation, questions | 717 jetons | `OLLAMA_NUM_PREDICT_ETUDE = 2048` | ≈ 2,9× |
+| Notes de condensation (texte libre) | 1 595 jetons (morceau le plus dense ; 331 à 670 ailleurs) | `OLLAMA_NUM_PREDICT_CONDENSATION = 4096` | ≈ 2,6× |
+
+⚠️ **`condenser_texte` appelait Ollama directement** : ni plafond, ni mesure, et en texte libre (pas de
+`format=json`) — donc le seul appel où une boucle ne se serait JAMAIS arrêtée d'elle-même. Les trois autres
+passaient déjà par `_appeler_ollama_json`. Tous passent maintenant par `_envoyer`. Une réponse coupée au plafond
+(`done_reason == "length"`) lève `ReponseTronquee`, jamais un JSON ou des notes tronqués rendus comme complets :
+`_generer_valide` retente une fois (une répétition est parfois un accident), puis `ReponseJsonInvalide` dit le
+plafond. `test_etude.py` vérifie que les plafonds restent ≥ 2× les maxima mesurés — **ne pas les baisser sans
+remesurer**. Une seule source (un livre) : si un document produit des réponses plus longues, remonter la marge.
+
+**Onglet D « Chronique »** (`js/module-chronique.js`, routes `GET /api/stats/traitements`,
+`GET /api/stats/estimation`, `POST /api/stats/reconstituer`) : l'historique de ce que chaque traitement a
+RÉELLEMENT coûté, et de quoi estimer les durées futures.
+- **Collecte** (`services/metriques.py`) : Ollama renvoie avec chaque réponse `prompt_eval_count`, `eval_count`,
+  `eval_duration`, `load_duration`, `done_reason` — jusqu'ici jetés. Un `ContextVar` posé au début du traitement
+  les accumule (le worker exécute un traitement par fil ; aucun paramètre à faire traverser trois couches).
+  Sans collecte active (preflight, analyse, tests) les `enregistrer_*` ne font rien.
+- **Journal** (`services/stats.py`, table `stats_runs` dans `toledo.db`) : **une ligne par PASSAGE** du moteur
+  (un document mis en pause puis repris en produit deux), append-only, traduction et fiche d'étude. Fichier,
+  texte envoyé au modèle (cache exclu), modèle, langues, jetons lus/générés, durée murale ET durée de calcul,
+  chargement du modèle, morceaux servis par le cache, plafonds atteints, nouvelles tentatives, avertissements.
+  **Il ne doit jamais faire échouer un traitement** : `stats.py` avale ses erreurs d'écriture.
+- **« Non mesuré » est NULL, jamais 0** (affiché « — »). `Reconstituer` recrée une ligne par document déjà
+  traduit à partir de son `.state.json` : durée et mots connus, ni jetons ni calcul ; marquée `reconstitue`.
+- **Estimation** : médiane des secondes par millier de caractères du MÊME modèle, fourchette en quartiles,
+  nombre d'échantillons ; **« insuffisant » sous 3 échantillons** plutôt qu'un chiffre trompeur. Les lignes
+  reconstituées ne servent qu'à défaut de mesures réelles, et l'estimation dit laquelle des deux bases elle
+  utilise. La durée n'inclut pas le chargement à froid du modèle (affiché à part).
+- **Pas encore branché** : l'ETA affiché pendant une traduction (`_maj_eta`) et l'estimation de l'import
+  ne lisent pas encore cet historique — l'estimateur n'existe que dans l'onglet. Pas de parité macOS non plus.
+- Les tests ne touchent pas à la vraie base : le magasin est isolé par `conftest.store_isole`.
+
 ## Contraintes d'interface à ne pas casser
 
 - **La barre supérieure doit rester sur UNE rangée.** Elle est `sticky` et la

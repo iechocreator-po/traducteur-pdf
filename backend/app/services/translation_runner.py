@@ -51,7 +51,7 @@ from app.services.translator import (
     OllamaIndisponible,
     AppelInterrompu,
 )
-from app.services import cache_traduction, glossaire, store
+from app.services import cache_traduction, glossaire, metriques, stats, store
 from app.services.persistance import ecrire_texte_atomique
 from app.services.job_manager import (
     sauvegarder_etat,
@@ -206,6 +206,7 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
     )
     if cle in cache:
         _journaliser(state, f"{etiquette} : reprise depuis le cache")
+        metriques.enregistrer_cache(len(texte))
         return cache[cle]
 
     interruption = _interruption_pour(state)
@@ -213,12 +214,14 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
         texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value,
         termes_a_conserver=termes, interruption=interruption,
     )
+    metriques.enregistrer_morceau(len(texte), len(traduit))
     ratio = len(traduit) / max(len(texte), 1)
     trop_court = ratio < RATIO_TRADUCTION_SUSPECT
     trop_long = ratio > RATIO_TRADUCTION_MAX
 
     if len(texte) >= CONTROLE_QUALITE_LONGUEUR_MIN and (trop_court or trop_long):
         _journaliser(state, f"{etiquette} : traduction suspecte (ratio {ratio:.2f}) — nouvelle tentative")
+        metriques.enregistrer_nouvelle_tentative()
         nouvelle = traduire_texte(
             texte, state.modele_ollama, state.langue_source.value, state.langue_cible.value,
             termes_a_conserver=termes, interruption=interruption,
@@ -578,6 +581,7 @@ def _executer_traduction(state: EtatJob, chapitres: list[dict], implicite: bool)
     sauvegarder_etat(state)
 
     session_debut = time.time()
+    compteurs = metriques.demarrer()   # jetons et durées réels de CE passage (stats.py)
     base_ecoule = state.temps_ecoule_secondes  # figé pendant la boucle (pas de O(n²))
     cache = cache_traduction.charger_cache(output_path)
     unites_faites = 0  # sous-morceaux comptabilisés (chapitres déjà parcourus ce run)
@@ -697,6 +701,9 @@ def _executer_traduction(state: EtatJob, chapitres: list[dict], implicite: bool)
         _journaliser(state, f"Erreur fatale : {e}")
         sauvegarder_etat(state)
     finally:
+        # L'historique ne doit JAMAIS faire échouer un traitement : stats.py avale ses propres erreurs.
+        stats.enregistrer_traduction(state, compteurs, session_debut, len(chapitres))
+        metriques.terminer()
         supprimer_job_registre(state.job_id)
 
 

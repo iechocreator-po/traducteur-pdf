@@ -1011,3 +1011,13 @@ code, pre, .reglages-main code { font-family: var(--font-mono); font-size: var(-
 button.bouton-lien, button.labo-onglet, button.reglages-tab-btn, button.onglet-module { font-size: var(--t-corps); font-weight: 600; }
 button.bouton-launcher { font-size: var(--t-corps); font-weight: 500; }
 .module-centre .ds-badge { font-size: var(--t-carte); }
+
+/* ── Chronique (onglet D) ──────────────────────────────────────────────────── */
+.chronique-metriques { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.chronique-formulaire { display: grid; grid-template-columns: 2fr 1.4fr 1fr; gap: 0 1rem; }
+.chronique-tableau { overflow-x: auto; margin-bottom: 0.8rem; }
+.chronique-tableau .ds-table th, .chronique-tableau .ds-table td { white-space: nowrap; font-size: var(--t-corps); }
+.chronique-tableau .ds-table td.nom { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.chronique-tableau .ds-table .is-num { text-align: right; font-variant-numeric: tabular-nums; }
+.chronique-nd { color: var(--text-3); }
+@media (max-width: 700px) { .chronique-formulaire { grid-template-columns: 1fr; } }
