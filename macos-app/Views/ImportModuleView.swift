@@ -253,7 +253,7 @@ struct ImportModuleView: View {
                 dropzone
                 if !vm.lot.isEmpty {
                     enTeteLot
-                    reglagesLot
+                    reglagesLot.repere("A1")
                     ForEach(vm.lot) { fichier in
                         ligneFichier(fichier)
                     }

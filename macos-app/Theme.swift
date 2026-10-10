@@ -37,7 +37,8 @@ extension Color {
 /// Tokens sémantiques du design system, exposés à SwiftUI.
 enum DS {
     // ---- Accent & statuts (valeur clair / valeur sombre) -------------------
-    static let accent = Color(light: 0x2a78d6, dark: 0x5b9be0)
+    // Vert d'eau de l'icône (frontend/css/theme-toledo.css) — surcharge locale de l'accent bleu du design system.
+    static let accent = Color(light: 0x0f766e, dark: 0x2dd4bf)
     static let green  = Color(light: 0x0f8a4c, dark: 0x3fbf7f)
     static let red    = Color(light: 0xcf3535, dark: 0xe57373)
     static let amber  = Color(light: 0x9a6a08, dark: 0xd9a94a)
