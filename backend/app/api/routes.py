@@ -737,6 +737,78 @@ def telecharger_audio(chemin_wav: str):
     return FileResponse(chemin_wav, media_type="audio/wav", filename=os.path.basename(chemin_wav))
 
 
+# ── Scan multi-colonnes (Laboratoire) ────────────────────────────────────────
+
+class ScanColonnesRequest(BaseModel):
+    chemin_pdf: str
+    page_debut: int | None = Field(default=None, ge=1)
+    page_fin: int | None = Field(default=None, ge=1)
+    langue_ocr: str = "eng"
+    # "auto" : double page si la page est nettement plus large que haute ; "oui"/"non" imposent.
+    double_page: str = Field(default="auto", pattern="^(auto|oui|non)$")
+
+
+def _double_page(valeur: str) -> bool | None:
+    return {"auto": None, "oui": True, "non": False}[valeur]
+
+
+@router.post("/labo/scan-colonnes")
+def lancer_scan_colonnes(req: ScanColonnesRequest) -> dict:
+    """
+    Enfile le nettoyage d'un PDF scanné à colonnes : l'OCR est refait région par
+    région (colonnes, encadrés, titres numérotés) au lieu de reprendre la couche
+    texte du scan. Écrit `<nom>_scan_colonnes.md` à côté du PDF ; les pages déjà
+    traitées d'un passage précédent sont reprises, pas refaites. SANS LLM.
+    """
+    chemin = valider_chemin_source(req.chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.scan_colonnes import ScanColonnesEchec, demarrer_scan
+
+    try:
+        etat = demarrer_scan(chemin, req.page_debut, req.page_fin, req.langue_ocr,
+                             double_page=_double_page(req.double_page))
+    except ScanColonnesEchec as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {k: etat[k] for k in ("job_id", "chemin_sortie", "pages_total", "page_debut", "page_fin")}
+
+
+@router.get("/labo/scan-colonnes/statut")
+def statut_scan_colonnes(chemin_pdf: str) -> dict | None:
+    """État du dernier nettoyage de ce PDF (None si aucun)."""
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.scan_colonnes import lire_etat
+
+    return lire_etat(chemin)
+
+
+@router.get("/labo/scan-colonnes/apercu")
+def apercu_scan_colonnes(chemin_pdf: str, page: int = 1, double_page: str = "auto"):
+    """
+    PNG d'UNE page avec les régions détectées (gouttière, colonnes, encadrés,
+    candidats-titres), sans OCR : à regarder AVANT de lancer un long traitement.
+    """
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.scan_colonnes import ScanColonnesEchec, apercu_pdf
+
+    try:
+        png = apercu_pdf(chemin, page, _double_page(double_page) if double_page in ("auto", "oui", "non") else None)
+    except ScanColonnesEchec as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return Response(content=png, media_type="image/png")
+
+
+@router.get("/labo/scan-colonnes/info")
+def info_scan_colonnes(chemin_pdf: str) -> dict:
+    """Nombre de pages + disponibilité de Tesseract et de ses langues (lecture seule, rapide)."""
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.scan_colonnes import ScanColonnesEchec, langues_tesseract, nombre_de_pages, tesseract_disponible
+
+    try:
+        pages = nombre_de_pages(chemin)
+    except ScanColonnesEchec as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"pages": pages, "tesseract": tesseract_disponible(), "langues": langues_tesseract()}
+
+
 # ── Voix clonées (capture micro → clonage OpenVoice) ─────────────────────────
 
 DUREE_MIN_ECHANTILLON_SECONDES = 3.0

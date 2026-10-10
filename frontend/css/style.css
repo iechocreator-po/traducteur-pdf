@@ -946,3 +946,27 @@ html.avance .biblio-lecture {
   /* Colonnes fixes en dessous de 900px : rien à redimensionner. */
   .biblio-resizer { display: none; }
 }
+
+/* ── Laboratoire : sous-onglets + onglet « Scan multi-colonnes » ───────────── */
+.labo-onglets { display: flex; gap: 4px; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.labo-onglet {
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 0.88rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.labo-onglet:hover { color: var(--text); }
+.labo-onglet.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+.labo-panneau[hidden] { display: none; }
+.scan-apercu { max-width: 100%; margin-top: 0.8rem; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.scan-apercu[hidden] { display: none; }
+.scan-legende { font-weight: 600; }
+.scan-vert { color: var(--green); }
+.scan-bleu { color: var(--accent); }
+.scan-orange { color: var(--amber); }
+.scan-rouge { color: var(--red); }

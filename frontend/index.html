@@ -5,7 +5,7 @@
   <title>toledo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/style.css?v=6">
+  <link rel="stylesheet" href="css/style.css?v=7">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
     (function () {
@@ -245,6 +245,13 @@
       <p class="aide">Configuration technique — ces réglages s'appliquent en arrière-plan, sans encombrer le flux principal.</p>
     </div>
 
+    <div class="labo-onglets" role="tablist" aria-label="Sections du Laboratoire">
+      <button type="button" class="labo-onglet is-active" role="tab" data-labo-panneau="outils" aria-selected="true">Outils</button>
+      <button type="button" class="labo-onglet" role="tab" data-labo-panneau="scan" id="onglet-labo-scan" aria-selected="false" hidden>Scan multi-colonnes</button>
+    </div>
+
+    <div id="labo-panneau-outils" class="labo-panneau" role="tabpanel">
+
     <section class="carte">
       <h2>État du système</h2>
       <div class="parametre-ligne">
@@ -404,11 +411,77 @@
          target="_blank"
          rel="noopener">📐 Messagerie, durabilité, architecture cible</a>
     </section>
+    </div>
+
+    <!-- Onglet « Scan multi-colonnes » (11/10/2026) : nettoie un PDF scanné dont la couche
+         texte OCR est mal ordonnée (colonnes, double page). Sans LLM. Piloté par le flag
+         extraction_scan_colonnes. -->
+    <div id="labo-panneau-scan" class="labo-panneau" role="tabpanel" hidden>
+      <section class="carte" id="carte-scan-colonnes">
+        <h2>Scan multi-colonnes</h2>
+        <p class="aide">
+          Pour un PDF <strong>scanné</strong> à plusieurs colonnes (livre, double page) dont le
+          texte sort mélangé ou illisible : la couche texte du scan est ignorée et l'OCR
+          (Tesseract) est refait colonne par colonne, avec les encadrés en citations et les
+          titres numérotés en titres Markdown. Aucun LLM : tout est local et déterministe.
+          Le résultat est un <code>.md</code> écrit à côté du PDF, utilisable ensuite comme
+          n'importe quel document (analyse, traduction).
+        </p>
+        <div class="ligne-ajout">
+          <input type="text" id="scan-chemin" placeholder="/Users/.../livre-scanné.pdf">
+          <input type="file" id="scan-fichier" accept=".pdf" hidden>
+          <button id="bouton-scan-parcourir" class="bouton-secondaire">📂 Parcourir…</button>
+        </div>
+        <p id="scan-upload-statut" class="aide"></p>
+        <p id="scan-info" class="aide"></p>
+
+        <div class="grille-2">
+          <div>
+            <label for="scan-page-debut">Page de départ :</label>
+            <input type="number" id="scan-page-debut" min="1" value="1">
+          </div>
+          <div>
+            <label for="scan-page-fin">Page de fin :</label>
+            <input type="number" id="scan-page-fin" min="1" placeholder="dernière">
+          </div>
+        </div>
+        <div class="grille-2">
+          <div>
+            <label for="scan-langue">Langue du livre (OCR) :</label>
+            <select id="scan-langue"></select>
+          </div>
+          <div>
+            <label for="scan-double-page">Mise en page :</label>
+            <select id="scan-double-page">
+              <option value="auto">Auto (large = double page)</option>
+              <option value="oui">Double page (2 pages par feuille)</option>
+              <option value="non">Page simple</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="ligne-ajout">
+          <button id="bouton-scan-apercu" class="bouton-secondaire">👁 Aperçu des régions (page de départ)</button>
+          <button id="bouton-scan-lancer" class="bouton-principal">🧹 Nettoyer le document</button>
+        </div>
+        <p class="aide">
+          L'aperçu est instantané et ne lance aucun OCR : <span class="scan-legende scan-vert">colonnes</span>,
+          <span class="scan-legende scan-bleu">encadrés</span>,
+          <span class="scan-legende scan-orange">candidats-titres</span> et gouttière
+          <span class="scan-legende scan-rouge">rouge</span>. Vérifie-le sur une page ou deux
+          <em>avant</em> de lancer tout le document. Une page déjà traitée n'est jamais refaite.
+        </p>
+        <img id="scan-apercu-image" class="scan-apercu" alt="Aperçu des régions détectées" hidden>
+        <div id="scan-progression" class="outil-resultat"></div>
+        <div id="scan-resultat" class="outil-resultat"></div>
+      </section>
+    </div>
   </main>
 
   <script src="js/commun.js?v=6"></script>
   <script src="js/module-import.js?v=10"></script>
   <script src="js/module-bibliotheque.js?v=9"></script>
   <script src="js/module-laboratoire.js?v=9"></script>
+  <script src="js/labo-scan-colonnes.js?v=2"></script>
 </body>
 </html>
