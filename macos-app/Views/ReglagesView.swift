@@ -100,8 +100,7 @@ struct ReglagesView: View {
                             Text(carte.titre)
                         }
                     }
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
+                    .toggleStyle(.switch)   // même style que « Mode avancé » et « Repères d'interface »
                 }
                 Button("Tout afficher") { cartesMasqueesCSV = "" }
                     .controlSize(.small)
