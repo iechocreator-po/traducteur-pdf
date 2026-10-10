@@ -105,7 +105,8 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   (analyse, conversion, reprise, journal d'erreurs) et **teasers** des fonctionnalités
   futures restantes (export PDF — flag `teaser_export_pdf`, capture d'intérêt via
   `POST /api/interet`, log local). **Le module entier n'est visible qu'en mode avancé**
-  (onglet + contenu masqués sinon).
+  (onglet + contenu masqués sinon). Le Laboratoire a deux sous-onglets : « Outils » et « Scan multi-colonnes » (voir la
+  section dédiée plus bas).
 
 ### Mode avancé et feature flags
 
@@ -1187,6 +1188,73 @@ propre appel Ollama **sans retry**, borné à 90 secondes
 (`_appeler_ollama_labo`, `segmentation.py`) — un échec ou une lenteur remonte
 tout de suite une erreur 503 claire plutôt que de faire grimper l'attente en
 silence.
+
+## Scan multi-colonnes — onglet du Laboratoire (11/10/2026, feature bilbao 407)
+
+Nettoie un PDF **scanné** à colonnes ou en double page dont la couche texte OCR est mal ordonnée
+(colonnes lues en travers, pied de page planté dans un paragraphe). Déclencheur : « Cycle I »
+(livre de jeu, double pages à 3 colonnes). Les extracteurs « texte » reprennent cette couche telle
+quelle ; ici elle est **ignorée** et Tesseract est relancé région par région. **Sans LLM**, par
+décision mesurée (voir plus bas). Commit `caef83f`.
+
+- **Où** : `services/scan_colonnes.py` (pipeline + job), 4 routes sous `/api/labo/scan-colonnes`
+  (`POST` lancer, `GET statut`, `GET apercu` PNG, `GET info`), onglet « Scan multi-colonnes » dans
+  le Laboratoire (`frontend/js/labo-scan-colonnes.js`, sous-onglets « Outils / Scan »). Flag
+  `extraction_scan_colonnes`, **on** par défaut — outil à part, déjà derrière le mode avancé.
+- **Pipeline** : page rendue à 200 dpi → gouttière (double page) → colonnes → segments texte /
+  encadré (fond blanc ≈ 255 contre papier ≈ 231) → titres numérotés repérés par la hauteur de leur
+  bande d'encre, **confirmés par l'OCR** → OCR par segment → Markdown (`## titre`, `> encadré`).
+  Icônes lues comme du bruit → `⟦icône⟧` ; « I » lu `|` → « I » ; numéros d'entrée espacés
+  (« 0 2 8 1 ») recollés. Sortie `<nom>_scan_colonnes.md` à côté du PDF.
+- **Job** : file unique du `job_manager` (jamais en même temps qu'une traduction), 3 pages en
+  parallèle, une page = une unité de reprise (`<nom>_scan_colonnes_pages/page-NNNN.json`, écriture
+  atomique). Une page en erreur → statut `erreur`, jamais `termine`.
+- **Aperçu** : `GET /apercu` dessine gouttière, colonnes, encadrés et candidats-titres **sans OCR** —
+  à regarder sur une ou deux pages avant de lancer un long traitement.
+
+Mesuré : échantillon de 3 pages → 20 titres sur 20, 17 s. Livre complet (61 pages) → 283 s, 0 page
+en erreur, ~161 000 mots, ~89,6 % de mots reconnus (test au dictionnaire : mesure l'orthographe, **pas**
+l'ordre des phrases ni les noms propres — rien n'a été relu page à page).
+
+⚠️ **Pièges mesurés, à ne pas rouvrir** :
+
+- **Ne jamais réparer un numéro de titre par « la séquence attendue ».** Première version : numéros
+  forcés à prev+1. Sur le livre complet, une partie des titres est numérotée **par plages** (« 3-4 »
+  lu « 34 ») et la règle abîmait des numéros corrects (« 95 → 1 », « 12 → 2 »). Désormais un
+  numéro n'est corrigé que si ses **deux voisins** le confirment (« 10, 1, 12 » → 11), et chaque
+  réparation est journalisée et affichée dans l'interface. L'échantillon de 3 pages cachait ce
+  défaut : **un test sur un extrait ne valide pas une heuristique de document.**
+- **Le bruit d'illustration lu par Tesseract ressemble à un titre** (« 00 SO ae a tery »).
+  Garde : confiance moyenne des mots ≥ 80 (`CONFIANCE_MIN_TITRE`) ; les vrais titres sont vers 90+,
+  le bruit sous 70.
+- **« Double page » ne se déduit pas du seul ratio largeur/hauteur.** Une page simple A4 en paysage
+  (3 colonnes) est prise pour une double page en mode Auto (trouvé en écrivant le test). D'où le
+  réglage explicite Auto / Double page / Page simple (route : `double_page` = `auto|oui|non`).
+- **Colonnes : ne voter que sur les bandes qui ressemblent à du texte** (≥ 2 gouttières nettes).
+  Mesurer sur la moitié basse échouait dès qu'une illustration s'y trouvait. Détection d'illustration
+  par luminosité : **essayée et retirée** — l'ombre de la reliure assombrit le papier et faisait
+  disparaître les titres.
+- **Le cache par page porte ses réglages** (langue, double page, `VERSION_ALGO`). Changer la logique
+  sans incrémenter `VERSION_ALGO` ressert des pages calculées par l'ancien code, en silence.
+- **Le backend tourne sans `--reload`** (voir plus haut) : après ce changement, relancer uvicorn,
+  sinon l'onglet affiche des erreurs 404.
+- Vérifier l'interface avec une **API isolée** (le seul routeur, sans lifespan) : importer
+  `app.main` lance `recuperer_tout()` et le planificateur, qui toucheraient aux registres d'un vrai
+  backend déjà en marche.
+
+**Pourquoi pas de LLM** : correction d'OCR par qwen2.5 testée sur tout le texte de l'échantillon →
+~+1 point de mots reconnus pour 4 min de calcul, avec des altérations de noms propres (Argo → Argos)
+et des corrections plausibles mais fausses (« low » devenu « toward » : le modèle ne voit pas
+l'image). Même avec un filtre par mot, le gain reste marginal. Si on y revient : glossaire du jeu
+pour protéger les noms propres, et signaler plutôt qu'appliquer.
+
+**Limites connues** : seuils réglés sur un livre à 3 colonnes ; sans gouttières détectées, la demi-page
+est lue en pleine largeur (6 pages sur 61, qualité non garantie) ; le texte posé sur une illustration
+(bandeau de titre) n'est pas lu ; seuls les titres « N Titre » sont reconnus — le livre complet en a 43,
+dont plusieurs imparfaits (étiquettes collées « …GE | Family », « Scroll », « Error ») ; icônes
+signalées mais **non identifiées** ; langues OCR limitées à celles de Tesseract (seul l'anglais est
+installé ici : `brew install tesseract-lang`). Le livre complet (`test_integre/Cycle I.pdf`, gitignoré)
+sert de test de non-régression manuel.
 
 ## Contraintes d'interface à ne pas casser
 
