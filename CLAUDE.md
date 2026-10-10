@@ -1189,7 +1189,7 @@ propre appel Ollama **sans retry**, borné à 90 secondes
 tout de suite une erreur 503 claire plutôt que de faire grimper l'attente en
 silence.
 
-## Scan multi-colonnes — onglet du Laboratoire (11/10/2026, feature bilbao 407)
+## Scan multi-colonnes — onglet du Laboratoire (10/10/2026, feature bilbao 407)
 
 Nettoie un PDF **scanné** à colonnes ou en double page dont la couche texte OCR est mal ordonnée
 (colonnes lues en travers, pied de page planté dans un paragraphe). Déclencheur : « Cycle I »

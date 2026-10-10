@@ -1,5 +1,5 @@
 """
-Nettoyage d'un PDF SCANNÉ à plusieurs colonnes (Laboratoire, 11/10/2026).
+Nettoyage d'un PDF SCANNÉ à plusieurs colonnes (Laboratoire, 10/10/2026).
 
 Problème : un livre scanné porte souvent une couche texte OCR faite sur la page
 entière — colonnes lues en travers, double page lue d'un bloc, pied de page

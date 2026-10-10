@@ -1,4 +1,4 @@
-// Laboratoire › onglet « Scan multi-colonnes » (11/10/2026).
+// Laboratoire › onglet « Scan multi-colonnes » (10/10/2026).
 // Nettoie un PDF scanné dont la couche texte OCR est mal ordonnée : l'OCR est refait
 // colonne par colonne côté backend (services/scan_colonnes.py). Aucun LLM.
 // Le traitement est un job de la file d'attente (comme la traduction) : on le suit
