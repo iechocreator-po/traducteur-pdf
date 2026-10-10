@@ -136,11 +136,23 @@ function rendreResultatScan(etat) {
     html += "<ul>" + etat.pages_en_erreur.slice(0, 10).map(p => `<li>Page ${p.page} : ${p.erreur}</li>`).join("") + "</ul>";
     if (etat.erreur) html += `<p class="erreur">${etat.erreur}</p>`;
   }
+  // Le .md n'est pas dans la Bibliothèque (rien n'est traduit) : on le propose en un clic comme
+  // source de « Nouveau document » (analyse, traduction). Écrit même si certaines pages ont échoué.
+  if (!etat.erreur) {
+    html += `<p><button id="bouton-scan-envoyer" class="bouton-principal">📥 Envoyer vers « Nouveau document »</button></p>`;
+  }
   if ((etat.reparations || []).length) {
     html += `<details><summary>${etat.reparations.length} réparation(s) automatique(s) à vérifier</summary><ul>` +
             etat.reparations.map(r => `<li>${r}</li>`).join("") + "</ul></details>";
   }
   zone.innerHTML = html;
+  const envoyer = $("bouton-scan-envoyer");
+  if (envoyer) {
+    envoyer.addEventListener("click", () => {
+      document.dispatchEvent(new CustomEvent("ajouter-au-lot", { detail: etat.chemin_sortie }));
+      activerModule("import");
+    });
+  }
 }
 
 async function suivreScan(chemin) {

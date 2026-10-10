@@ -1209,6 +1209,9 @@ décision mesurée (voir plus bas). Commit `caef83f`.
 - **Job** : file unique du `job_manager` (jamais en même temps qu'une traduction), 3 pages en
   parallèle, une page = une unité de reprise (`<nom>_scan_colonnes_pages/page-NNNN.json`, écriture
   atomique). Une page en erreur → statut `erreur`, jamais `termine`.
+- **Sortie** : le `.md` n'entre pas dans la Bibliothèque (rien n'est traduit) ; le bouton « Envoyer vers
+  « Nouveau document » » de l'onglet l'ajoute au lot (événement `ajouter-au-lot`, car `ajouterAuLot()` de
+  `module-import.js` est privée à son IIFE).
 - **Aperçu** : `GET /apercu` dessine gouttière, colonnes, encadrés et candidats-titres **sans OCR** —
   à regarder sur une ou deux pages avant de lancer un long traitement.
 
@@ -1225,8 +1228,9 @@ l'ordre des phrases ni les noms propres — rien n'a été relu page à page).
   réparation est journalisée et affichée dans l'interface. L'échantillon de 3 pages cachait ce
   défaut : **un test sur un extrait ne valide pas une heuristique de document.**
 - **Le bruit d'illustration lu par Tesseract ressemble à un titre** (« 00 SO ae a tery »).
-  Garde : confiance moyenne des mots ≥ 80 (`CONFIANCE_MIN_TITRE`) ; les vrais titres sont vers 90+,
-  le bruit sous 70.
+  Garde : confiance moyenne des mots ≥ 70 (`CONFIANCE_MIN_TITRE`). Un premier seuil à 80 faisait
+  perdre un vrai titre de l'échantillon (« 4 A Distant Thunder », lu à 73 %) : les vrais titres vont de
+  73 à 96, le bruit à chiffre initial mesuré reste sous 40.
 - **« Double page » ne se déduit pas du seul ratio largeur/hauteur.** Une page simple A4 en paysage
   (3 colonnes) est prise pour une double page en mode Auto (trouvé en écrivant le test). D'où le
   réglage explicite Auto / Double page / Page simple (route : `double_page` = `auto|oui|non`).
@@ -1250,7 +1254,7 @@ pour protéger les noms propres, et signaler plutôt qu'appliquer.
 
 **Limites connues** : seuils réglés sur un livre à 3 colonnes ; sans gouttières détectées, la demi-page
 est lue en pleine largeur (6 pages sur 61, qualité non garantie) ; le texte posé sur une illustration
-(bandeau de titre) n'est pas lu ; seuls les titres « N Titre » sont reconnus — le livre complet en a 43,
+(bandeau de titre) n'est pas lu ; seuls les titres « N Titre » sont reconnus — le livre complet en a 50,
 dont plusieurs imparfaits (étiquettes collées « …GE | Family », « Scroll », « Error ») ; icônes
 signalées mais **non identifiées** ; langues OCR limitées à celles de Tesseract (seul l'anglais est
 installé ici : `brew install tesseract-lang`). Le livre complet (`test_integre/Cycle I.pdf`, gitignoré)

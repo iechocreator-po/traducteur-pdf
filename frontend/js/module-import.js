@@ -486,6 +486,10 @@
     if (e.key === "Enter") { ajouterAuLot($("import-chemin").value); $("import-chemin").value = ""; }
   });
 
+  // Un autre module (ex. Laboratoire › Scan multi-colonnes) envoie un fichier produit ici :
+  // il passe par un événement plutôt que par un appel direct, ajouterAuLot() étant privée.
+  document.addEventListener("ajouter-au-lot", (e) => ajouterAuLot(e.detail));
+
   // Parcourir : ouvre le sélecteur natif puis uploade.
   $("bouton-parcourir").addEventListener("click", () => $("import-fichier").click());
   $("import-fichier").addEventListener("change", (e) => {

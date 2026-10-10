@@ -55,8 +55,8 @@ from app.services.persistance import ecrire_json_atomique, lire_json_tolerant
 DPI_RENDU = 200
 ECHELLE_OCR = 3            # agrandissement avant Tesseract (mesuré : ×3 suffit, ×4/×5 sans gain)
 CONFIANCE_MIN_LIGNE = 55   # sous ce seuil, la ligne est du bruit (illustration, ombre de reliure)
-CONFIANCE_MIN_TITRE = 80   # idem pour une bande de titre (voir ocr_titre)
-VERSION_ALGO = 2           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
+CONFIANCE_MIN_TITRE = 70   # idem pour une bande de titre (voir ocr_titre)
+VERSION_ALGO = 3           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
 RATIO_DOUBLE_PAGE = 1.25   # largeur/hauteur au-delà duquel la page est une double page
 TRAVAILLEURS_PAR_DEFAUT = 3
 MARQUEUR_ICONE = "⟦icône⟧"
