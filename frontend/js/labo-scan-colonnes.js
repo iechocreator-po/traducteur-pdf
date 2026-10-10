@@ -139,7 +139,7 @@ function rendreResultatScan(etat) {
   // Le .md n'est pas dans la Bibliothèque (rien n'est traduit) : on le propose en un clic comme
   // source de « Nouveau document » (analyse, traduction). Écrit même si certaines pages ont échoué.
   if (!etat.erreur) {
-    html += `<p><button id="bouton-scan-envoyer" class="ds-btn ds-btn--primary">📥 Envoyer vers « Nouveau document »</button></p>`;
+    html += `<p><button id="bouton-scan-envoyer" class="ds-btn ds-btn--primary">Envoyer vers « Nouveau document »</button></p>`;
   }
   if ((etat.reparations || []).length) {
     html += `<details><summary>${etat.reparations.length} réparation(s) automatique(s) à vérifier</summary><ul>` +

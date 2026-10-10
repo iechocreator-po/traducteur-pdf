@@ -63,7 +63,7 @@ function rendreListeCartesLab() {
   const liste = $("reglages-lab-liste");
   liste.innerHTML = "";
   const masquees = labCartesMasquees();
-  labCartes().filter((c) => !c.hidden).forEach((carte) => {   // une carte cachée par un flag n'est pas listée
+  labCartes().filter((c) => !c.hidden).forEach((carte, index) => {   // une carte cachée par un flag n'est pas listée
     const titre = labTitreCarte(carte);
     const ligne = document.createElement("div");
     ligne.className = "reglages-lab-ligne";
@@ -72,23 +72,31 @@ function rendreListeCartesLab() {
     repere.className = "lab-repere";
     repere.textContent = carte.dataset.uiCard || "";
     nom.append(repere, titre);
-    const bouton = document.createElement("button");
-    bouton.type = "button";
-    bouton.className = "switch";
-    bouton.setAttribute("role", "switch");
-    bouton.setAttribute("aria-label", `Afficher « ${titre} »`);
+    // Même composant que « Mode avancé » et « Repères d'interface » (.ui-switch), pas une variante.
     const actif = !masquees.has(titre);
-    bouton.classList.toggle("is-on", actif);
-    bouton.setAttribute("aria-checked", String(actif));
-    bouton.innerHTML = '<span class="switch-knob"></span>';
-    bouton.addEventListener("click", () => {
+    const id = "lab-toggle-" + index;
+    const commutateur = document.createElement("div");
+    commutateur.className = "ui-switch" + (actif ? " is-on" : "");
+    const etat = document.createElement("span");
+    etat.className = "ui-switch-state";
+    etat.textContent = actif ? "ON" : "OFF";
+    const bouton = document.createElement("label");
+    bouton.className = "ui-switch-knob";
+    bouton.htmlFor = id;
+    bouton.setAttribute("aria-label", `Afficher « ${titre} »`);
+    const entree = document.createElement("input");
+    entree.type = "checkbox";
+    entree.id = id;
+    entree.checked = actif;
+    entree.addEventListener("change", () => {
       const m = labCartesMasquees();
-      if (m.has(titre)) m.delete(titre); else m.add(titre);
+      if (entree.checked) m.delete(titre); else m.add(titre);
       labSauverMasquees(m);
       appliquerCartesLab();
       rendreListeCartesLab();
     });
-    ligne.append(nom, bouton);
+    commutateur.append(etat, bouton, entree);
+    ligne.append(nom, commutateur);
     liste.appendChild(ligne);
   });
 }

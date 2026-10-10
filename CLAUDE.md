@@ -1304,6 +1304,15 @@ composants du design system (pas de refonte de la navigation), **web + macOS**, 
   (`toledo-lab-cartes-masquees`) est indexé par le **titre** de la carte, pas par son repère, que l'insertion
   d'une carte décale. Une carte masquée garde son repère. La carte sans titre porte `data-titre`. **macOS** :
   liste écrite à la main (`ReglagesView.cartesLab`) et indexée par repère (C1…C6), comme la numérotation.
+- **Typographie unifiée** (fin de `style.css`, variables `--t-page/--t-corps/--t-aide/--t-carte`) : le
+  Laboratoire mêlait 7 tailles (11 à 21,6 px) et 4 graisses, héritées de réglages en rem posés au fil des
+  ajouts. Échelle unique : **20** px (titre de module), **13** px (texte, champs, boutons, libellés), **12** px
+  (aide, code), **11** px (titre de carte en capitales, badges) ; graisses 400 / 500 (boutons) / 600 (libellés,
+  onglets) / 700 (h1). Mesuré dans le navigateur après coup : le Laboratoire ne montre plus que 11/12/13 px.
+  ⚠️ `button:not(.ds-btn)` (gabarit de base) pèse plus qu'une simple classe : un `.bouton-lien { font-size }`
+  est ignoré, d'où les sélecteurs `button.bouton-lien…`. Les emoji décoratifs des BOUTONS du Laboratoire sont
+  retirés (une police de plus à l'écran) ; les glyphes d'état dans les messages (✅ ❌ ⚠ ⏳) restent.
+  Interrupteurs : les cartes du Laboratoire utilisent le même `.ui-switch` rond que « Mode avancé ».
 - **Titre de la fenêtre de terminal** (`services/titre_terminal.py`) : le backend écrit au démarrage la séquence
   OSC 0, la fenêtre s'appelle « toledo · backend (port 8000) » (port lu dans `sys.argv`) ; `launcher.py` fait de
   même (« toledo · launcher (port 5501) »). **Rien n'est écrit hors terminal** (log, tube, tests). Le serveur

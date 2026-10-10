@@ -100,7 +100,7 @@ $("bouton-ecouter").addEventListener("click", async () => {
     alert(`Impossible de générer l'extrait : ${e}`);
   } finally {
     btn.disabled = false;
-    btn.textContent = "▶ Écouter l'extrait";
+    btn.textContent = "Écouter l'extrait";
   }
 });
 
@@ -138,13 +138,13 @@ $("bouton-lancer-backend").addEventListener("click", async () => {
 $("bouton-reconnecter").addEventListener("click", async () => {
   const btn = $("bouton-reconnecter");
   btn.disabled = true;
-  btn.textContent = "🔄 Vérification…";
+  btn.textContent = "Vérification…";
   try {
     await reconnecter();
     await majBoutonLauncher();
   } finally {
     btn.disabled = false;
-    btn.textContent = "🔄 Reconnecter";
+    btn.textContent = "Reconnecter";
   }
 });
 
@@ -391,7 +391,7 @@ $("bouton-segmenter").addEventListener("click", async () => {
     zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = "🧩 Tester la segmentation";
+    btn.textContent = "Tester la segmentation";
   }
 });
 
@@ -411,7 +411,7 @@ $("bouton-segmentation-generer").addEventListener("click", async () => {
     zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = "💾 Générer le .md avec ces chapitres";
+    btn.textContent = "Générer le .md avec ces chapitres";
   }
 });
 

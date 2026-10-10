@@ -978,4 +978,36 @@ html.avance .biblio-lecture {
 .reglages-lab-ligne .lab-repere {
   font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--text-3); margin-right: 8px;
 }
-.reglages-lab-ligne .switch { flex-shrink: 0; margin: 0; }
+
+/* ── Typographie unifiée (10/10/2026) ─────────────────────────────────────────
+   Le Laboratoire mêlait 7 tailles (11 / 12,8 / 13,6 / 14,4 / 15,2 / 16 / 21,6 px) et 4 graisses,
+   héritées de réglages en rem posés au fil des ajouts. Une échelle, quatre tailles, trois graisses :
+     page   20 px / 700   titre de module (h1)
+     corps  13 px / 400   texte, champs, options ; 500 pour les boutons, 600 pour libellés et onglets
+     aide   12 px / 400   notes, code, journaux
+     carte  11 px / 600   titre de carte en petites capitales, badges
+   Même base que castellana (--ds-text-sm = 13 px). À RESPECTER pour tout nouvel élément : ne pas
+   réintroduire de taille en rem. */
+:root {
+  --t-page: 20px;
+  --t-corps: 13px;
+  --t-aide: 12px;
+  --t-carte: 11px;
+}
+.module-centre, .reglages-overlay { font-size: var(--t-corps); }
+.labo-entete h1, .module-centre h1 { font-size: var(--t-page); font-weight: 700; margin: 0 0 0.2rem; }
+.carte h2, .carte-sous-titre { font-size: var(--t-carte); font-weight: 600; }
+label, .parametre-label, .voix-nom { font-size: var(--t-corps); font-weight: 600; }
+.aide, .aide *, .teaser-vide { font-size: var(--t-aide); font-weight: 400; }
+code, pre, .reglages-main code { font-family: var(--font-mono); font-size: var(--t-aide); }
+.ds-btn, a.ds-btn, .ds-btn--sm, .ds-btn--primary {
+  font-size: var(--t-corps);
+  font-weight: 500;
+}
+.ds-btn--primary { font-weight: 600; }
+.ds-btn--sm { padding: 0.2rem 0.7rem; }
+.ds-input, .ds-select, .ds-textarea, option { font-size: var(--t-corps); font-weight: 400; }
+/* `button:not(.ds-btn)` (gabarit de base) pèse plus qu'une simple classe : on double le sélecteur. */
+button.bouton-lien, button.labo-onglet, button.reglages-tab-btn, button.onglet-module { font-size: var(--t-corps); font-weight: 600; }
+button.bouton-launcher { font-size: var(--t-corps); font-weight: 500; }
+.module-centre .ds-badge { font-size: var(--t-carte); }
