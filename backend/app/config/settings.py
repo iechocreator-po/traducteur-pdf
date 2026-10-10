@@ -34,6 +34,17 @@ OLLAMA_NUM_CTX = 4096
 # du ralentissement massif observé ce jour-là (32 morceaux réels en 23 min au
 # lieu de ~3-4 min), pas un bug du code de traduction lui-même.
 OLLAMA_NUM_PREDICT_MAX = 2048
+# Plafonds de génération des fiches d'étude (etude.py), fixés le 10/10/2026 APRÈS MESURE sur
+# « Chapter 9 » (50 518 caractères), qwen2.5 et llama3.1, les deux stratégies, 5 générations complètes :
+#   - appels JSON (points, consolidation, questions) : 519 à 717 jetons au maximum ;
+#   - notes de condensation (texte libre, 7 morceaux) : 331 à 1 595 jetons.
+# Marges : JSON 2 048 (≈ 2,9× le maximum observé, comme OLLAMA_NUM_PREDICT_MAX de la traduction) ;
+# condensation 4 096 (≈ 2,6× : la longueur des notes dépend du morceau, 1 595 sur le plus dense).
+# Un plafond trop bas tronquerait une fiche correcte ; sans plafond, une boucle de répétition
+# coûtait ~10 min de calcul (incident du 23/8, voir CLAUDE.md). tests/test_etude.py vérifie que
+# ces valeurs restent au-dessus des maxima mesurés.
+OLLAMA_NUM_PREDICT_ETUDE: int | None = 2048
+OLLAMA_NUM_PREDICT_CONDENSATION: int | None = 4096
 
 # ── Retry des appels Ollama ───────────────────────────────────────────────────
 # Une panne d'Ollama (arrêt, redémarrage, Mac réveillé après une mise en veille)

@@ -156,3 +156,68 @@ def test_la_consigne_des_points_exige_une_phrase_complete(monkeypatch):
 
     assert "PHRASE COMPLÈTE" in captures["system"]
     assert "circulaires" in captures["system"]
+
+
+# ── Plafond de génération (num_predict) ──────────────────────────────────────
+
+class _ReponseHttpComplete:
+    def __init__(self, contenu, raison="stop"):
+        self._d = {"response": contenu, "done_reason": raison, "eval_count": 7}
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._d
+
+
+def test_le_plafond_est_envoye_a_ollama(monkeypatch):
+    envoye = {}
+
+    def faux_post(url, json=None, timeout=None):
+        envoye.update(json)
+        return _ReponseHttpComplete('{"points": ["A"]}')
+
+    monkeypatch.setattr(etude.requests, "post", faux_post)
+    monkeypatch.setattr(etude, "OLLAMA_NUM_PREDICT_ETUDE", 1234)
+    etude.generer_points("texte", "m", "français", 1)
+    assert envoye["options"]["num_predict"] == 1234
+
+
+def test_reponse_tronquee_puis_valide_est_retentee(monkeypatch):
+    reponses = [_ReponseHttpComplete('{"points": ["A', "length"), _ReponseHttpComplete('{"points": ["A"]}')]
+    monkeypatch.setattr(etude.requests, "post", lambda *a, **k: reponses.pop(0))
+    monkeypatch.setattr(etude, "OLLAMA_NUM_PREDICT_ETUDE", 100)
+    assert etude.generer_points("texte", "m", "français", 1) == ["A"]
+
+
+def test_reponse_toujours_tronquee_dit_le_plafond(monkeypatch):
+    monkeypatch.setattr(etude.requests, "post", lambda *a, **k: _ReponseHttpComplete('{"points": ["A', "length"))
+    monkeypatch.setattr(etude, "OLLAMA_NUM_PREDICT_ETUDE", 100)
+    with pytest.raises(etude.ReponseJsonInvalide, match="plafond de 100 jetons"):
+        etude.generer_points("texte", "m", "français", 1)
+
+
+MAX_JSON_MESURE = 717            # jetons, appels JSON de la fiche (Chapter 9, 10/10/2026)
+MAX_CONDENSATION_MESURE = 1595   # jetons, notes de condensation
+
+
+def test_les_plafonds_restent_au_dessus_des_maxima_mesures():
+    """Garde-fou : un plafond abaissé sous ce qu'on a mesuré tronquerait des fiches correctes."""
+    from app.config import settings
+    assert settings.OLLAMA_NUM_PREDICT_ETUDE >= 2 * MAX_JSON_MESURE
+    assert settings.OLLAMA_NUM_PREDICT_CONDENSATION >= 2 * MAX_CONDENSATION_MESURE
+
+
+def test_la_condensation_est_plafonnee_et_refuse_une_reponse_coupee(monkeypatch):
+    envoye = {}
+
+    def faux_post(url, json=None, timeout=None):
+        envoye.update(json)
+        return _ReponseHttpComplete("notes coupées", "length")
+
+    monkeypatch.setattr(etude.requests, "post", faux_post)
+    monkeypatch.setattr(etude, "OLLAMA_NUM_PREDICT_CONDENSATION", 300)
+    with pytest.raises(etude.ReponseTronquee, match="plafond de 300 jetons"):
+        etude.condenser_texte("texte long", "m", "français")
+    assert envoye["options"]["num_predict"] == 300 and "format" not in envoye

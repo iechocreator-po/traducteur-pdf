@@ -12,9 +12,14 @@ import json
 import requests
 from pydantic import BaseModel, Field, ValidationError
 
-from app.config.settings import OLLAMA_TIMEOUT
+from app.config.settings import OLLAMA_NUM_PREDICT_CONDENSATION, OLLAMA_NUM_PREDICT_ETUDE, OLLAMA_TIMEOUT
 from app.models.schemas import QuestionEtude
+from app.services import metriques
 from app.services.translator import OLLAMA_URL
+
+
+class ReponseTronquee(Exception):
+    """Ollama a coupé la réponse au plafond de génération (`num_predict`) : JSON incomplet."""
 
 
 class ReponseJsonInvalide(Exception):
@@ -29,28 +34,45 @@ class _ReponseQuestions(BaseModel):
     questions: list[QuestionEtude] = Field(min_length=1)
 
 
-def _appeler_ollama_json(modele: str, system: str, prompt: str) -> str:
-    reponse = requests.post(
-        OLLAMA_URL,
-        json={
-            "model": modele,
-            "system": system,
-            "prompt": prompt,
-            "stream": False,
-            "format": "json",
-            "options": {"temperature": 0.3},
-        },
-        timeout=OLLAMA_TIMEOUT,
-    )
+def _envoyer(modele: str, system: str, prompt: str, plafond: int | None, format_json: bool) -> str:
+    """
+    Un appel Ollama, au point unique où l'on : applique le plafond de génération, enregistre les
+    jetons réels (historique, stats.py) et refuse une réponse COUPÉE au plafond. Une réponse
+    tronquée n'est jamais renvoyée comme si elle était complète : un JSON coupé échouerait plus loin
+    avec un message trompeur, et des notes de condensation coupées appauvriraient la fiche en silence.
+    """
+    options = {"temperature": 0.3}
+    if plafond:
+        options["num_predict"] = plafond
+    payload = {"model": modele, "system": system, "prompt": prompt, "stream": False, "options": options}
+    if format_json:
+        payload["format"] = "json"
+    reponse = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT)
     reponse.raise_for_status()
-    return reponse.json().get("response", "").strip()
+    data = reponse.json()
+    metriques.enregistrer_reponse(data)
+    if data.get("done_reason") == "length":
+        # Plafond atteint : le modèle bouclait, ou la réponse dépasse ce qu'on a mesuré de normal.
+        raise ReponseTronquee(
+            f"le modèle a atteint le plafond de {plafond} jetons de génération "
+            "avant de terminer sa réponse"
+        )
+    return data.get("response", "").strip()
+
+
+def _appeler_ollama_json(modele: str, system: str, prompt: str) -> str:
+    return _envoyer(modele, system, prompt, OLLAMA_NUM_PREDICT_ETUDE, format_json=True)
 
 
 def _generer_valide(modele: str, system: str, prompt: str, schema: type[BaseModel]) -> BaseModel:
     """Appelle Ollama et valide la réponse ; une seconde tentative si JSON invalide."""
     derniere_erreur: Exception | None = None
     for _ in range(2):
-        brut = _appeler_ollama_json(modele, system, prompt)
+        try:
+            brut = _appeler_ollama_json(modele, system, prompt)
+        except ReponseTronquee as e:
+            derniere_erreur = e   # une répétition est parfois un accident : une 2ᵉ tentative a sa chance
+            continue
         try:
             return schema.model_validate(json.loads(brut))
         except (json.JSONDecodeError, ValidationError) as e:
@@ -222,19 +244,7 @@ def condenser_texte(texte: str, modele: str, langue: str) -> str:
         f"du texte fourni : idées principales, faits, définitions, exemples marquants. "
         f"N'invente rien, n'ajoute aucun commentaire. Réponds directement par les notes."
     )
-    reponse = requests.post(
-        OLLAMA_URL,
-        json={
-            "model": modele,
-            "system": system,
-            "prompt": texte,
-            "stream": False,
-            "options": {"temperature": 0.3},
-        },
-        timeout=OLLAMA_TIMEOUT,
-    )
-    reponse.raise_for_status()
-    return reponse.json().get("response", "").strip()
+    return _envoyer(modele, system, texte, OLLAMA_NUM_PREDICT_CONDENSATION, format_json=False)
 
 def consolider_points(
     points_par_section: list[list[str]], modele: str, langue: str, nb_points: int
