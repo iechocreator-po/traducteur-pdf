@@ -121,7 +121,7 @@ function rendreProgressionScan(etat) {
                      erreur: "Terminé avec des erreurs", annule: "Annulé" };
   let html = `<p><strong>${libelles[etat.statut] || etat.statut}</strong> — ${etat.pages_faites}/${etat.pages_total} page(s)`;
   if (etat.temps_ecoule_secondes) html += ` · ${formaterDuree(etat.temps_ecoule_secondes)}`;
-  html += `</p><div class="barre-conteneur"><div class="barre-progression ${etat.statut === "termine" ? "barre-succes" : ""}" style="width:${pct}%"></div></div>`;
+  html += `</p><div class="barre-conteneur"><div class="barre-progression ${etat.statut ==="termine" ? "barre-succes" : ""}" style="width:${pct}%"></div></div>`;
   zone.innerHTML = html;
 }
 
@@ -139,7 +139,7 @@ function rendreResultatScan(etat) {
   // Le .md n'est pas dans la Bibliothèque (rien n'est traduit) : on le propose en un clic comme
   // source de « Nouveau document » (analyse, traduction). Écrit même si certaines pages ont échoué.
   if (!etat.erreur) {
-    html += `<p><button id="bouton-scan-envoyer" class="bouton-principal">📥 Envoyer vers « Nouveau document »</button></p>`;
+    html += `<p><button id="bouton-scan-envoyer" class="ds-btn ds-btn--primary">📥 Envoyer vers « Nouveau document »</button></p>`;
   }
   if ((etat.reparations || []).length) {
     html += `<details><summary>${etat.reparations.length} réparation(s) automatique(s) à vérifier</summary><ul>` +

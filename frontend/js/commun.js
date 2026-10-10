@@ -175,22 +175,22 @@ document.querySelectorAll("#theme-switch button").forEach((b) => {
 function appliquerModeAvance(actif) {
   document.querySelectorAll("[data-avance]").forEach((el) => { el.hidden = !actif; });
   document.documentElement.classList.toggle("avance", actif);
-  $("switch-avance").classList.toggle("is-on", actif);
-  $("switch-avance").setAttribute("aria-checked", actif ? "true" : "false");
+  // Interrupteur des Réglages (⚙ › Personnalisation) : même composant que les repères d'interface.
+  $("avance-toggle").checked = actif;
+  $("avance-switch").classList.toggle("is-on", actif);
+  $("avance-state").textContent = actif ? "ON" : "OFF";
   localStorage.setItem("modeAvance", actif ? "1" : "0");
   // Le Laboratoire n'est atteignable qu'en mode avancé : si on le quitte, revenir à l'import.
   if (!actif && localStorage.getItem("module") === "laboratoire") activerModule("import");
 }
 
-$("switch-avance").addEventListener("click", () => {
-  appliquerModeAvance(localStorage.getItem("modeAvance") !== "1");
-});
+$("avance-toggle").addEventListener("change", (e) => appliquerModeAvance(e.target.checked));
 
-// Le flag mode_avance (géré par bilbao) peut masquer entièrement le bouton :
+// Le flag mode_avance (géré par bilbao) peut masquer entièrement l'interrupteur :
 // dans ce cas le mode avancé est forcé off et tout le contenu avancé reste caché.
 document.addEventListener("flags-charges", () => {
   const visible = featureFlags.mode_avance !== false;
-  document.querySelector(".mode-avance").hidden = !visible;
+  $("reglages-carte-avance").hidden = !visible;
   if (!visible) appliquerModeAvance(false);
 });
 
@@ -219,7 +219,7 @@ async function verifierStatut() {
 
   // Reflet dans le Laboratoire
   $("statut-api").textContent = backendEnLigne ? "En ligne ✅" : "Hors ligne ❌";
-  $("statut-api").className = `statut-badge ${backendEnLigne ? "badge-ok" : "badge-erreur"}`;
+  $("statut-api").className = `ds-badge ${backendEnLigne ? "ds-badge--success" : "ds-badge--danger"}`;
   $("statut-ollama").textContent = !backendEnLigne ? "" : ollamaOk
     ? "Accessible ✅"
     : "Inaccessible ⚠️ (vérifie qu'il est lancé)";

@@ -253,7 +253,7 @@
       // Retirer disponible pour TOUS les statuts : un planifié supprimé ne se
       // déclenchera pas ; un déclenché/annulé disparaît simplement de la liste.
       const btn = document.createElement("button");
-      btn.className = "bouton-mini bouton-danger";
+      btn.className = "ds-btn ds-btn--sm ds-btn--danger";
       btn.textContent = "✕ Retirer";
       btn.title = job.statut === "planifie"
         ? "Annuler et retirer cette planification"
@@ -271,12 +271,12 @@
   // ── Rendu ───────────────────────────────────────────────────────────────────
 
   const PILLS = {
-    analyse:  ["Analyse…", "pill-neutre"],
-    pret:     ["Prêt", "pill-accent"],
-    probleme: ["Problème", "pill-attention"],
-    lance:    ["En cours…", "pill-attention"],
-    termine:  ["Terminé", "pill-succes"],
-    erreur:   ["Erreur", "pill-erreur"],
+    analyse:  ["Analyse…", ""],
+    pret:     ["Prêt", "ds-badge--accent"],
+    probleme: ["Problème", "ds-badge--warning"],
+    lance:    ["En cours…", "ds-badge--warning"],
+    termine:  ["Terminé", "ds-badge--success"],
+    erreur:   ["Erreur", "ds-badge--danger"],
   };
 
   // Sélecteur dépliable « Chapitres à traduire » d'un fichier du lot.
@@ -391,13 +391,13 @@
     elListe.innerHTML = "";
     for (const item of lot) {
       const ligne = document.createElement("div");
-      ligne.className = "lot-ligne carte";
+      ligne.className = "lot-ligne ds-card carte";
 
       const entete = document.createElement("div");
       entete.className = "lot-ligne-entete";
 
       const badge = document.createElement("span");
-      badge.className = "badge-type";
+      badge.className = "ds-badge ds-badge--accent badge-type";
       badge.textContent = item.type;
 
       const nom = document.createElement("span");
@@ -405,9 +405,9 @@
       nom.textContent = nomFichier(item.chemin);
       nom.title = item.chemin;
 
-      const [pillTexte, pillClasse] = PILLS[item.stage] || [item.stage, "pill-neutre"];
+      const [pillTexte, pillClasse] = PILLS[item.stage] || [item.stage, ""];
       const pill = document.createElement("span");
-      pill.className = `pill ${pillClasse}`;
+      pill.className = `ds-badge ${pillClasse}`;
       pill.textContent = item.stage === "lance" && item.statutJob === "en_attente"
         ? "En file…" : item.stage === "lance" && item.statutJob === "en_pause"
         ? "En pause" : pillTexte;
@@ -544,12 +544,12 @@
 // Bibliothèque, elle, sert aux résumés / quiz / export.
 (() => {
   const STATUTS_LABEL = {
-    en_cours: ["En cours…", "pill-attention"],
-    en_attente: ["En file…", "pill-neutre"],
-    en_pause: ["En pause", "pill-attention"],
-    erreur: ["Interrompu", "pill-erreur"],
-    annule: ["Annulé", "pill-erreur"],
-    termine: ["Terminé", "pill-succes"],
+    en_cours: ["En cours…", "ds-badge--warning"],
+    en_attente: ["En file…", ""],
+    en_pause: ["En pause", "ds-badge--warning"],
+    erreur: ["Interrompu", "ds-badge--danger"],
+    annule: ["Annulé", "ds-badge--danger"],
+    termine: ["Terminé", "ds-badge--success"],
   };
 
   let pollTimer = null;
@@ -723,20 +723,20 @@
 
   function rendreLigne(doc) {
     const ligne = document.createElement("div");
-    ligne.className = "reprendre-ligne carte";
+    ligne.className = "reprendre-ligne ds-card carte";
 
     const entete = document.createElement("div");
     entete.className = "lot-ligne-entete";
     const badge = document.createElement("span");
-    badge.className = "badge-type";
+    badge.className = "ds-badge ds-badge--accent badge-type";
     badge.textContent = estMarkdown(doc.chemin_source) ? "MD" : "PDF";
     const nom = document.createElement("span");
     nom.className = "lot-nom";
     nom.textContent = doc.nom || nomFichier(doc.chemin_source);
     nom.title = doc.chemin_source;
-    const [txt, classe] = STATUTS_LABEL[doc.statut] || [doc.statut, "pill-neutre"];
+    const [txt, classe] = STATUTS_LABEL[doc.statut] || [doc.statut, ""];
     const pill = document.createElement("span");
-    pill.className = `pill ${classe}`;
+    pill.className = `ds-badge ${classe}`;
     pill.textContent = txt;
     entete.append(badge, nom, pill);
     ligne.appendChild(entete);
@@ -783,7 +783,7 @@
 
     if (enMarche) {
       const pause = document.createElement("button");
-      pause.className = "bouton-mini";
+      pause.className = "ds-btn ds-btn--sm";
       pause.textContent = "⏸ Pause";
       pause.disabled = !doc.job_id;
       pause.addEventListener("click", () => pauseDoc(doc, pause));
@@ -791,13 +791,13 @@
     } else {
       if (doc.statut !== "termine") {
         const reprendre = document.createElement("button");
-        reprendre.className = "bouton-mini";
+        reprendre.className = "ds-btn ds-btn--sm";
         reprendre.textContent = "⏯ Reprendre";
         reprendre.addEventListener("click", () => reprendreDoc(doc, reprendre));
         actions.appendChild(reprendre);
       }
       const chapitres = document.createElement("button");
-      chapitres.className = "bouton-mini";
+      chapitres.className = "ds-btn ds-btn--sm";
       const etat = selecteurs.get(doc.chemin_sortie);
       chapitres.textContent = etat?.ouvert ? "▾ Chapitres" : "➕ Chapitres";
       chapitres.title = "Choisir de nouveaux chapitres à traduire (ajout au document existant)";
@@ -809,7 +809,7 @@
     // annulé) — jamais pendant un job en cours ou en file.
     if (!enMarche) {
       const supprimer = document.createElement("button");
-      supprimer.className = "bouton-mini bouton-danger";
+      supprimer.className = "ds-btn ds-btn--sm ds-btn--danger";
       supprimer.textContent = "🗑 Supprimer";
       supprimer.title = "Retirer de la liste (les fichiers sur disque sont conservés)";
       supprimer.addEventListener("click", () => supprimerDoc(doc));
@@ -915,7 +915,7 @@
       bloc.appendChild(p);
     } else {
       const lancer = document.createElement("button");
-      lancer.className = "bouton-secondaire";
+      lancer.className = "ds-btn";
       lancer.textContent = etat.lancement
         ? "⏳ Lancement…"
         : `Traduire ${etat.coches.size} chapitre${etat.coches.size > 1 ? "s" : ""}`;

@@ -9,6 +9,8 @@ La documentation interactive de l'API est alors disponible sur :
 
 """
 
+import sys
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,9 +20,13 @@ from app.api.routes import router
 from app.api.validation import ORIGINES_LOCALES
 from app.services.recuperation import recuperer_tout
 from app.services.scheduler import demarrer_surveillance
+from app.services.titre_terminal import definir_titre, port_depuis_arguments
 from app.services.uploads import purger_uploads_anciens
 
 
+
+# Fenêtre de terminal reconnaissable parmi les autres backends du portfolio (services/titre_terminal.py).
+definir_titre(f"toledo · backend (port {port_depuis_arguments(sys.argv)})")
 
 app = FastAPI(
     title="Traducteur PDF API",

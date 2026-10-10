@@ -48,7 +48,7 @@ n'existe côté interface. Ça permet de remplacer ou faire évoluer l'UI sans t
 
 L'interface web suit la **refonte « Workflow »** (design retenu dans
 `toledo_v2/handoff_iTraducteur/`, décisions dans `docs/refonte-workflow-decisions.md`) :
-une barre supérieure (thème, mode avancé, statuts) et **3 modules** organisés par flux
+une barre supérieure (thème, statuts, ⚙ Réglages ; le mode avancé est dans les Réglages depuis le 10/10/2026) et **3 modules** organisés par flux
 de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module) :
 - **Vos traductions** (`module-import.js`, section « Vos traductions ») : liste
   **tous** les documents du registre (`GET /api/bibliotheque`) — en cours, en pause,
@@ -115,9 +115,9 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   grille Bibliothèque). Éléments gated : extracteur de l'Import (le **modèle** en est sorti
   le 17/8, voir « Plusieurs modèles Ollama cohabitent »), onglet +
   contenu du **Laboratoire**, section **Résumé & Quiz** de la Bibliothèque. `activerModule`
-  redirige vers l'Import si on tente d'ouvrir le Laboratoire hors mode avancé. Le **bouton**
-  « mode avancé » lui-même est gated par le flag `mode_avance` (off → bouton masqué et
-  mode forcé désactivé).
+  redirige vers l'Import si on tente d'ouvrir le Laboratoire hors mode avancé. L'**interrupteur**
+  se trouve dans ⚙ Réglages › Personnalisation (plus dans la barre, où on le voyait mal) ; il est gated
+  par le flag `mode_avance` (off → carte « Mode avancé » masquée et mode forcé désactivé).
 - **Feature flags** (`backend/app/config/feature_flags.py`, `GET /api/feature-flags`,
   global `featureFlags` + événement `flags-charges` côté front). Ordre de priorité
   (bas → haut) : `FLAGS_PAR_DEFAUT` → **`bilbao.features.json`** (racine du repo, artefact
@@ -358,7 +358,7 @@ Le TTS local a un troisième moteur, `openvoice`, à côté de Piper et Kokoro :
   pour d'autres fonctionnalités du projet).
 
 L'app macOS (Swift/SwiftUI, `macos-app/`) suit le **même design Workflow** : barre
-supérieure (navigation 3 modules, pastilles de statut, thème, mode avancé) dans
+supérieure (navigation 3 modules, pastilles de statut, thème, ⚙ Réglages) dans
 `ContentView.swift` (+ `AppEnvironment` partagé), et un fichier par module dans
 `Views/` (`ImportModuleView` avec drag & drop natif + NSOpenPanel,
 `BibliothequeModuleView` avec lecteur AVAudioPlayer lisant le WAV du disque,
@@ -1260,6 +1260,59 @@ signalées mais **non identifiées** ; langues OCR limitées à celles de Tesser
 installé ici : `brew install tesseract-lang`). Le livre complet (`test_integre/Cycle I.pdf`, gitignoré)
 sert de test de non-régression manuel.
 
+## Alignement sur castellana : composants, Réglages ⚙, repères, icône (10/10/2026)
+
+Demande de JP : « le UI de toledo est différent de castellana ». Décisions (posées en début de séance) :
+composants du design system (pas de refonte de la navigation), **web + macOS**, bouton ⚙ comme castellana.
+
+- **Composants** : `frontend/css/components.css` est une copie vendorée **identique octet pour octet** du
+  dossier partagé (il n'y était pas : seul `tokens.css` l'était). Les cartes `.carte` portent aussi
+  `.ds-card`, les boutons `.ds-btn` (`--primary`, `--sm`, `--danger`), les pastilles de statut `.ds-badge`
+  (`--accent/--success/--warning/--danger`), les champs `.ds-input/.ds-select/.ds-textarea`. `style.css` ne
+  garde que la mise en page (marges, largeur des champs) ; le gabarit de base `button` est devenu
+  `button:not(.ds-btn)`. Le titre de carte passe en petites capitales comme castellana. **Tout nouveau
+  bouton/carte/champ créé en JS doit recevoir ces classes**, sinon il reste à l'ancien gabarit.
+- **Réglages ⚙** (`js/reglages.js`, panneau plein écran, Échap ferme) : un seul onglet pour l'instant,
+  « Personnalisation » (interrupteur des repères) ; la structure accueille les suivants.
+- **Repères d'interface** (`js/ui-ids.js`, même patron que castellana) : lettre par module (A/B/C), lettre+numéro
+  par carte (« C3 »), préfixe `R-` pour les Réglages. Numérotation **dérivée de l'ordre du DOM**, jamais d'une
+  table écrite à la main ; un module ou une carte masqué(e) compte quand même. Les lignes dynamiques
+  (`.lot-ligne`, `.reprendre-ligne`) et les cartes imbriquées sont exclues : leur nombre change et décalerait
+  tout. La Bibliothèque n'a pas de carte (panneaux latéraux). OFF par défaut, mémorisé dans `localStorage`
+  (`toledo-ui-ids`). Rendu en `::before` piloté par `data-ui-tab`/`data-ui-card`, jamais un nœud enfant.
+- **macOS** (`Views/Reperes.swift`, `Views/ReglagesView.swift`, bouton ⚙ dans `ContentView`) : la lettre du
+  module est dérivée de `ModuleApp.allCases` mais **le numéro d'une carte est écrit à la main** au site d'appel
+  (`.repere("C3")`) — SwiftUI n'a pas de DOM. Ajouter une carte au milieu d'un module oblige à renuméroter
+  les suivantes ; c'est le seul identifiant d'interface écrit en dur du produit. Numérotation indépendante du web.
+  ⚠️ **Seulement `swiftc -typecheck`** (réussi) : ce filet a déjà laissé passer deux erreurs de build Xcode
+  (voir plus haut) — le build réel reste à faire par JP.
+- **Icône** : `favicon.svg` (livre ouvert, choisi par JP parmi 8 propositions), `favicon-32.png` et
+  `apple-touch-icon.png` (générés avec Pillow à partir des mêmes formes). Le logo de la barre reprend le SVG.
+  L'icône de l'app macOS (AppIcon) n'a **pas** été changée.
+- **Palette de l'icône** (`css/theme-toledo.css`) : l'accent du design system (bleu) est surchargé par le vert
+  d'eau de l'icône — `#0f766e` en clair, `#2dd4bf` en sombre, fond d'accent `#ccfbf1` / `#134e4a`. **Fichier à
+  part, jamais une retouche de `tokens.css`** : celui-ci est surveillé par le détecteur de dérive de bilbao
+  (R10). `--on-accent` (blanc en clair, `#042f2e` en sombre) est la couleur du texte posé SUR l'accent : le
+  design system fixe `#fff`, illisible sur l'accent clair du mode sombre. macOS : `DS.accent` (`Theme.swift`)
+  reprend les mêmes valeurs ; les boutons proéminents natifs gardent leur texte blanc (non vérifié en sombre).
+- **Mode avancé dans les Réglages** : interrupteur rond identique aux repères, avec la liste de ce qu'il
+  révèle (web : Laboratoire, chemin absolu, moteur de conversion, Résumé & Quiz, cases à cocher, colonnes
+  redimensionnables ; macOS : seulement le moteur de conversion — le texte de chaque plateforme dit ce
+  qu'elle fait réellement). Il avait disparu visuellement de la barre une fois les repères ajoutés.
+- **Laboratoire : cartes activables une à une** (Réglages › Personnalisation). La liste est **dérivée** des
+  cartes du Laboratoire (mêmes règles que les repères), pas écrite à la main ; l'état mémorisé
+  (`toledo-lab-cartes-masquees`) est indexé par le **titre** de la carte, pas par son repère, que l'insertion
+  d'une carte décale. Une carte masquée garde son repère. La carte sans titre porte `data-titre`. **macOS** :
+  liste écrite à la main (`ReglagesView.cartesLab`) et indexée par repère (C1…C6), comme la numérotation.
+- **Titre de la fenêtre de terminal** (`services/titre_terminal.py`) : le backend écrit au démarrage la séquence
+  OSC 0, la fenêtre s'appelle « toledo · backend (port 8000) » (port lu dans `sys.argv`) ; `launcher.py` fait de
+  même (« toledo · launcher (port 5501) »). **Rien n'est écrit hors terminal** (log, tube, tests). Le serveur
+  statique du frontend (`python3 -m http.server`) n'est pas à nous : sa fenêtre garde son titre par défaut.
+- **Barre supérieure** : elle débordait à 1024 px une fois le ⚙ et les repères ajoutés (scrollWidth 1085 pour
+  1009 de large, interrupteur et ⚙ hors écran). Le point de rupture des règles « barre compacte » passe de
+  800 à **1100 px** ; `.onglet-module` et `.mode-avance` sont en `white-space: nowrap`. À re-mesurer si on
+  ajoute encore un élément à la barre.
+
 ## Contraintes d'interface à ne pas casser
 
 - **La barre supérieure doit rester sur UNE rangée.** Elle est `sticky` et la
@@ -1275,8 +1328,9 @@ sert de test de non-régression manuel.
 - **Le CSS et le JS sont versionnés par un paramètre d'URL** (`style.css?v=N`,
   `module-bibliotheque.js?v=N`). Sans l'incrémenter, le navigateur sert l'ancienne
   version — vérifié : une modification de CSS restait sans effet jusqu'à la bascule.
-- **Le bouton du mode avancé n'a de nom accessible que par son `aria-label`.** Le
-  texte « Mode avancé » voisin n'est pas un `<label>`, et il disparaît sous 800 px.
+- **Les interrupteurs ronds des Réglages (`.ui-switch`) n'ont de nom accessible que par l'`aria-label` de
+  leur `<label>`** : le texte de la carte voisine n'est pas relié à la case. Les petits commutateurs de
+  carte du Laboratoire (`.switch`, `role="switch"`) portent le leur dans `aria-label`.
 
 ## Géré par bilbao — ne pas éditer à la main
 _Bloc régénéré par le cockpit bilbao (2026-07-14). La prose hors marqueurs n'est jamais touchée._

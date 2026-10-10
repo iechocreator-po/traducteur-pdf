@@ -127,7 +127,7 @@
       if (docActif && doc.chemin_sortie === docActif.chemin_sortie) item.classList.add("is-active");
 
       const badge = document.createElement("span");
-      badge.className = "badge-type badge-mini";
+      badge.className = "ds-badge ds-badge--accent badge-type badge-mini";
       badge.textContent = estMarkdown(doc.chemin_source) ? "MD" : "PDF";
 
       const nom = document.createElement("span");

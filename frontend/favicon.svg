@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="toledo">
+  <title>toledo</title>
+  <rect width="64" height="64" rx="14" fill="#0f766e"/>
+  <path d="M32 18C26 14 18 14 10 16V48C18 46 26 46 32 50Z" fill="#fff"/>
+  <path d="M32 18C38 14 46 14 54 16V48C46 46 38 46 32 50Z" fill="#ccfbf1"/>
+  <rect x="15" y="23" width="13" height="2.5" rx="1.25" fill="#5eead4"/>
+  <rect x="15" y="29" width="13" height="2.5" rx="1.25" fill="#5eead4"/>
+  <rect x="15" y="35" width="9" height="2.5" rx="1.25" fill="#5eead4"/>
+  <rect x="36" y="23" width="13" height="2.5" rx="1.25" fill="#0f766e"/>
+  <rect x="36" y="29" width="13" height="2.5" rx="1.25" fill="#0f766e"/>
+  <rect x="36" y="35" width="9" height="2.5" rx="1.25" fill="#0f766e"/>
+  <path d="M32 18V50" stroke="#0f766e" stroke-width="1.5"/>
+</svg>
