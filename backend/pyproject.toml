@@ -11,3 +11,10 @@ pythonpath = ["."]
 [tool.coverage.run]
 source = ["app"]
 omit = ["app/main.py"]
+
+[tool.ruff.lint]
+# Jeu de règles explicite : erreurs de syntaxe/import/exécution (E4, E7, E9) et
+# pyflakes (F). C'était le défaut de ruff jusqu'à la 0.15 ; ruff 0.16 l'a élargi
+# (BLE, SIM, DTZ, S, I…), ce qui a fait échouer la CI sans qu'aucun code ne change.
+# Épingler ici évite qu'une mise à jour de ruff casse la CI.
+select = ["E4", "E7", "E9", "F"]
