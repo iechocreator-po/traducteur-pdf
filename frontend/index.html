@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="css/theme-toledo.css?v=1">
   <link rel="stylesheet" href="css/style.css?v=17">
   <link rel="stylesheet" href="css/styles-visuels.css?v=1">
+  <link rel="stylesheet" href="css/commutateurs.css?v=2">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
     (function () {
@@ -21,6 +22,9 @@
       // Idem pour le style visuel choisi dans Réglages (absent = « Classique »).
       var st = localStorage.getItem("style");
       if (st && st !== "classique") document.documentElement.setAttribute("data-style", st);
+      // Format des commutateurs ON/OFF (absent = « rond », le bouton d'origine).
+      var cm = localStorage.getItem("toledo-commutateur");
+      if (cm && cm !== "rond") document.documentElement.setAttribute("data-commutateur", cm);
     })();
   </script>
 </head>
@@ -99,6 +103,11 @@
           <h2>Style de l'interface</h2>
           <p class="aide">Choisissez l'apparence qui vous convient : le changement est immédiat et mémorisé. Chaque style existe en clair et en sombre (bouton Auto / ☀ / ☾ en haut). « Classique » est l'apparence habituelle de toledo.</p>
           <ul id="styles-grille" class="styles-grille" role="radiogroup" aria-label="Style de l'interface"></ul>
+        </div>
+        <div class="ds-card carte" id="reglages-carte-commutateurs">
+          <h2>Commutateurs ON / OFF</h2>
+          <p class="aide">Choisissez l'apparence des boutons qui activent ou désactivent une fonctionnalité (Mode avancé, Repères d'interface, cartes du Laboratoire…). Seul l'habillage change, pas le fonctionnement. L'aperçu montre chaque format éteint puis allumé.</p>
+          <ul id="commutateurs-grille" class="styles-grille" role="radiogroup" aria-label="Format des commutateurs"></ul>
         </div>
       </div>
     </div>
@@ -604,6 +613,7 @@
   <script src="js/ui-ids.js?v=1"></script>
   <script src="js/reglages.js?v=3"></script>
   <script src="js/reglages-styles.js?v=1"></script>
+  <script src="js/commutateurs.js?v=2"></script>
   <script>initUiIds(); rendreListeCartesLab(); // en dernier : numérote les cartes déjà en place (js/ui-ids.js), puis affiche leurs repères dans la liste des Réglages</script>
 </body>
 </html>

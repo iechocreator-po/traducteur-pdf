@@ -1,0 +1,127 @@
+/* ── Format des commutateurs ON/OFF (⚙ Réglages › Personnalisation › « Commutateurs ») ───────────────────────
+   Le composant reste le même partout : <div class="ui-switch"> + <label class="ui-switch-knob"> + <input checkbox>.
+   Seul l'habillage du bouton change, choisi par <html data-commutateur="…"> (absent = « rond », le bouton d'origine,
+   défini dans style.css). Les aperçus des Réglages portent leur propre variante via data-v, qui prime sur celle de <html>.
+   Pur CSS : l'état ON/OFF vient de la classe .is-on déjà posée sur .ui-switch. */
+
+/* ── Machine à écrire : touche ronde cerclée de chrome, qui s'enfonce quand on l'active ───────────────────── */
+:is(html[data-commutateur="machine"] .ui-switch:not([data-v]), .ui-switch[data-v="machine"]) .ui-switch-knob {
+  display: grid; place-items: center; position: relative; top: 0; margin-bottom: 6px;
+  border: 0; border-radius: 50%;
+  background:
+    radial-gradient(circle, #f6f1e1 0 58%, #1c1c1c 60% 70%, transparent 71%),
+    conic-gradient(from 20deg, #ececec, #8c8c8c, #f6f6f6, #7c7c7c, #ececec);
+  box-shadow: 0 5px 0 #151515, 0 8px 7px rgba(0,0,0,.35);
+  transition: top .08s ease, box-shadow .08s ease;
+}
+:is(html[data-commutateur="machine"] .ui-switch:not([data-v]), .ui-switch[data-v="machine"]) .ui-switch-knob::before {
+  content: "O"; font: 700 19px/1 "Courier New", Courier, monospace; color: #8b8b8b;
+}
+:is(html[data-commutateur="machine"] .ui-switch.is-on:not([data-v]), .ui-switch.is-on[data-v="machine"]) .ui-switch-knob {
+  top: 4px; border: 0;
+  box-shadow: 0 1px 0 #151515, 0 2px 3px rgba(0,0,0,.35), 0 0 0 3px var(--accent-bg), 0 0 9px -1px var(--accent);
+}
+:is(html[data-commutateur="machine"] .ui-switch.is-on:not([data-v]), .ui-switch.is-on[data-v="machine"]) .ui-switch-knob::before {
+  content: "I"; color: #b3261e;
+}
+:is(html[data-commutateur="machine"] .ui-switch:not([data-v]), .ui-switch[data-v="machine"]) .ui-switch-knob:active { transform: none; top: 4px; }
+
+/* ── Boule disco : facettes miroir, scintillement et halo coloré quand elle est allumée ──────────────────── */
+:is(html[data-commutateur="disco"] .ui-switch:not([data-v]), .ui-switch[data-v="disco"]) .ui-switch-knob {
+  border: 0; border-radius: 50%; overflow: hidden;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255,255,255,.95) 0 5%, transparent 24%),
+    repeating-linear-gradient(0deg, rgba(0,0,0,.42) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,.42) 0 1px, transparent 1px 5px),
+    radial-gradient(circle at 35% 30%, #eef0f3, #9aa0a8 55%, #3f444c);
+  box-shadow: inset -5px -7px 11px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.3);
+  filter: grayscale(.6) brightness(.78);
+  transition: filter .25s ease;
+}
+:is(html[data-commutateur="disco"] .ui-switch:not([data-v]), .ui-switch[data-v="disco"]) .ui-switch-knob::before,
+:is(html[data-commutateur="disco"] .ui-switch:not([data-v]), .ui-switch[data-v="disco"]) .ui-switch-knob::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; opacity: 0; transition: opacity .2s ease; pointer-events: none;
+}
+/* teinte de la lumière qui tourne sur les miroirs */
+:is(html[data-commutateur="disco"] .ui-switch:not([data-v]), .ui-switch[data-v="disco"]) .ui-switch-knob::before {
+  background: conic-gradient(#ff3d81, #ffd23d, #3dffa2, #3db7ff, #b43dff, #ff3d81);
+  mix-blend-mode: overlay;
+}
+/* petits éclats : quelques miroirs qui flashent */
+:is(html[data-commutateur="disco"] .ui-switch:not([data-v]), .ui-switch[data-v="disco"]) .ui-switch-knob::after {
+  background:
+    radial-gradient(circle at 22% 32%, #fff 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 74% 24%, #bff 0 1.4px, transparent 2.4px),
+    radial-gradient(circle at 62% 72%, #ffc2ec 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 28% 74%, #fff7b0 0 1.4px, transparent 2.4px),
+    radial-gradient(circle at 50% 48%, #fff 0 1.2px, transparent 2.2px);
+}
+:is(html[data-commutateur="disco"] .ui-switch.is-on:not([data-v]), .ui-switch.is-on[data-v="disco"]) .ui-switch-knob {
+  filter: none; border: 0;
+  animation: disco-facettes 1.8s linear infinite, disco-halo 1.6s steps(1) infinite;
+}
+:is(html[data-commutateur="disco"] .ui-switch.is-on:not([data-v]), .ui-switch.is-on[data-v="disco"]) .ui-switch-knob::before {
+  opacity: .6; animation: disco-teinte 3s linear infinite;
+}
+:is(html[data-commutateur="disco"] .ui-switch.is-on:not([data-v]), .ui-switch.is-on[data-v="disco"]) .ui-switch-knob::after {
+  opacity: 1; animation: disco-eclats 1.1s steps(1) infinite;
+}
+@keyframes disco-facettes { to { background-position: 0 0, 0 0, 5px 0, 0 0; } }
+@keyframes disco-teinte { to { transform: rotate(360deg); } }
+@keyframes disco-eclats {
+  0%   { transform: rotate(0deg);   opacity: 1; }
+  20%  { transform: rotate(70deg);  opacity: .35; }
+  40%  { transform: rotate(140deg); opacity: 1; }
+  60%  { transform: rotate(205deg); opacity: .5; }
+  80%  { transform: rotate(275deg); opacity: 1; }
+}
+@keyframes disco-halo {
+  0%   { box-shadow: inset -5px -7px 11px rgba(0,0,0,.5), 0 0 12px 2px #ff3d81; }
+  25%  { box-shadow: inset -5px -7px 11px rgba(0,0,0,.5), 0 0 12px 2px #ffd23d; }
+  50%  { box-shadow: inset -5px -7px 11px rgba(0,0,0,.5), 0 0 12px 2px #3db7ff; }
+  75%  { box-shadow: inset -5px -7px 11px rgba(0,0,0,.5), 0 0 12px 2px #b43dff; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(html[data-commutateur="disco"] .ui-switch.is-on:not([data-v]), .ui-switch.is-on[data-v="disco"]) .ui-switch-knob,
+  :is(html[data-commutateur="disco"] .ui-switch.is-on:not([data-v]), .ui-switch.is-on[data-v="disco"]) .ui-switch-knob::before,
+  :is(html[data-commutateur="disco"] .ui-switch.is-on:not([data-v]), .ui-switch.is-on[data-v="disco"]) .ui-switch-knob::after { animation: none; }
+}
+
+/* ── Switch d'usine : plaque ON (rouge) / OFF (noir), écrou chromé, levier qui bascule ──────────────────── */
+:is(html[data-commutateur="usine"] .ui-switch:not([data-v]), .ui-switch[data-v="usine"]) .ui-switch-knob {
+  width: 40px; height: 62px; border: 1px solid #b9bcc0; border-radius: 3px; overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 50%, #f4f4f4 0 3px, #8d9096 4px 6px, #e6e8ea 7px 9px, #6c6f75 10px 10.5px, transparent 11px),
+    linear-gradient(#8d2a2a 0 50%, #1c1c1e 50% 100%);
+  box-shadow: 0 2px 4px rgba(0,0,0,.35);
+  transition: background .2s ease;
+}
+/* libellés ON en haut, OFF en bas (un seul bloc de texte : les lignes vides laissent la place à l'écrou) */
+:is(html[data-commutateur="usine"] .ui-switch:not([data-v]), .ui-switch[data-v="usine"]) .ui-switch-knob::before {
+  content: "ON\A \A \A \AOFF"; white-space: pre; text-align: center;
+  position: absolute; left: 0; right: 0; top: 4px;
+  font: 700 9px/11px Arial, Helvetica, sans-serif; letter-spacing: .12em; color: rgba(255,255,255,.88);
+}
+/* levier : pivote autour de l'écrou, vers le bas (OFF) ou vers le haut (ON) */
+:is(html[data-commutateur="usine"] .ui-switch:not([data-v]), .ui-switch[data-v="usine"]) .ui-switch-knob::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 7px; height: 16px; margin-left: -3.5px;
+  border-radius: 4px 4px 5px 5px; transform-origin: 50% 0; transform: rotate(0deg);
+  background: linear-gradient(90deg, #8a8d93, #fafafa 38%, #c9ccd1 62%, #6f7279);
+  box-shadow: 0 2px 3px rgba(0,0,0,.45);
+  transition: transform .2s cubic-bezier(.3, 1.6, .5, 1);
+}
+:is(html[data-commutateur="usine"] .ui-switch.is-on:not([data-v]), .ui-switch.is-on[data-v="usine"]) .ui-switch-knob {
+  border-bottom-color: #b9bcc0;
+  background:
+    radial-gradient(circle at 50% 50%, #f4f4f4 0 3px, #8d9096 4px 6px, #e6e8ea 7px 9px, #6c6f75 10px 10.5px, transparent 11px),
+    linear-gradient(#e0392f 0 50%, #2a2a2c 50% 100%);
+  box-shadow: 0 2px 4px rgba(0,0,0,.35), 0 0 0 3px var(--accent-bg);
+}
+:is(html[data-commutateur="usine"] .ui-switch.is-on:not([data-v]), .ui-switch.is-on[data-v="usine"]) .ui-switch-knob::after {
+  transform: rotate(180deg);
+}
+:is(html[data-commutateur="usine"] .ui-switch:not([data-v]), .ui-switch[data-v="usine"]) .ui-switch-knob:active { transform: none; }
+
+/* ── Aperçus de la carte « Commutateurs » : un commutateur OFF et un ON côte à côte, non interactifs ──────── */
+.commut-apercu { display: flex; justify-content: center; gap: 22px; padding: 10px 0 6px; pointer-events: none; }
+.commut-apercu .ui-switch-state { font-size: 9px; }
