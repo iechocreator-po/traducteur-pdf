@@ -104,20 +104,29 @@ struct ContentView: View {
     /// Cartes du Laboratoire désactivées dans Réglages, sous forme « C2,C4 » (Views/Reperes.swift).
     @AppStorage("labCartesMasquees") private var labCartesMasquees: String = ""
     @State private var reglagesOuverts = false
+    @AppStorage(StyleVisuel.cleStockage) private var styleChoisi: StyleVisuel = .classique
 
     var body: some View {
         VStack(spacing: 0) {
             barreApp
             Divider()
-            switch moduleActif {
-            case .nouveauDocument:
-                ImportModuleView(modeAvance: modeAvance)
-            case .bibliotheque:
-                BibliothequeModuleView()
-            case .laboratoire:
-                LaboratoireModuleView()
+            // .id(styleChoisi) : DS.* est lu à chaque rendu mais les sous-vues ne se
+            // redessinent pas d'elles-mêmes quand le style change → on reconstruit le module.
+            Group {
+                switch moduleActif {
+                case .nouveauDocument:
+                    ImportModuleView(modeAvance: modeAvance)
+                case .bibliotheque:
+                    BibliothequeModuleView()
+                case .laboratoire:
+                    LaboratoireModuleView()
+                }
             }
+            .id(styleChoisi)
         }
+        .background(styleChoisi.fondOuNatif)
+        .fontDesign(styleChoisi.design)
+        .tint(styleChoisi.accent)
         .environmentObject(env)
         .frame(minWidth: 860, minHeight: 560)
         .task { await env.rafraichir() }
@@ -136,7 +145,7 @@ struct ContentView: View {
     private var barreApp: some View {
         HStack(spacing: 16) {
             HStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: min(6, DS.radiusSm))
                     .fill(DS.accent)
                     .frame(width: 18, height: 18)
                 Text("toledo")
@@ -150,7 +159,7 @@ struct ContentView: View {
                             if reperesInterface {
                                 RepereOnglet(texte: lettreRepere(index), actif: moduleActif == module)
                             }
-                            Text(module.libelle)
+                            Text(module.libelle).textCase(styleChoisi.casse)
                         }
                     }
                         .buttonStyle(.plain)

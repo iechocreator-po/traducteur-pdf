@@ -8,6 +8,7 @@ struct ReglagesView: View {
     @Binding var reperesInterface: Bool
     @Binding var cartesMasqueesCSV: String
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(StyleVisuel.cleStockage) private var styleChoisi: StyleVisuel = .classique
 
     /// Cartes du Laboratoire activables une à une. Liste écrite à la main, comme les repères
     /// eux-mêmes (voir Reperes.swift) : ajouter une carte au Laboratoire oblige à l'ajouter ici.
@@ -42,6 +43,7 @@ struct ReglagesView: View {
                     carteModeAvance.repere("R-A1")
                     carteReperes.repere("R-A2")
                     carteLaboratoire.repere("R-A3")
+                    carteStyle.repere("R-A4")
                 }
                 .padding(.top, 8)
                 .padding(.horizontal, 2)
@@ -120,5 +122,71 @@ struct ReglagesView: View {
                 cartesMasqueesCSV = csvDepuisIds(ids)
             }
         )
+    }
+
+    // MARK: - Style de l'interface (même 6 styles que la version web)
+
+    private var carteStyle: some View {
+        GroupBox("Style de l'interface") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Le changement est immédiat et mémorisé. Chaque style existe en clair et en sombre (sélecteur Auto / Clair / Sombre en haut). « Classique » est l'apparence habituelle de toledo.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+                    ForEach(StyleVisuel.allCases) { style in
+                        carteChoixStyle(style)
+                    }
+                }
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func carteChoixStyle(_ style: StyleVisuel) -> some View {
+        let actif = style == styleChoisi
+        return Button {
+            styleChoisi = style
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: style.radiusSm)
+                        .fill(style.fondOuNatif)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Aa")
+                            .font(.system(size: 16, weight: .bold, design: style.design))
+                            .foregroundStyle(DS.text)
+                        RoundedRectangle(cornerRadius: style.radiusSm / 3)
+                            .fill(style.accent)
+                            .frame(width: 90, height: 5)
+                    }
+                    .padding(8)
+                }
+                .frame(height: 54)
+                .overlay(RoundedRectangle(cornerRadius: style.radiusSm).strokeBorder(DS.border))
+                HStack {
+                    Text(style.libelle)
+                        .font(.system(size: 12, weight: .semibold))
+                    Spacer()
+                    if actif {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(style.accent)
+                    }
+                }
+                Text(style.detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.radiusSm))
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.radiusSm)
+                    .strokeBorder(actif ? style.accent : DS.border, lineWidth: actif ? 2 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(actif ? .isSelected : [])
     }
 }

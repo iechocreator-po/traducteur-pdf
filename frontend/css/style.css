@@ -195,6 +195,10 @@ pre { white-space: pre-wrap; font-size: 0.85rem; }
   padding: 2rem 1.4rem;
   transition: border-color 0.15s, background 0.15s;
 }
+/* .aide a une marge haute négative (utile sous un h2) : dans la dropzone elle
+   mordait sur le titre. On la remplace par un vrai espacement. */
+.carte-dropzone .aide { margin-top: 0.4rem; }
+.carte-dropzone .ligne-ajout { justify-content: center; }
 .carte-dropzone.is-survol {
   border-color: var(--accent);
   background: var(--accent-bg);

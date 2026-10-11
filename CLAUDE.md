@@ -108,6 +108,31 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   (onglet + contenu masqués sinon). Le Laboratoire a deux sous-onglets : « Outils » et « Scan multi-colonnes » (voir la
   section dédiée plus bas).
 
+### Styles visuels (⚙ Réglages → « Style de l'interface »)
+
+Le panneau **⚙ Réglages** (web et macOS) propose, dans la carte « Style de l'interface » (dernière
+carte de l'onglet *Personnalisation*, repère `R-A4` sur macOS), 6 styles : *Classique* (= l'apparence
+propre à toledo, vert d'eau — `theme-toledo.css`), *Bureau suisse*, *Machine à écrire*, *Classeur
+d'archives*, *Plan de travail*, *Calque*. Le choix est **dynamique** (clic = application immédiate)
+et mémorisé (web : `localStorage["style"]` ; macOS : UserDefaults `styleVisuel`).
+
+- **Web** : `appliquerStyle()` (`commun.js`) pose `<html data-style="…">` (absent = Classique) ; un
+  script inline du `<head>` le réapplique avant le premier rendu. `css/styles-visuels.css`, chargé
+  **après** `theme-toledo.css`, redéfinit les tokens sémantiques (`--bg`, `--surface`, `--accent`,
+  `--on-accent`…) en clair ET sombre + polices/rayons + retouches de composants (`.ds-card`,
+  `.ds-btn`, barre de progression…). La grille de choix est `js/reglages-styles.js`. Polices =
+  **piles système** (jamais de CDN : app 100 % locale). Exception assumée à « pas de hex en dur » :
+  les palettes de ce fichier et les pastilles d'aperçu `.apercu-*`.
+- **macOS** : `StylesVisuels.swift` (enum `StyleVisuel`), carte dans `Views/ReglagesView.swift`.
+  `DS.accent` et `DS.radius*` (`Theme.swift`) sont **calculés** depuis le style courant ;
+  `ContentView` observe la clé, applique fond / `.fontDesign` / `.tint` / casse des onglets et
+  reconstruit le module actif (`.id(style)`) pour que les sous-vues relisent `DS.*`. Les surfaces
+  natives (GroupBox, matériaux) restent natives ; typographie = design système (monospace/serif).
+- Pour ajouter un style : un bloc de tokens ×3 dans `styles-visuels.css` (clair / `[data-theme="dark"]`
+  / media sombre), un `.apercu-<id>`, l'id dans `STYLES_IDS` (`commun.js`) et `STYLES_VISUELS`
+  (`reglages-styles.js`), et le `case` dans `StyleVisuel`. Les valeurs web et macOS doivent rester
+  alignées.
+
 ### Mode avancé et feature flags
 
 - **Mode avancé** (`appliquerModeAvance` dans `commun.js`) : bascule `.hidden` sur tous
