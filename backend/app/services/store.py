@@ -201,7 +201,7 @@ def lire_morceaux(chemin_sortie: str) -> dict[str, str]:
     lignes = connexion().execute(
         "SELECT cle, texte FROM morceaux WHERE chemin_sortie = ?", (chemin_sortie,)
     ).fetchall()
-    return {l["cle"]: l["texte"] for l in lignes}
+    return {ligne["cle"]: ligne["texte"] for ligne in lignes}
 
 
 def ecrire_morceau(chemin_sortie: str, cle: str, texte: str) -> None:
@@ -311,7 +311,7 @@ def lire_chapitres(chemin_sortie: str) -> list[dict]:
         "WHERE chemin_sortie = ? ORDER BY ordre",
         (chemin_sortie,),
     ).fetchall()
-    return [dict(l) for l in lignes]
+    return [dict(ligne) for ligne in lignes]
 
 
 def enregistrer_document(
@@ -348,4 +348,4 @@ def lister_documents() -> list[dict]:
         "SELECT chemin_sortie, chemin_source, modele, langue_source, langue_cible, maj_a "
         "FROM documents"
     ).fetchall()
-    return [dict(l) for l in lignes]
+    return [dict(ligne) for ligne in lignes]

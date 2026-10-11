@@ -64,7 +64,8 @@ def test_une_collecte_ne_fuit_pas_vers_un_autre_fil():
         vu["courant"] = metriques.courant()
 
     t = threading.Thread(target=autre)
-    t.start(); t.join()
+    t.start()
+    t.join()
     assert vu["courant"] is None
 
 

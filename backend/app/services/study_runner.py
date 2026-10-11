@@ -18,7 +18,7 @@ import uuid
 
 from app.config.settings import ETUDE_CONTEXTE_MAX, ETUDE_CONDENSE_CHUNK
 from app.services import metriques, stats
-from app.services.persistance import ecrire_texte_atomique, lire_json_tolerant
+from app.services.persistance import ecrire_texte_atomique
 from app.models.schemas import EtatJobEtude, FicheChapitre, StatutJob
 from app.services.etude import (
     calculer_nb_points,

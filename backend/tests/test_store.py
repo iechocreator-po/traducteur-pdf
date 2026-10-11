@@ -27,7 +27,7 @@ def test_le_schema_se_cree_et_le_mode_wal_est_actif():
     mode = store.connexion().execute("PRAGMA journal_mode").fetchone()[0]
     assert mode.lower() == "wal", "sans WAL, un lecteur bloque le rédacteur"
     tables = {
-        l["name"] for l in store.connexion().execute(
+        ligne["name"] for ligne in store.connexion().execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         )
     }
@@ -136,8 +136,10 @@ def test_deux_threads_ecrivent_sans_se_marcher_dessus():
             store.fermer()
 
     fils = [threading.Thread(target=ecrire, args=(p,)) for p in ("a", "b", "c")]
-    for f in fils: f.start()
-    for f in fils: f.join()
+    for f in fils:
+        f.start()
+    for f in fils:
+        f.join()
 
     assert erreurs == [], f"écritures concurrentes en échec : {erreurs}"
     assert len(store.lire_morceaux("/doc.md")) == 60

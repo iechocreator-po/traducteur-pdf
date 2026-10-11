@@ -931,7 +931,7 @@
     const codes = [];
     s = s.replace(/`([^`]+)`/g, (_, c) => {
       codes.push(c);
-      return ` CODE${codes.length - 1} `;
+      return `\x00CODE${codes.length - 1}\x00`;
     });
 
     // 3. Liens — protocole restreint : `javascript:` dans un document traduit
@@ -954,7 +954,7 @@
     s = s.replace(/~~([^~]+)~~/g, "<del>$1</del>");
 
     // 5. Restaure le code littéral.
-    s = s.replace(/ CODE(\d+) /g, (_, i) => `<code>${codes[Number(i)]}</code>`);
+    s = s.replace(/\x00CODE(\d+)\x00/g, (_, i) => `<code>${codes[Number(i)]}</code>`);
     return s;
   }
 
@@ -1168,9 +1168,10 @@
 
   $("doc-exporter").addEventListener("click", exporterDocumentHtml);
   document.addEventListener("flags-charges", majBoutonExportDocument);
-  // commun.js bascule la classe "avance" AVANT que ce listener ne s'exécute
-  // (script chargé plus tôt, même clic) — pas besoin de délai.
-  $("switch-avance").addEventListener("click", majBoutonExportDocument);
+  // Le mode avancé se règle maintenant par l'interrupteur de ⚙ Réglages (#avance-toggle, évènement
+  // "change"). commun.js bascule la classe "avance" AVANT que ce listener ne s'exécute (script
+  // chargé plus tôt, même évènement) — pas besoin de délai.
+  $("avance-toggle").addEventListener("change", majBoutonExportDocument);
 
   // ── Rafraîchissements ───────────────────────────────────────────────────────
 

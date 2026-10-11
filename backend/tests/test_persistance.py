@@ -8,7 +8,6 @@ une simulation par monkeypatch d'une exception.
 """
 
 import json
-import os
 
 import pytest
 

@@ -7,8 +7,6 @@ le MÊME fichier de sortie, le même `.state.json` et le même cache. Or compare
 deux modèles sur un document est la raison même d'en installer un second.
 """
 
-import os
-
 from app.models.schemas import EtatJob, Langue, StatutJob
 from app.services import job_manager
 from app.services.translation_runner import (

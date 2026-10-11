@@ -16,6 +16,7 @@ from app.services.translator import (
     appeler_ollama,
     lister_modeles_disponibles,
     traduire_texte,
+    verifier_ollama_pret,
 )
 
 
@@ -160,7 +161,6 @@ def test_lister_modeles_disponibles_retourne_liste_vide_si_ollama_inaccessible(m
 
 
 # ── Preflight verifier_ollama_pret ────────────────────────────────────────────
-from app.services.translator import verifier_ollama_pret
 
 
 @patch("app.services.translator.requests.post")

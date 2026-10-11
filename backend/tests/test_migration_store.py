@@ -10,8 +10,6 @@ import importlib.util
 import os
 import sys
 
-import pytest
-
 _CHEMIN = os.path.join(os.path.dirname(__file__), "..", "scripts", "migrer_vers_store.py")
 _spec = importlib.util.spec_from_file_location("migrer_vers_store", _CHEMIN)
 migration = importlib.util.module_from_spec(_spec)

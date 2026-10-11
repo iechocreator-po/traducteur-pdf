@@ -55,7 +55,7 @@ def _mock_generation(monkeypatch):
     # « sections » étant le défaut depuis le 19/8, la consolidation est sur le
     # chemin normal : sans ce faux, les tests taperaient sur Ollama pour de vrai.
     monkeypatch.setattr(study_runner, "consolider_points",
-                        lambda listes, m, l, n: [p for section in listes for p in section][:n])
+                        lambda listes, m, langue, n: [p for section in listes for p in section][:n])
 
 
 def test_fiche_complete(tmp_path, monkeypatch):
@@ -152,8 +152,12 @@ def test_pause_puis_reprise(tmp_path, monkeypatch):
         time.sleep(0.2)
         return _points_factices(texte, modele, langue, nb)
 
+    # _mock_generation couvre aussi consolider_points : sans lui, la reprise (stratégie « sections »,
+    # le défaut) appelait un vrai Ollama — le test passait sur une machine où il tourne, et échouait
+    # partout ailleurs (CI). On garde ensuite la version lente de generer_points pour laisser le temps
+    # de mettre en pause.
+    _mock_generation(monkeypatch)
     monkeypatch.setattr(study_runner, "generer_points", points_lents)
-    monkeypatch.setattr(study_runner, "generer_questions", _questions_factices)
     source = tmp_path / "livre.md"
     source.write_text(DOCUMENT)
 
@@ -286,7 +290,7 @@ def test_la_strategie_sections_lit_le_TEXTE_pas_des_notes(tmp_path, monkeypatch)
     monkeypatch.setattr(study_runner, "condenser_texte", condense_trace)
     monkeypatch.setattr(study_runner, "generer_questions", _questions_factices)
     monkeypatch.setattr(study_runner, "consolider_points",
-                        lambda listes, m, l, n: [p for s in listes for p in s][:n])
+                        lambda listes, m, langue, n: [p for s in listes for p in s][:n])
 
     # Chapitre nettement au-dessus du seuil de condensation.
     contenu = "# Titre\n\n" + ("phrase distinctive alpha. " * 900)
@@ -327,9 +331,9 @@ def test_la_strategie_par_defaut_est_desormais_sections(tmp_path, monkeypatch):
     monkeypatch.setattr(study_runner, "generer_points", _points_factices)
     monkeypatch.setattr(study_runner, "generer_questions", _questions_factices)
     monkeypatch.setattr(study_runner, "consolider_points",
-                        lambda listes, m, l, n: [p for s in listes for p in s][:n])
+                        lambda listes, m, langue, n: [p for s in listes for p in s][:n])
     monkeypatch.setattr(study_runner, "condenser_texte",
-                        lambda t, m, l: condensations.append(t) or "notes")
+                        lambda t, m, langue: condensations.append(t) or "notes")
 
     contenu = "# Titre\n\n" + ("mot " * 4000)
     source = tmp_path / "long.md"
@@ -348,7 +352,7 @@ def test_les_deux_strategies_produisent_deux_fiches_distinctes(tmp_path, monkeyp
     monkeypatch.setattr(study_runner, "generer_points", _points_factices)
     monkeypatch.setattr(study_runner, "generer_questions", _questions_factices)
     monkeypatch.setattr(study_runner, "consolider_points",
-                        lambda listes, m, l, n: [p for s in listes for p in s][:n])
+                        lambda listes, m, langue, n: [p for s in listes for p in s][:n])
 
     source = tmp_path / "doc.md"
     source.write_text("# Titre\n\nUn contenu court.\n", encoding="utf-8")
@@ -386,12 +390,12 @@ def test_la_strategie_sections_ne_condense_plus_JAMAIS(tmp_path, monkeypatch):
         return [QuestionEtude(question=f"Q{i} ?", reponse=f"R{i}.") for i in range(nb)]
 
     monkeypatch.setattr(study_runner, "generer_points",
-                        lambda t, m, l, n: [f"point ancré {i}" for i in range(n)])
+                        lambda t, m, langue, n: [f"point ancré {i}" for i in range(n)])
     monkeypatch.setattr(study_runner, "generer_questions", questions_tracees)
     monkeypatch.setattr(study_runner, "condenser_texte",
-                        lambda t, m, l: condensations.append(t) or "notes")
+                        lambda t, m, langue: condensations.append(t) or "notes")
     monkeypatch.setattr(study_runner, "consolider_points",
-                        lambda listes, m, l, n: [p for s in listes for p in s][:n])
+                        lambda listes, m, langue, n: [p for s in listes for p in s][:n])
 
     # Chapitre largement au-dessus du seuil de condensation.
     source = tmp_path / "long.md"
@@ -424,7 +428,7 @@ def test_la_condensation_garde_son_chemin_pour_les_questions(tmp_path, monkeypat
     monkeypatch.setattr(study_runner, "generer_points", _points_factices)
     monkeypatch.setattr(study_runner, "generer_questions", questions_tracees)
     monkeypatch.setattr(study_runner, "condenser_texte",
-                        lambda t, m, l: condensations.append(t) or "notes")
+                        lambda t, m, langue: condensations.append(t) or "notes")
 
     source = tmp_path / "long.md"
     source.write_text("# Titre\n\n" + ("mot " * 4000), encoding="utf-8")

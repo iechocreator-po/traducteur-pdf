@@ -100,7 +100,7 @@ def plages(masque, longueur_min: int) -> list[tuple[int, int]]:
 
 def detecter_gouttiere(gris) -> int:
     """Abscisse de la gouttière d'une double page : colonne la plus vide autour du centre."""
-    np = _numpy()
+    _numpy()  # vérifie que numpy est installé (erreur claire sinon) ; seul le tableau gris est utilisé ici
     h, w = gris.shape
     sombre = (gris < 120).astype(float)[int(h * 0.5):]
     profil = _lisser(sombre.mean(0), 9)
@@ -184,7 +184,7 @@ def langues_tesseract() -> list[str]:
     if not tesseract_disponible():
         return []
     sortie = subprocess.run(["tesseract", "--list-langs"], capture_output=True, text=True).stdout
-    return [l.strip() for l in sortie.splitlines()[1:] if l.strip()]
+    return [ligne.strip() for ligne in sortie.splitlines()[1:] if ligne.strip()]
 
 
 def _tesseract(image, psm: int, langue: str, tsv: bool = False) -> str:
