@@ -8,11 +8,12 @@ import Combine
 //   • Nouveau document — lot multi-fichiers, analyse auto, lancement en lot
 //   • Bibliothèque     — lecture par chapitre, audio TTS, panneau IA
 //   • Laboratoire      — configuration technique, outils, teasers
+//   • Réglages         — style visuel de l'interface (StylesVisuels.swift)
 // ============================================================================
 
 /// Module actif de la barre de navigation.
 enum ModuleApp: String, CaseIterable, Identifiable {
-    case nouveauDocument, bibliotheque, laboratoire
+    case nouveauDocument, bibliotheque, laboratoire, reglages
 
     var id: String { rawValue }
 
@@ -21,6 +22,7 @@ enum ModuleApp: String, CaseIterable, Identifiable {
         case .nouveauDocument: return "Nouveau document"
         case .bibliotheque: return "Bibliothèque"
         case .laboratoire: return "Laboratoire"
+        case .reglages: return "Réglages"
         }
     }
 }
@@ -99,20 +101,31 @@ struct ContentView: View {
     @AppStorage("themeChoice") private var themeChoice: ThemeChoice = .auto
     @AppStorage("moduleActif") private var moduleActif: ModuleApp = .nouveauDocument
     @AppStorage("modeAvance") private var modeAvance: Bool = false
+    @AppStorage(StyleVisuel.cleStockage) private var styleChoisi: StyleVisuel = .classique
 
     var body: some View {
         VStack(spacing: 0) {
             barreApp
             Divider()
-            switch moduleActif {
-            case .nouveauDocument:
-                ImportModuleView(modeAvance: modeAvance)
-            case .bibliotheque:
-                BibliothequeModuleView()
-            case .laboratoire:
-                LaboratoireModuleView()
+            // .id(styleChoisi) : DS.* est lu à chaque rendu mais les sous-vues ne se
+            // redessinent pas d'elles-mêmes quand le style change → on reconstruit le module.
+            Group {
+                switch moduleActif {
+                case .nouveauDocument:
+                    ImportModuleView(modeAvance: modeAvance)
+                case .bibliotheque:
+                    BibliothequeModuleView()
+                case .laboratoire:
+                    LaboratoireModuleView()
+                case .reglages:
+                    ReglagesModuleView()
+                }
             }
+            .id(styleChoisi)
         }
+        .background(styleChoisi.fondOuNatif)
+        .fontDesign(styleChoisi.design)
+        .tint(styleChoisi.accent)
         .environmentObject(env)
         .frame(minWidth: 860, minHeight: 560)
         .task { await env.rafraichir() }
@@ -122,7 +135,7 @@ struct ContentView: View {
     private var barreApp: some View {
         HStack(spacing: 16) {
             HStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: min(6, DS.radiusSm))
                     .fill(DS.accent)
                     .frame(width: 18, height: 18)
                 Text("toledo")
@@ -131,7 +144,9 @@ struct ContentView: View {
 
             HStack(spacing: 4) {
                 ForEach(ModuleApp.allCases) { module in
-                    Button(module.libelle) { moduleActif = module }
+                    Button { moduleActif = module } label: {
+                        Text(module.libelle).textCase(styleChoisi.casse)
+                    }
                         .buttonStyle(.plain)
                         .font(.system(size: 12.5, weight: .semibold))
                         .padding(.horizontal, 12)

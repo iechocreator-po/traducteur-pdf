@@ -120,7 +120,14 @@ composants. Polices = **piles système** (jamais de CDN : l'app est 100 % locale
 fichier et les pastilles d'aperçu `.apercu-*` sont l'exception assumée à « pas de hex en dur ».
 Pour ajouter un style : un bloc de tokens ×3 (clair / `[data-theme="dark"]` / media sombre), l'id dans
 `STYLES_IDS` (`commun.js`) et `STYLES_VISUELS` (`module-reglages.js`), un `.apercu-<id>`.
-**v1 web** — parité macOS différée.
+
+**macOS** : même onglet **Réglages** (`Views/ReglagesModuleView.swift`) et mêmes 6 styles
+(`StylesVisuels.swift`, enum `StyleVisuel`, clé UserDefaults `styleVisuel`). `DS.accent` et `DS.radius*`
+(`Theme.swift`) sont désormais **calculés** à partir du style courant ; `ContentView` observe la clé,
+applique fond / `.fontDesign` / `.tint` / casse des onglets et reconstruit le module actif (`.id(style)`)
+pour que les sous-vues relisent `DS.*`. Périmètre volontairement limité : les surfaces natives
+(GroupBox, matériaux) restent natives, et la typographie passe par le design système (monospace /
+serif), pas par une police embarquée. Les valeurs doivent rester alignées sur `styles-visuels.css`.
 
 ### Mode avancé et feature flags
 
@@ -265,7 +272,7 @@ Le TTS local a un troisième moteur, `openvoice`, à côté de Piper et Kokoro :
   pour d'autres fonctionnalités du projet).
 
 L'app macOS (Swift/SwiftUI, `macos-app/`) suit le **même design Workflow** : barre
-supérieure (navigation 3 modules, pastilles de statut, thème, mode avancé) dans
+supérieure (navigation 4 modules dont Réglages, pastilles de statut, thème, mode avancé) dans
 `ContentView.swift` (+ `AppEnvironment` partagé), et un fichier par module dans
 `Views/` (`ImportModuleView` avec drag & drop natif + NSOpenPanel,
 `BibliothequeModuleView` avec lecteur AVAudioPlayer lisant le WAV du disque,
