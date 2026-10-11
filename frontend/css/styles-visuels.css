@@ -1,0 +1,319 @@
+/* ============================================================================
+   STYLES VISUELS — choisis par l'utilisateur dans l'onglet « Réglages ».
+   Un style = un attribut  <html data-style="…">  (mémorisé dans localStorage["style"]).
+   Sans attribut → style « Classique » = design system tel quel (tokens.css + style.css).
+
+   Chaque style redéfinit la couche SÉMANTIQUE des tokens (--bg, --surface, --text,
+   --accent…) pour le mode clair ET le mode sombre, plus les polices et les rayons ;
+   puis quelques retouches de composants. Les polices sont des piles SYSTÈME :
+   l'app est 100 % locale, aucune police n'est téléchargée depuis un CDN.
+
+   Mécanique clair/sombre (même schéma que tokens.css) :
+     html[data-style=x]                                  → clair
+     html[data-style=x][data-theme="dark"]               → sombre explicite
+     @media dark  html[data-style=x]:not([data-theme="light"]) → sombre « Auto »
+   Exception assumée à la règle « jamais de hex en dur » : les palettes des styles
+   eux-mêmes et les pastilles d'aperçu (.apercu-*) en bas de fichier, qui doivent
+   montrer un style SANS l'activer.
+   ============================================================================ */
+
+html[data-style] .bouton-principal { color: var(--accent-ink, #fff); }
+html[data-style] h1, html[data-style] h2, html[data-style] h3 { font-family: var(--font-titre, inherit); }
+@keyframes curseur-clignote { 50% { opacity: 0; } }
+
+/* ═══ 1 · Bureau suisse ═══════════════════════════════════════════════════════ */
+html[data-style="suisse"] {
+  --bg: #f1f1ee; --surface: #ffffff; --surface-2: #e8e8e3;
+  --text: #0f0f0f; --text-2: #4d4d49; --text-3: #6d6d66;
+  --border: rgba(15, 15, 15, 0.22);
+  --accent: #d62a14; --accent-bg: #fbe3de; --accent-ink: #ffffff;
+  --font-sans: "Helvetica Neue", Helvetica, Arial, "Segoe UI", sans-serif;
+  --font-titre: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --ds-radius-sm: 0; --ds-radius: 0; --ds-radius-lg: 0;
+  --radius-sm: 0; --radius-lg: 0;
+}
+html[data-style="suisse"][data-theme="dark"] {
+  --bg: #111111; --surface: #1a1a1a; --surface-2: #262626;
+  --text: #f2f2ee; --text-2: #b5b5ae; --text-3: #8d8d86;
+  --border: rgba(255, 255, 255, 0.24);
+  --accent: #ff5a42; --accent-bg: #3a1812; --accent-ink: #111111;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-style="suisse"]:not([data-theme="light"]) {
+    --bg: #111111; --surface: #1a1a1a; --surface-2: #262626;
+    --text: #f2f2ee; --text-2: #b5b5ae; --text-3: #8d8d86;
+    --border: rgba(255, 255, 255, 0.24);
+    --accent: #ff5a42; --accent-bg: #3a1812; --accent-ink: #111111;
+  }
+}
+html[data-style="suisse"] .barre-app { border-bottom: 3px solid var(--text); }
+html[data-style="suisse"] .logo { font-size: 1.15rem; letter-spacing: -0.03em; }
+html[data-style="suisse"] .logo-pastille { border-radius: 0; width: 14px; height: 14px; }
+html[data-style="suisse"] .onglet-module { border-radius: 0; background: transparent; padding-inline: 0.2rem; margin-right: 0.9rem; border-bottom: 3px solid transparent; }
+html[data-style="suisse"] .onglet-module.is-active { background: transparent; color: var(--text); border-bottom-color: var(--accent); }
+html[data-style="suisse"] .carte { border: 0; border-top: 2px solid var(--text); background: transparent; padding-inline: 0; }
+html[data-style="suisse"] .carte.reprendre-ligne { border: 1px solid var(--border); background: var(--surface); padding-inline: 1rem; }
+html[data-style="suisse"] .carte-dropzone { border: 1.5px solid var(--text); background: var(--surface); }
+html[data-style="suisse"] .carte h2 { color: var(--text); text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.78rem; font-weight: 800; }
+html[data-style="suisse"] .barre-conteneur { height: 6px; border-radius: 0; }
+html[data-style="suisse"] .barre-progression { border-radius: 0; }
+html[data-style="suisse"] .bouton-secondaire, html[data-style="suisse"] .bouton-mini { background: transparent; border: 1.5px solid var(--text); font-weight: 600; }
+html[data-style="suisse"] .pill, html[data-style="suisse"] .badge-type, html[data-style="suisse"] .statut-badge { border-radius: 0; }
+
+/* ═══ 2 · Machine à écrire ════════════════════════════════════════════════════ */
+html[data-style="machine"] {
+  --bg: #ecebe6; --surface: #f6f5f0; --surface-2: #e2e0d8;
+  --text: #22201c; --text-2: #4f4b44; --text-3: #6f6a60;
+  --border: rgba(34, 32, 28, 0.55);
+  --accent: #b3261e; --accent-bg: #eed9d5; --accent-ink: #ffffff;
+  --font-sans: "American Typewriter", "Courier Prime", "Courier New", Courier, monospace;
+  --font-mono: "American Typewriter", "Courier New", Courier, monospace;
+  --font-titre: "American Typewriter", "Courier New", Courier, monospace;
+  --ds-radius-sm: 0; --ds-radius: 0; --ds-radius-lg: 0;
+  --radius-sm: 0; --radius-lg: 0;
+}
+html[data-style="machine"][data-theme="dark"] {
+  --bg: #1c1b18; --surface: #24231f; --surface-2: #2f2d28;
+  --text: #e8e4d8; --text-2: #b3ad9c; --text-3: #8d8777;
+  --border: rgba(232, 228, 216, 0.42);
+  --accent: #ef6f63; --accent-bg: #3d1e1a; --accent-ink: #1c1b18;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-style="machine"]:not([data-theme="light"]) {
+    --bg: #1c1b18; --surface: #24231f; --surface-2: #2f2d28;
+    --text: #e8e4d8; --text-2: #b3ad9c; --text-3: #8d8777;
+    --border: rgba(232, 228, 216, 0.42);
+    --accent: #ef6f63; --accent-bg: #3d1e1a; --accent-ink: #1c1b18;
+  }
+}
+html[data-style="machine"] body { text-shadow: 0 0 0.6px currentColor, 0.4px 0.2px 0 color-mix(in srgb, currentColor 22%, transparent); }
+html[data-style="machine"] .barre-app { border-bottom: 1px solid var(--text); }
+html[data-style="machine"] .logo { text-transform: uppercase; letter-spacing: 0.06em; font-weight: 400; }
+html[data-style="machine"] .logo-pastille { width: 11px; height: 18px; border-radius: 0; animation: curseur-clignote 1.1s steps(1) infinite; }
+html[data-style="machine"] .onglet-module { border-radius: 0; font-weight: 400; text-transform: uppercase; letter-spacing: 0.05em; }
+html[data-style="machine"] .onglet-module.is-active { background: var(--text); color: var(--bg); text-shadow: none; }
+html[data-style="machine"] .carte { border: 1px dashed var(--text-2); background: transparent; }
+html[data-style="machine"] .carte-dropzone { border: 1px dashed var(--text); }
+html[data-style="machine"] .carte h2 { color: var(--text); text-transform: uppercase; letter-spacing: 0.14em; font-weight: 400; }
+html[data-style="machine"] .barre-conteneur { border-radius: 0; background: repeating-linear-gradient(90deg, var(--border) 0 1px, transparent 1px 8px); height: 12px; }
+html[data-style="machine"] .barre-fine { height: 8px; }
+html[data-style="machine"] .barre-progression { border-radius: 0; background: repeating-linear-gradient(90deg, var(--accent) 0 6px, transparent 6px 8px); }
+html[data-style="machine"] .barre-succes { background: repeating-linear-gradient(90deg, var(--text) 0 6px, transparent 6px 8px); }
+html[data-style="machine"] .bouton-principal,
+html[data-style="machine"] .bouton-secondaire,
+html[data-style="machine"] .bouton-mini,
+html[data-style="machine"] .bouton-lien { background: transparent; border: 0; color: var(--text); text-transform: uppercase; letter-spacing: 0.06em; padding-inline: 0.2rem; font-weight: 400; }
+html[data-style="machine"] .bouton-principal { color: var(--accent); font-weight: 700; }
+html[data-style="machine"] .bouton-principal::before,
+html[data-style="machine"] .bouton-secondaire::before,
+html[data-style="machine"] .bouton-mini::before,
+html[data-style="machine"] .bouton-lien::before { content: "[ "; }
+html[data-style="machine"] .bouton-principal::after,
+html[data-style="machine"] .bouton-secondaire::after,
+html[data-style="machine"] .bouton-mini::after,
+html[data-style="machine"] .bouton-lien::after { content: " ]"; }
+html[data-style="machine"] .pill, html[data-style="machine"] .badge-type, html[data-style="machine"] .statut-badge { border-radius: 0; background: transparent; border: 1px solid currentColor; text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* ═══ 3 · Classeur d'archives ═════════════════════════════════════════════════ */
+html[data-style="classeur"] {
+  --bg: #e8d3a2; --surface: #fffaf0; --surface-2: #f1e4c3;
+  --text: #2b2118; --text-2: #5d4a30; --text-3: #7d6a4a;
+  --border: rgba(107, 85, 53, 0.5);
+  --accent: #a8321f; --accent-bg: #f3d9d2; --accent-ink: #ffffff;
+  --font-titre: "Avenir Next Condensed", "Arial Narrow", "Roboto Condensed", "Helvetica Neue", sans-serif;
+  --ds-radius-sm: 3px; --ds-radius: 3px; --ds-radius-lg: 3px;
+  --radius-sm: 3px; --radius-lg: 3px;
+}
+html[data-style="classeur"][data-theme="dark"] {
+  --bg: #2a2620; --surface: #3a3429; --surface-2: #463e30;
+  --text: #f0e6cf; --text-2: #c4b595; --text-3: #9c8f72;
+  --border: rgba(240, 230, 207, 0.28);
+  --accent: #e2745f; --accent-bg: #4a241c; --accent-ink: #2a1410;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-style="classeur"]:not([data-theme="light"]) {
+    --bg: #2a2620; --surface: #3a3429; --surface-2: #463e30;
+    --text: #f0e6cf; --text-2: #c4b595; --text-3: #9c8f72;
+    --border: rgba(240, 230, 207, 0.28);
+    --accent: #e2745f; --accent-bg: #4a241c; --accent-ink: #2a1410;
+  }
+}
+/* Barre verte « bureau » : les tokens sont redéfinis localement pour que tout le contenu de la barre reste lisible. */
+html[data-style="classeur"] .barre-app {
+  --text: #eaf0ec; --text-2: #b9c8c0; --text-3: #8fa398; --surface-2: rgba(255, 255, 255, 0.1);
+  --border: rgba(255, 255, 255, 0.22); --accent: #f0c36d;
+  background: #33433d; color: var(--text); border-bottom-color: rgba(0, 0, 0, 0.35);
+}
+html[data-style="classeur"][data-theme="dark"] .barre-app { background: #1c2824; }
+@media (prefers-color-scheme: dark) { html[data-style="classeur"]:not([data-theme="light"]) .barre-app { background: #1c2824; } }
+html[data-style="classeur"] .logo { text-transform: uppercase; letter-spacing: 0.1em; font-family: var(--font-titre); font-size: 0.95rem; }
+html[data-style="classeur"] .logo-pastille { border-radius: 2px; width: 14px; height: 18px; }
+html[data-style="classeur"] .modules-nav { align-self: flex-end; gap: 3px; }
+html[data-style="classeur"] .onglet-module { border-radius: 8px 8px 0 0; background: rgba(255, 255, 255, 0.09); color: var(--text-2); padding: 0.55rem 1rem; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.78rem; font-family: var(--font-titre); }
+html[data-style="classeur"] .onglet-module.is-active { background: var(--bg-onglet, #e8d3a2); color: #2b2118; padding-top: 0.75rem; }
+html[data-style="classeur"][data-theme="dark"] .onglet-module.is-active { background: #2a2620; color: #f0e6cf; }
+@media (prefers-color-scheme: dark) { html[data-style="classeur"]:not([data-theme="light"]) .onglet-module.is-active { background: #2a2620; color: #f0e6cf; } }
+html[data-style="classeur"] .carte { box-shadow: 0 2px 0 rgba(107, 85, 53, 0.28); }
+html[data-style="classeur"] .carte h2 { text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.85rem; color: var(--text-2); }
+html[data-style="classeur"] .carte-dropzone { border: 2px dashed var(--border); background: color-mix(in srgb, var(--surface) 55%, transparent); }
+html[data-style="classeur"] .reprendre-ligne { background: repeating-linear-gradient(transparent 0 27px, rgba(70, 110, 160, 0.16) 27px 28px), var(--surface); }
+html[data-style="classeur"] .barre-conteneur { border: 1px solid var(--border); border-radius: 2px; background: repeating-linear-gradient(90deg, var(--border) 0 1px, transparent 1px 10px), var(--surface-2); height: 12px; }
+html[data-style="classeur"] .barre-fine { height: 9px; }
+html[data-style="classeur"] .barre-progression { border-radius: 0; opacity: 0.88; }
+html[data-style="classeur"] .pill, html[data-style="classeur"] .statut-badge, html[data-style="classeur"] .badge-type {
+  font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+  background: transparent; border: 2px solid currentColor; border-radius: 3px; transform: rotate(-3deg); opacity: 0.9;
+}
+html[data-style="classeur"] .bouton-secondaire, html[data-style="classeur"] .bouton-mini { border-color: #6b5535; box-shadow: 0 2px 0 #6b5535; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.78rem; font-weight: 700; background: var(--surface); }
+html[data-style="classeur"] .bouton-principal { border-color: #6d1f12; box-shadow: 0 2px 0 #6d1f12; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.82rem; }
+
+/* ═══ 4 · Plan de travail ═════════════════════════════════════════════════════ */
+html[data-style="plan"] {
+  --bg: #eaf1f8; --surface: #ffffff; --surface-2: #dce8f4;
+  --text: #0e2b4d; --text-2: #35597f; --text-3: #5d7fa5;
+  --border: rgba(14, 43, 77, 0.38);
+  --accent: #0a58ca; --accent-bg: #d9e7fb; --accent-ink: #ffffff;
+  --font-sans: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --ds-radius-sm: 0; --ds-radius: 0; --ds-radius-lg: 0;
+  --radius-sm: 0; --radius-lg: 0;
+}
+html[data-style="plan"][data-theme="dark"] {
+  --bg: #0e2b4d; --surface: #123760; --surface-2: #194572;
+  --text: #e6f2ff; --text-2: #9fc4e8; --text-3: #7fa4cc;
+  --border: rgba(143, 205, 255, 0.42);
+  --accent: #ffd24a; --accent-bg: rgba(255, 210, 74, 0.15); --accent-ink: #0e2b4d;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-style="plan"]:not([data-theme="light"]) {
+    --bg: #0e2b4d; --surface: #123760; --surface-2: #194572;
+    --text: #e6f2ff; --text-2: #9fc4e8; --text-3: #7fa4cc;
+    --border: rgba(143, 205, 255, 0.42);
+    --accent: #ffd24a; --accent-bg: rgba(255, 210, 74, 0.15); --accent-ink: #0e2b4d;
+  }
+}
+html[data-style="plan"] body {
+  font-size: 0.93rem;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--text) 9%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--text) 9%, transparent) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--text) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--text) 5%, transparent) 1px, transparent 1px);
+  background-size: 80px 80px, 80px 80px, 16px 16px, 16px 16px;
+  background-attachment: fixed;
+}
+html[data-style="plan"] .barre-app { border-bottom: 1px solid var(--border); }
+html[data-style="plan"] .logo { text-transform: uppercase; letter-spacing: 0.16em; font-weight: 600; font-size: 0.9rem; }
+html[data-style="plan"] .logo-pastille { border-radius: 0; width: 12px; height: 12px; background: transparent; border: 2px solid var(--accent); }
+html[data-style="plan"] .onglet-module { border-radius: 0; border: 1px solid transparent; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.78rem; font-weight: 500; }
+html[data-style="plan"] .onglet-module.is-active { background: transparent; border-color: var(--accent); }
+html[data-style="plan"] .carte { position: relative; border-color: var(--border); }
+html[data-style="plan"] .carte::before, html[data-style="plan"] .carte::after { content: ""; position: absolute; width: 9px; height: 9px; border: 2px solid var(--accent); pointer-events: none; }
+html[data-style="plan"] .carte::before { left: -1px; top: -1px; border-right: 0; border-bottom: 0; }
+html[data-style="plan"] .carte::after { right: -1px; bottom: -1px; border-left: 0; border-top: 0; }
+html[data-style="plan"] .carte h2 { color: var(--text-2); text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.78rem; font-weight: 500; }
+html[data-style="plan"] .carte-dropzone { border-style: dashed; border-width: 1px; }
+html[data-style="plan"] .barre-conteneur { border: 1px solid var(--border); border-radius: 0; background: repeating-linear-gradient(90deg, var(--border) 0 1px, transparent 1px 8px); height: 12px; }
+html[data-style="plan"] .barre-fine { height: 8px; }
+html[data-style="plan"] .barre-progression { border-radius: 0; background: repeating-linear-gradient(45deg, var(--accent) 0 3px, transparent 3px 6px); }
+html[data-style="plan"] .barre-succes { background: repeating-linear-gradient(45deg, var(--green) 0 3px, transparent 3px 6px); }
+html[data-style="plan"] .bouton-secondaire, html[data-style="plan"] .bouton-mini { background: transparent; border-color: var(--border); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.78rem; }
+html[data-style="plan"] .bouton-principal { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.82rem; }
+html[data-style="plan"] .pill, html[data-style="plan"] .badge-type, html[data-style="plan"] .statut-badge { border-radius: 0; }
+
+/* ═══ 5 · Calque ══════════════════════════════════════════════════════════════ */
+html[data-style="calque"] {
+  --bg: #d9dee2; --surface: rgba(255, 255, 255, 0.66); --surface-2: rgba(22, 34, 46, 0.07);
+  --text: #16222e; --text-2: #465868; --text-3: #667888;
+  --border: rgba(22, 34, 46, 0.2);
+  --accent: #1d3fd0; --accent-bg: rgba(29, 63, 208, 0.1); --accent-ink: #ffffff;
+  --font-titre: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --ds-radius-sm: 3px; --ds-radius: 3px; --ds-radius-lg: 3px;
+  --radius-sm: 3px; --radius-lg: 3px;
+}
+html[data-style="calque"][data-theme="dark"] {
+  --bg: #1a2128; --surface: rgba(255, 255, 255, 0.075); --surface-2: rgba(255, 255, 255, 0.1);
+  --text: #e3ebf2; --text-2: #a9b8c6; --text-3: #8392a0;
+  --border: rgba(255, 255, 255, 0.2);
+  --accent: #9bb0ff; --accent-bg: rgba(155, 176, 255, 0.16); --accent-ink: #0f1630;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-style="calque"]:not([data-theme="light"]) {
+    --bg: #1a2128; --surface: rgba(255, 255, 255, 0.075); --surface-2: rgba(255, 255, 255, 0.1);
+    --text: #e3ebf2; --text-2: #a9b8c6; --text-3: #8392a0;
+    --border: rgba(255, 255, 255, 0.2);
+    --accent: #9bb0ff; --accent-bg: rgba(155, 176, 255, 0.16); --accent-ink: #0f1630;
+  }
+}
+html[data-style="calque"] body {
+  background-image: radial-gradient(color-mix(in srgb, var(--text) 8%, transparent) 1px, transparent 1.5px);
+  background-size: 14px 14px;
+  background-attachment: fixed;
+}
+html[data-style="calque"] .barre-app { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+html[data-style="calque"] .logo { font-family: var(--font-titre); font-style: italic; font-weight: 400; font-size: 1.3rem; letter-spacing: -0.01em; }
+html[data-style="calque"] .logo-pastille { width: 14px; height: 14px; border-radius: 50%; background: transparent; border: 2px solid var(--accent); box-shadow: 4px 4px 0 -1px var(--accent-bg), 4px 4px 0 0 var(--accent); }
+html[data-style="calque"] .onglet-module { border-radius: var(--radius-pill); }
+html[data-style="calque"] .onglet-module.is-active { background: var(--surface); box-shadow: 0 0 0 1px var(--border); color: var(--text); }
+/* Pile de feuilles de calque : deux « feuilles » décalées sous chaque carte. */
+html[data-style="calque"] .carte {
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  margin-right: 10px; margin-bottom: 1.3rem;
+  box-shadow:
+    5px 5px 0 -1px color-mix(in srgb, var(--surface) 80%, transparent), 5px 5px 0 0 var(--border),
+    10px 10px 0 -1px color-mix(in srgb, var(--surface) 60%, transparent), 10px 10px 0 0 color-mix(in srgb, var(--border) 60%, transparent);
+}
+html[data-style="calque"] .carte .carte { box-shadow: none; margin-right: 0; margin-bottom: 0; }
+html[data-style="calque"] .reprendre-ligne { margin-bottom: 0.9rem; }
+html[data-style="calque"] .carte h2 { font-family: var(--font-titre); font-style: italic; font-weight: 400; font-size: 1.25rem; color: var(--text); }
+html[data-style="calque"] .carte-dropzone { border: 1px dashed var(--border); }
+html[data-style="calque"] .barre-conteneur { height: 3px; border-radius: 0; background: var(--border); }
+html[data-style="calque"] .barre-fine { height: 2px; }
+html[data-style="calque"] .barre-progression { border-radius: 0; }
+html[data-style="calque"] .bouton-secondaire, html[data-style="calque"] .bouton-mini { border-radius: var(--radius-pill); background: var(--surface); padding-inline: 1rem; }
+html[data-style="calque"] .bouton-principal { border-radius: var(--radius-pill); }
+html[data-style="calque"] .pill, html[data-style="calque"] .statut-badge { font-family: var(--font-titre); font-style: italic; font-weight: 500; }
+
+/* ═══ Accessibilité ═══════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  html[data-style="machine"] .logo-pastille { animation: none; }
+}
+
+/* ═══ Onglet Réglages : sélecteur de style ════════════════════════════════════ */
+.styles-grille { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; margin: 0.8rem 0 0; padding: 0; list-style: none; }
+@media (max-width: 560px) { .styles-grille { grid-template-columns: minmax(0, 1fr); } }
+.style-option {
+  display: flex; flex-direction: column; gap: 0.5rem; margin: 0; padding: 0.6rem;
+  text-align: left; min-width: 0; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.style-option:hover { border-color: var(--text-3); }
+.style-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.style-option[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.style-option strong { font-size: 0.95rem; }
+.style-option .style-desc { font-size: 0.8rem; color: var(--text-2); line-height: 1.35; }
+.style-option .style-coche { margin-left: auto; color: var(--accent); font-weight: 800; visibility: hidden; }
+.style-option[aria-checked="true"] .style-coche { visibility: visible; }
+.style-titre { display: flex; align-items: baseline; gap: 0.4rem; }
+
+/* Aperçus : palettes en dur (voir l'en-tête). Chaque pastille imite le style qu'elle représente. */
+.apercu { height: 64px; border-radius: 4px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; border: 1px solid rgba(128, 128, 128, 0.3); }
+.apercu b { font-size: 15px; line-height: 1; font-weight: 700; }
+.apercu i { display: block; height: 6px; width: 62%; }
+.apercu-classique { background: #f6f5f1; color: #1a1a19; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.apercu-classique i { background: #2a78d6; border-radius: 6px; }
+.apercu-suisse { background: #f1f1ee; color: #0f0f0f; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; border-top: 4px solid #0f0f0f; }
+.apercu-suisse b { font-weight: 800; letter-spacing: -0.02em; }
+.apercu-suisse i { background: #d62a14; height: 4px; }
+.apercu-machine { background: #ecebe6; color: #22201c; font-family: "American Typewriter", "Courier New", Courier, monospace; }
+.apercu-machine b { font-weight: 400; }
+.apercu-machine i { height: 10px; background: repeating-linear-gradient(90deg, #b3261e 0 6px, transparent 6px 8px); }
+.apercu-classeur { background: #33433d; color: #e8d3a2; font-family: "Avenir Next Condensed", "Arial Narrow", sans-serif; }
+.apercu-classeur b { text-transform: uppercase; letter-spacing: 0.1em; }
+.apercu-classeur i { background: #e8d3a2; height: 10px; border-radius: 2px 2px 0 0; width: 40%; }
+.apercu-plan { background-color: #0e2b4d; color: #ffd24a; font-family: ui-monospace, Menlo, Consolas, monospace;
+  background-image: linear-gradient(rgba(143, 205, 255, 0.22) 1px, transparent 1px), linear-gradient(90deg, rgba(143, 205, 255, 0.22) 1px, transparent 1px); background-size: 12px 12px; }
+.apercu-plan i { height: 8px; background: repeating-linear-gradient(45deg, #ffd24a 0 3px, transparent 3px 6px); }
+.apercu-calque { background: #d9dee2; color: #16222e; font-family: "Iowan Old Style", Georgia, serif; }
+.apercu-calque b { font-style: italic; font-weight: 400; font-size: 18px; }
+.apercu-calque i { height: 2px; background: #1d3fd0; }

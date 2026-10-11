@@ -6,11 +6,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/style.css?v=3">
+  <link rel="stylesheet" href="css/styles-visuels.css?v=1">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
     (function () {
       var t = localStorage.getItem("theme");
       if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+      // Idem pour le style visuel choisi dans Réglages (absent = « Classique »).
+      var st = localStorage.getItem("style");
+      if (st && st !== "classique") document.documentElement.setAttribute("data-style", st);
     })();
   </script>
 </head>
@@ -23,6 +27,7 @@
       <button type="button" class="onglet-module" data-module="import" role="tab">Nouveau document</button>
       <button type="button" class="onglet-module" data-module="bibliotheque" role="tab">Bibliothèque</button>
       <button type="button" class="onglet-module" data-module="laboratoire" role="tab" data-avance hidden>Laboratoire</button>
+      <button type="button" class="onglet-module" data-module="reglages" role="tab">Réglages</button>
     </nav>
     <div class="barre-espace"></div>
     <div class="statuts-mini">
@@ -319,9 +324,23 @@
     </section>
   </main>
 
-  <script src="js/commun.js?v=3"></script>
+  <!-- ══ Module D : Réglages ═══════════════════════════════════════════════ -->
+  <main id="module-reglages" class="module module-centre" hidden>
+    <div class="labo-entete">
+      <h1>Réglages</h1>
+    </div>
+
+    <section class="carte">
+      <h2>Style de l'interface</h2>
+      <p class="aide">Choisis l'apparence qui te convient : le changement est immédiat et mémorisé. Chaque style existe en clair et en sombre (bouton Auto / ☀ / ☾ en haut).</p>
+      <ul id="styles-grille" class="styles-grille" role="radiogroup" aria-label="Style de l'interface"></ul>
+    </section>
+  </main>
+
+  <script src="js/commun.js?v=4"></script>
   <script src="js/module-import.js?v=8"></script>
   <script src="js/module-bibliotheque.js?v=5"></script>
   <script src="js/module-laboratoire.js?v=3"></script>
+  <script src="js/module-reglages.js?v=1"></script>
 </body>
 </html>

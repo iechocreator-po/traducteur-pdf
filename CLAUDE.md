@@ -107,6 +107,21 @@ de travail, chargés depuis `frontend/js/` (`commun.js` + un fichier par module)
   `POST /api/interet`, log local). **Le module entier n'est visible qu'en mode avancé**
   (onglet + contenu masqués sinon).
 
+### Styles visuels (onglet « Réglages »)
+
+Un 4ᵉ onglet **Réglages** (`module-reglages.js`, visible hors mode avancé) propose 6 styles
+d'interface : *Classique* (design system d'origine), *Bureau suisse*, *Machine à écrire*,
+*Classeur d'archives*, *Plan de travail*, *Calque*. Le choix est **dynamique** (clic = application
+immédiate, sans rechargement) et mémorisé dans `localStorage["style"]`. Mécanique : `appliquerStyle()`
+(`commun.js`) pose `<html data-style="…">` (absent = Classique) ; un script inline du `<head>` le
+réapplique avant le premier rendu (pas de flash). `css/styles-visuels.css` redéfinit **les tokens
+sémantiques** (clair + sombre, même schéma que `tokens.css`) + polices/rayons + retouches de
+composants. Polices = **piles système** (jamais de CDN : l'app est 100 % locale). Les palettes de ce
+fichier et les pastilles d'aperçu `.apercu-*` sont l'exception assumée à « pas de hex en dur ».
+Pour ajouter un style : un bloc de tokens ×3 (clair / `[data-theme="dark"]` / media sombre), l'id dans
+`STYLES_IDS` (`commun.js`) et `STYLES_VISUELS` (`module-reglages.js`), un `.apercu-<id>`.
+**v1 web** — parité macOS différée.
+
 ### Mode avancé et feature flags
 
 - **Mode avancé** (`appliquerModeAvance` dans `commun.js`) : bascule `.hidden` sur tous
