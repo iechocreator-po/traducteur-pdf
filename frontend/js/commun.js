@@ -53,7 +53,7 @@ async function apiGet(route) {
 function activerModule(nom) {
   // Le Laboratoire n'existe qu'en mode avancé (restauration au démarrage incluse).
   if (nom === "laboratoire" && localStorage.getItem("modeAvance") !== "1") nom = "import";
-  for (const m of ["import", "bibliotheque", "laboratoire"]) {
+  for (const m of ["import", "bibliotheque", "laboratoire", "reglages"]) {
     $(`module-${m}`).hidden = m !== nom;
   }
   document.querySelectorAll(".modules-nav .onglet-module").forEach((b) => {
@@ -86,6 +86,24 @@ function appliquerTheme(choix) {
 document.querySelectorAll("#theme-switch button").forEach((b) => {
   b.addEventListener("click", () => appliquerTheme(b.dataset.themeChoice));
 });
+
+// ── Style visuel (choisi dans l'onglet Réglages) ─────────────────────────────
+// "classique" = pas d'attribut (design system d'origine). Les autres styles sont
+// définis dans css/styles-visuels.css via <html data-style="…">.
+
+const STYLES_IDS = ["classique", "suisse", "machine", "classeur", "plan", "calque"];
+
+function styleActuel() {
+  return document.documentElement.getAttribute("data-style") || "classique";
+}
+
+function appliquerStyle(id) {
+  if (!STYLES_IDS.includes(id)) id = "classique";
+  if (id === "classique") document.documentElement.removeAttribute("data-style");
+  else document.documentElement.setAttribute("data-style", id);
+  localStorage.setItem("style", id);
+  document.dispatchEvent(new CustomEvent("style-change", { detail: id }));
+}
 
 // ── Mode avancé ──────────────────────────────────────────────────────────────
 // Révèle les réglages techniques (moteur de conversion, modèle IA) dans l'import.
