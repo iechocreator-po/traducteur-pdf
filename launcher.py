@@ -12,6 +12,15 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import json
 
+def _titre_fenetre(titre: str) -> None:
+    """Nomme la fenêtre de terminal (séquence OSC 0) pour la retrouver parmi les autres backends."""
+    if sys.stdout.isatty():
+        sys.stdout.write(f"\033]0;{titre}\007")
+        sys.stdout.flush()
+
+
+_titre_fenetre("toledo · launcher (port 5501)")
+
 BACKEND_DIR = Path(__file__).parent / "backend"
 UVICORN_CMD = [
     sys.executable, "-m", "uvicorn",

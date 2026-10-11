@@ -17,6 +17,23 @@ def fichier_jobs_temporaire(tmp_path, monkeypatch):
     monkeypatch.setattr(scheduler, "_FICHIER_JOBS", str(tmp_path / "scheduled_jobs.json"))
 
 
+@pytest.fixture(autouse=True)
+def preflight_neutralise(monkeypatch):
+    """
+    Le planificateur passe désormais par `soumettre_traduction`, donc par le
+    preflight Ollama (principe cible ⑨ — c'est tout l'objet du correctif F9).
+    On le neutralise ici : ces tests portent sur la logique de planification,
+    pas sur la disponibilité d'Ollama, et sans ça chaque test taperait sur le
+    réseau.
+    """
+    monkeypatch.setattr(
+        "app.services.translator.verifier_ollama_pret", lambda modele: (True, "ok")
+    )
+    from app.services import soumission
+
+    soumission.reinitialiser_soumissions()
+
+
 def _planifier(executer_a: datetime, chemin: str = "/fake/doc.pdf") -> dict:
     return scheduler.planifier_job(
         chemin_source=chemin,
@@ -119,8 +136,13 @@ def test_supprimer_job_quel_que_soit_le_statut():
     assert scheduler.supprimer_job("inconnu") is False
 
 
-def test_echec_de_lancement_laisse_le_job_dans_la_liste(monkeypatch):
-    """Si le déclenchement échoue, le job n'est PAS purgé (reste visible/effaçable)."""
+def test_echec_de_lancement_laisse_le_job_replanifie_avec_un_compteur(monkeypatch):
+    """
+    Un déclenchement raté ne tue plus le job (F9). Il reste `planifie` avec une
+    tentative consommée, donc le tick suivant le réessaiera — au lieu de le
+    laisser à `declenche`, un cul-de-sac dont rien ne sortait et que rien ne
+    récupérait au démarrage.
+    """
     def demarrage_qui_echoue(**kwargs):
         raise RuntimeError("Ollama injoignable")
 
@@ -132,4 +154,88 @@ def test_echec_de_lancement_laisse_le_job_dans_la_liste(monkeypatch):
 
     tous = scheduler._charger()
     assert [j["id"] for j in tous] == [echu["id"]]
-    assert tous[0]["statut"] == "declenche"  # marqué déclenché, mais conservé
+    assert tous[0]["statut"] == "planifie"
+    assert tous[0]["tentatives"] == 1
+    assert "Ollama injoignable" in tous[0]["derniere_erreur"]
+
+
+def test_echecs_repetes_finissent_par_abandonner_explicitement(monkeypatch):
+    """
+    Après MAX_TENTATIVES, le job passe à `abandonne` — un état terminal, mais
+    explicite et visible, jamais un silence.
+    """
+    monkeypatch.setattr(
+        "app.services.translation_runner.demarrer_traduction",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("Ollama figé")),
+    )
+    _planifier(datetime.now(timezone.utc) - timedelta(minutes=1))
+
+    for _ in range(scheduler.MAX_TENTATIVES):
+        scheduler._verifier_et_declencher()
+
+    job = scheduler._charger()[0]
+    assert job["statut"] == "abandonne"
+    assert job["tentatives"] == scheduler.MAX_TENTATIVES
+    # Un job abandonné n'est plus repris par les ticks suivants.
+    scheduler._verifier_et_declencher()
+    assert scheduler._charger()[0]["tentatives"] == scheduler.MAX_TENTATIVES
+
+
+def test_echeance_trop_vieille_expire_au_lieu_de_partir_en_silence(monkeypatch):
+    """
+    Rattrapage BORNÉ (principe cible ⑪) : rallumer le Mac après trois semaines
+    ne doit pas lancer d'un coup toutes les planifications oubliées.
+    """
+    lancements = []
+    monkeypatch.setattr(
+        "app.services.translation_runner.demarrer_traduction",
+        lambda **kwargs: lancements.append(kwargs) or "job-1",
+    )
+    retard = timedelta(hours=scheduler.RATTRAPAGE_MAX_HEURES + 1)
+    _planifier(datetime.now(timezone.utc) - retard)
+    scheduler._verifier_et_declencher()
+
+    job = scheduler._charger()[0]
+    assert job["statut"] == "expire"
+    assert lancements == []
+    assert "Échéance dépassée" in job["derniere_erreur"]
+
+
+def test_echeance_recente_est_bien_rattrapee(monkeypatch):
+    """Sous la borne, le rattrapage reste le bon comportement — et il marche."""
+    lancements = []
+    monkeypatch.setattr(
+        "app.services.translation_runner.demarrer_traduction",
+        lambda **kwargs: lancements.append(kwargs) or "job-1",
+    )
+    _planifier(datetime.now(timezone.utc) - timedelta(hours=1))
+    scheduler._verifier_et_declencher()
+
+    assert len(lancements) == 1
+    # Job parti → retiré de la liste, pas de fantôme.
+    assert scheduler._charger() == []
+
+
+def test_le_planificateur_passe_par_le_preflight_ollama(monkeypatch):
+    """
+    F9 : `_lancer_job` contournait le preflight en appelant le moteur en direct.
+    Il doit désormais emprunter le point d'entrée unique, donc être bloqué quand
+    Ollama n'est pas prêt.
+    """
+    monkeypatch.setattr(
+        "app.services.translator.verifier_ollama_pret",
+        lambda modele: (False, "llama-server ne répond plus"),
+    )
+    lancements = []
+    monkeypatch.setattr(
+        "app.services.translation_runner.demarrer_traduction",
+        lambda **kwargs: lancements.append(kwargs) or "job-1",
+    )
+    _planifier(datetime.now(timezone.utc) - timedelta(minutes=1))
+    scheduler._verifier_et_declencher()
+
+    # Le moteur n'a JAMAIS été appelé : le garde a joué.
+    assert lancements == []
+    job = scheduler._charger()[0]
+    assert job["statut"] == "planifie"
+    assert job["tentatives"] == 1

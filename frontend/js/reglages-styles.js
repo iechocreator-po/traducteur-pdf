@@ -1,9 +1,9 @@
-// ── Module Réglages : choix du style visuel ──────────────────────────────────
+// ── Réglages (⚙) › carte « Style de l'interface » : choix du style visuel ──────────────────────────────────
 // Le style est appliqué par appliquerStyle() (commun.js) via <html data-style>.
 // Ici : seulement la grille de sélection, qui réagit au clic et à l'événement "style-change".
 
 const STYLES_VISUELS = [
-  { id: "classique", nom: "Classique", desc: "Le design system d'origine : doux, arrondi, bleu." },
+  { id: "classique", nom: "Classique", desc: "L'apparence habituelle de toledo : vert d'eau, coins arrondis." },
   { id: "suisse", nom: "Bureau suisse", desc: "Grille nette, filets noirs, rouge vif, aucun arrondi." },
   { id: "machine", nom: "Machine à écrire", desc: "Chasse fixe, encre et ruban rouge, boutons entre crochets, progression en caractères." },
   { id: "classeur", nom: "Classeur d'archives", desc: "Onglets de chemise, fiches lignées, statuts en tampon, règle graduée." },

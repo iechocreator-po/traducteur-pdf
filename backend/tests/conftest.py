@@ -40,3 +40,17 @@ def dossier_uploads_isole(tmp_path, monkeypatch):
     dossier = tmp_path / "uploads_test"
     monkeypatch.setattr(uploads, "DOSSIER_UPLOADS", str(dossier))
     monkeypatch.setattr(uploads, "DOSSIER_TMP", str(dossier / ".tmp"))
+
+
+@pytest.fixture(autouse=True)
+def store_isole(tmp_path):
+    """
+    Redirige le store SQLite vers une base temporaire, comme le registre juste
+    au-dessus. Sans ça, la suite écrivait dans le `backend/toledo.db` RÉEL du
+    développeur — constaté en branchant l'étape B : 40 Ko de données de test
+    dans la base de production après un simple `pytest`.
+    """
+    from app.services import store
+    store.reinitialiser_pour_tests(str(tmp_path / "store_test.db"))
+    yield
+    store.fermer()

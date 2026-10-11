@@ -147,7 +147,13 @@ def test_etude_sans_chapitres_rejete(tmp_path):
     assert reponse.status_code == 422
 
 
-def test_etude_nb_points_hors_bornes_rejete(tmp_path):
+def test_etude_nb_points_zero_signifie_automatique(tmp_path):
+    """
+    CHANGEMENT DE CONTRAT (18/8) : 0 ne veut plus dire « invalide » mais
+    « automatique » — le nombre de points est dérivé de la longueur du chapitre.
+    Cinq points fixes pour un chapitre de livre de 50 000 caractères ne pouvaient
+    qu'être vagues.
+    """
     source = tmp_path / "doc.md"
     source.write_text("# Titre\n\nContenu.")
     reponse = client.post("/api/etude", json={
@@ -155,7 +161,20 @@ def test_etude_nb_points_hors_bornes_rejete(tmp_path):
         "chapitres_selectionnes": [0],
         "nb_points": 0,
     })
-    assert reponse.status_code == 422
+    assert reponse.status_code != 422
+
+
+def test_etude_nb_points_hors_bornes_rejete(tmp_path):
+    """Les bornes réelles restent gardées : négatif et au-delà de 20."""
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nContenu.")
+    for valeur in (-1, 21):
+        reponse = client.post("/api/etude", json={
+            "chemin_md": str(source),
+            "chapitres_selectionnes": [0],
+            "nb_points": valeur,
+        })
+        assert reponse.status_code == 422, f"nb_points={valeur} aurait dû être rejeté"
 
 
 def test_etude_chapitre_inconnu_rejete(tmp_path):
@@ -192,6 +211,21 @@ def test_contenu_chapitre(tmp_path):
     data = reponse.json()
     assert data["titre"] == "Deux"
     assert "Contenu du chapitre deux." in data["contenu"]
+
+
+def test_lister_chapitres_expose_les_plages_de_lignes(tmp_path):
+    """
+    ligne_debut/ligne_fin doivent être exposés (frontend : détecter les
+    sous-titres imbriqués pour l'export du document complet, sans dupliquer
+    leur contenu). Non-régression : "contenu" (lourd) reste absent.
+    """
+    source = tmp_path / "doc.md"
+    source.write_text("# Un\n\n## Sous-titre\n\nTexte imbriqué.\n\n# Deux\n\nTexte.")
+    reponse = client.post("/api/chapitres", json={"chemin_md": str(source)})
+    assert reponse.status_code == 200
+    chapitres = reponse.json()["chapitres"]
+    assert all("ligne_debut" in c and "ligne_fin" in c for c in chapitres)
+    assert all("contenu" not in c for c in chapitres)
 
 
 def test_contenu_chapitre_index_inconnu(tmp_path):
@@ -254,6 +288,31 @@ def test_tts_audio_extension_invalide(tmp_path):
     fichier = tmp_path / "notes.txt"
     fichier.write_text("x")
     reponse = client.get("/api/tts/audio", params={"chemin_wav": str(fichier)})
+    assert reponse.status_code == 422
+
+
+def test_image_sert_le_fichier(tmp_path):
+    png = tmp_path / "fig.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n----")
+    reponse = client.get("/api/image", params={"chemin": str(png)})
+    assert reponse.status_code == 200
+    assert reponse.content.startswith(b"\x89PNG")
+
+
+def test_image_introuvable():
+    reponse = client.get("/api/image", params={"chemin": "/inexistant.png"})
+    assert reponse.status_code == 404
+
+
+def test_image_extension_invalide(tmp_path):
+    fichier = tmp_path / "notes.pdf"
+    fichier.write_text("x")
+    reponse = client.get("/api/image", params={"chemin": str(fichier)})
+    assert reponse.status_code == 422
+
+
+def test_image_chemin_relatif_refuse():
+    reponse = client.get("/api/image", params={"chemin": "relatif.png"})
     assert reponse.status_code == 422
 
 
@@ -364,6 +423,26 @@ def test_upload_md_puis_reinjectable_dans_chapitres():
     assert len(chap.json()["chapitres"]) == 2
 
 
+def test_convert_ecrit_le_fichier_et_retourne_nb_caracteres(tmp_path):
+    """
+    Non-régression du refactor /convert → convertir_et_sauvegarder() partagée
+    avec la persistance automatique (extraction d'images) : même contrat API.
+    """
+    chemin_pdf = tmp_path / "cours.pdf"
+    chemin_pdf.write_bytes(_pdf_bytes())
+
+    reponse = client.post("/api/convert", json={"chemin_pdf": str(chemin_pdf)})
+    assert reponse.status_code == 200
+    data = reponse.json()
+    assert data["chemin_sortie"].endswith("_converti_py.md")
+    assert data["nb_caracteres"] > 0
+
+    with open(data["chemin_sortie"], encoding="utf-8") as f:
+        contenu = f.read()
+    assert "<!-- extracteur : pymupdf4llm -->" in contenu
+    assert "Bonjour" in contenu
+
+
 def test_upload_anti_evasion_du_nom():
     reponse = client.post(
         "/api/upload",
@@ -401,43 +480,6 @@ def test_upload_origine_tierce_refusee():
     assert reponse.status_code == 403
 
 
-def test_jobs_reprenables_filtre_les_termines(tmp_path, monkeypatch):
-    """GET /jobs/reprenables ne renvoie que les documents non terminés."""
-    from app.services import bibliotheque
-    from app.models.schemas import EtatJob, Langue, StatutJob
-    from app.services.job_manager import sauvegarder_etat
-
-    monkeypatch.setattr(bibliotheque, "_FICHIER_BIBLIO", str(tmp_path / "bibliotheque.json"))
-
-    # Un document terminé (sortie sans .state.json → jugé « termine »).
-    fini = tmp_path / "fini_traduit_ll.md"
-    fini.write_text("ok", encoding="utf-8")
-    bibliotheque.enregistrer_document(
-        chemin_source=str(tmp_path / "fini.md"), chemin_sortie=str(fini),
-        modele="llama3.1", langue_source="anglais", langue_cible="français",
-    )
-    # Un document en pause (reprenable).
-    pause = tmp_path / "pause_traduit_ll.md"
-    pause.write_text("<!-- h -->\n", encoding="utf-8")
-    etat = EtatJob(
-        job_id="p", chemin_pdf=str(tmp_path / "pause.md"), chemin_sortie=str(pause),
-        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS, modele_ollama="llama3.1",
-        statut=StatutJob.EN_PAUSE, derniere_section_completee=1, total_sections=3,
-    )
-    sauvegarder_etat(etat)
-    bibliotheque.enregistrer_document(
-        chemin_source=str(tmp_path / "pause.md"), chemin_sortie=str(pause),
-        modele="llama3.1", langue_source="anglais", langue_cible="français",
-    )
-
-    reponse = client.get("/api/jobs/reprenables")
-    assert reponse.status_code == 200
-    docs = reponse.json()["documents"]
-    sorties = {d["chemin_sortie"] for d in docs}
-    assert str(pause) in sorties
-    assert str(fini) not in sorties
-
-
 def test_supprimer_document_du_registre(tmp_path, monkeypatch):
     from app.services import bibliotheque
 
@@ -458,3 +500,34 @@ def test_supprimer_document_du_registre(tmp_path, monkeypatch):
     # Supprimer un document inconnu → 404.
     manquant = client.request("DELETE", "/api/bibliotheque", json={"chemin_sortie": "/x/inconnu.md"})
     assert manquant.status_code == 404
+
+
+# ── Preflight Ollama sur /translate ───────────────────────────────────────────
+def test_translate_refuse_si_ollama_pas_pret(tmp_path):
+    """Preflight en échec → 503 avec message clair, AUCUN job lancé."""
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nDu texte.", encoding="utf-8")
+
+    with patch("app.services.translator.verifier_ollama_pret",
+               return_value=(False, "llama-server figé. Redémarrer Ollama.")) as prefl, \
+         patch("app.services.translation_runner.demarrer_traduction") as demarrer:
+        reponse = client.post("/api/translate", json={"chemin_md": str(source)})
+
+    assert reponse.status_code == 503
+    assert "Redémarrer Ollama" in reponse.json()["detail"]
+    prefl.assert_called_once()
+    demarrer.assert_not_called()  # on ne lance jamais un job si Ollama n'est pas prêt
+
+
+def test_translate_lance_le_job_si_ollama_pret(tmp_path):
+    """Preflight OK → le job est bien lancé, réponse avec job_id."""
+    source = tmp_path / "doc.md"
+    source.write_text("# Titre\n\nDu texte.", encoding="utf-8")
+
+    with patch("app.services.translator.verifier_ollama_pret", return_value=(True, "ok")), \
+         patch("app.services.translation_runner.demarrer_traduction", return_value="job-123") as demarrer:
+        reponse = client.post("/api/translate", json={"chemin_md": str(source)})
+
+    assert reponse.status_code == 200
+    assert reponse.json()["job_id"] == "job-123"
+    demarrer.assert_called_once()

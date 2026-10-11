@@ -1,0 +1,189 @@
+/* ============================================================================
+   DESIGN SYSTEM — COMPOSANTS
+   Kit de démarrage réutilisable, construit uniquement sur les tokens
+   sémantiques (tokens.css doit être chargé avant ce fichier).
+   Classes préfixées .ds-* pour ne jamais entrer en collision avec le CSS
+   d'un projet. À adopter progressivement, projet par projet.
+   ============================================================================ */
+
+.ds-root {
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--bg);
+  font-size: var(--ds-text-base);
+  line-height: 1.5;
+}
+
+/* ---- Carte ---------------------------------------------------------------- */
+.ds-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  padding: var(--ds-space-4) var(--ds-space-5);
+}
+
+/* ---- Boutons -------------------------------------------------------------- */
+.ds-btn {
+  font: inherit;
+  font-size: var(--ds-text-sm);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
+  padding: var(--ds-space-2) var(--ds-space-4);
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.05s ease;
+}
+.ds-btn:hover { background: var(--surface-2); }
+.ds-btn:active { transform: scale(0.98); }
+.ds-btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ds-btn--primary:hover { filter: brightness(1.08); background: var(--accent); }
+.ds-btn--danger { color: var(--red); border-color: var(--red); }
+.ds-btn--danger:hover { background: var(--red-bg); }
+
+/* ---- Boutons à effet (20/9/2026) -------------------------------------------
+   Trois boutons très visibles, jour comme nuit. À utiliser avec parcimonie :
+   un effet qui bouge partout ne signale plus rien.
+   --shine : reflet qui traverse (action principale)
+   --pulse : halo qui respire (action à ne pas manquer)
+   --orbit : bordure lumineuse qui tourne (action secondaire mise en avant)
+   --sm    : taille compacte (à combiner avec n'importe quelle variante)
+   Le texte sur l'accent passe en sombre en mode nuit (l'accent y est plus clair) :
+   --ds-btn-on. Les animations se coupent avec prefers-reduced-motion. */
+@property --ds-btn-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+
+.ds-btn--shine, .ds-btn--pulse, .ds-btn--orbit {
+  --ds-btn-on: #ffffff;
+  --ds-btn-ring: color-mix(in srgb, var(--accent) 50%, transparent);
+  font-weight: 500;
+  position: relative;
+}
+[data-theme="dark"] .ds-btn--shine, [data-theme="dark"] .ds-btn--pulse, [data-theme="dark"] .ds-btn--orbit { --ds-btn-on: #0b1a2b; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .ds-btn--shine, :root:not([data-theme]) .ds-btn--pulse, :root:not([data-theme]) .ds-btn--orbit { --ds-btn-on: #0b1a2b; }
+}
+.ds-btn--sm { font-size: 12px; padding: var(--ds-space-1) var(--ds-space-3); }
+
+.ds-btn.ds-btn--shine, .ds-btn.ds-btn--pulse { background: var(--accent); border-color: var(--accent); color: var(--ds-btn-on); }
+.ds-btn.ds-btn--shine { overflow: hidden; transition: transform 0.15s ease, filter 0.15s ease; }
+.ds-btn--shine::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.6) 50%, transparent 62%);
+  transform: translateX(-130%); animation: ds-btn-shine 3.4s ease-in-out infinite; pointer-events: none;
+}
+.ds-btn.ds-btn--shine:hover { background: var(--accent); transform: translateY(-2px); filter: brightness(1.08); }
+.ds-btn.ds-btn--shine:active { transform: translateY(0) scale(0.98); }
+@keyframes ds-btn-shine { 0%, 55% { transform: translateX(-130%); } 100% { transform: translateX(130%); } }
+
+.ds-btn.ds-btn--pulse { animation: ds-btn-pulse 2.2s ease-out infinite; transition: transform 0.15s ease; }
+.ds-btn.ds-btn--pulse:hover { background: var(--accent); animation: none; transform: scale(1.04); box-shadow: 0 0 0 4px var(--ds-btn-ring); }
+.ds-btn.ds-btn--pulse:active { transform: scale(0.97); }
+@keyframes ds-btn-pulse { 0% { box-shadow: 0 0 0 0 var(--ds-btn-ring); } 70%, 100% { box-shadow: 0 0 0 14px transparent; } }
+
+.ds-btn.ds-btn--orbit {
+  border: 2px solid transparent; color: var(--text);
+  background: linear-gradient(var(--surface), var(--surface)) padding-box,
+              conic-gradient(from var(--ds-btn-angle), var(--accent), transparent 35%, var(--accent) 70%, transparent) border-box;
+  animation: ds-btn-orbit 3.5s linear infinite; transition: color 0.2s ease;
+}
+.ds-btn.ds-btn--orbit:hover {
+  color: var(--ds-btn-on);
+  background: linear-gradient(var(--accent), var(--accent)) padding-box,
+              conic-gradient(from var(--ds-btn-angle), var(--accent), transparent 35%, var(--accent) 70%, transparent) border-box;
+}
+@keyframes ds-btn-orbit { to { --ds-btn-angle: 360deg; } }
+
+.ds-btn--shine:focus-visible, .ds-btn--pulse:focus-visible, .ds-btn--orbit:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .ds-btn--shine::after, .ds-btn.ds-btn--pulse, .ds-btn.ds-btn--orbit { animation: none; }
+}
+
+/* ---- Badges / pastilles --------------------------------------------------- */
+.ds-badge {
+  display: inline-block;
+  padding: 2px var(--ds-space-2);
+  border-radius: var(--ds-radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.ds-badge--accent  { background: var(--accent-bg); color: var(--accent); }
+.ds-badge--success { background: var(--green-bg);  color: var(--green); }
+.ds-badge--danger  { background: var(--red-bg);    color: var(--red); }
+.ds-badge--warning { background: var(--amber-bg);  color: var(--amber); }
+
+/* ---- Carte de métrique ---------------------------------------------------- */
+.ds-metric {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  padding: var(--ds-space-3) var(--ds-space-4);
+}
+.ds-metric__label { font-size: var(--ds-text-xs); color: var(--text-3); }
+.ds-metric__value { font-size: var(--ds-text-xl); font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.ds-metric__sub   { font-size: var(--ds-text-xs); color: var(--text-2); }
+.ds-metric__value.is-pos { color: var(--green); }
+.ds-metric__value.is-neg { color: var(--red); }
+
+/* ---- Champs de formulaire ------------------------------------------------- */
+.ds-input, .ds-select, .ds-textarea {
+  font: inherit;
+  font-size: var(--ds-text-sm);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  outline: none;
+}
+.ds-input:focus, .ds-select:focus, .ds-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+/* ---- Table ---------------------------------------------------------------- */
+.ds-table { width: 100%; border-collapse: collapse; font-size: var(--ds-text-sm); }
+.ds-table th {
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-3); text-align: left; padding: var(--ds-space-2) var(--ds-space-3);
+  border-bottom: 1px solid var(--border);
+}
+.ds-table td { padding: var(--ds-space-2) var(--ds-space-3); border-bottom: 1px solid var(--border); }
+.ds-table tbody tr:last-child td { border-bottom: none; }
+.ds-table tbody tr:hover { background: var(--surface-2); }
+.ds-table .is-num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+
+/* ---- Bascule de thème (Auto / Clair / Sombre) ------------------------------ */
+.ds-theme-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-pill);
+}
+.ds-theme-switch button {
+  margin: 0;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1;
+  border: none;
+  border-radius: var(--ds-radius-pill);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.ds-theme-switch button:hover { color: var(--text); }
+.ds-theme-switch button.is-active {
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---- Utilitaires de texte ------------------------------------------------- */
+.ds-text-pos { color: var(--green); }
+.ds-text-neg { color: var(--red); }
+.ds-text-muted { color: var(--text-2); }
+.ds-text-hint { color: var(--text-3); font-size: var(--ds-text-xs); }

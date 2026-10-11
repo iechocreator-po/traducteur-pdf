@@ -3,6 +3,10 @@ Tests du service d'extraction PDF.
 On utilise un petit PDF généré à la volée pour ne dépendre d'aucun fichier externe.
 """
 
+import glob
+import os
+import re
+
 import pytest
 from reportlab.pdfgen import canvas
 
@@ -15,6 +19,23 @@ def pdf_simple(tmp_path):
     chemin = tmp_path / "test.pdf"
     c = canvas.Canvas(str(chemin))
     c.drawString(100, 750, "Hello world, this is a test document.")
+    c.showPage()
+    c.save()
+    return str(chemin)
+
+
+@pytest.fixture
+def pdf_avec_image(tmp_path):
+    """Crée un petit PDF de test avec une image intégrée."""
+    from PIL import Image
+
+    chemin_image = tmp_path / "source.png"
+    Image.new("RGB", (200, 200), color=(255, 0, 0)).save(chemin_image)
+
+    chemin = tmp_path / "test_image.pdf"
+    c = canvas.Canvas(str(chemin))
+    c.drawString(100, 750, "Texte avec une image.")
+    c.drawImage(str(chemin_image), 100, 400, width=200, height=200)
     c.showPage()
     c.save()
     return str(chemin)
@@ -111,6 +132,163 @@ def test_relier_toc_apparie_par_mots_distinctifs_sans_grab_du_titre_vide():
     assert par_index[0]["contenu"] == ""
 
 
+# ── Extraction d'images (flag "extraction_images_pdf") ────────────────────────
+
+def test_extraction_images_off_par_defaut_aucun_tag(pdf_avec_image, monkeypatch):
+    """Flag off : comportement strictement inchangé, aucun tag image.
+
+    On force le flag OFF explicitement plutôt que de dépendre du défaut ambiant :
+    un feature_flags.json local (dev/validation) peut activer le flag et ce test
+    doit rester déterministe quel que soit cet override.
+    """
+    from app.services import pdf_extractor
+    monkeypatch.setattr(pdf_extractor, "est_active", lambda nom: False)
+    texte = extraire_texte(pdf_avec_image)
+    assert "![" not in texte
+    base, _ = os.path.splitext(pdf_avec_image)
+    assert not os.path.isdir(f"{base}_images")
+
+
+def test_extraction_images_actif_produit_un_tag_et_le_fichier(pdf_avec_image, monkeypatch):
+    from app.services import pdf_extractor
+    monkeypatch.setattr(pdf_extractor, "est_active", lambda nom: True)
+
+    texte = pdf_extractor.extraire_texte(pdf_avec_image)
+    m = re.search(r"!\[[^\]]*\]\(([^)]+)\)", texte)
+    assert m, "aucun tag d'image trouvé dans le markdown"
+
+    chemin_relatif = m.group(1)
+    dossier_source = os.path.dirname(pdf_avec_image)
+    assert os.path.isfile(os.path.join(dossier_source, chemin_relatif))
+    # Chemin relatif court, pas le chemin absolu brut renvoyé par la lib.
+    assert not os.path.isabs(chemin_relatif)
+
+
+def test_nettoyage_texte_image_retire_les_marqueurs():
+    """
+    Régression du bug rapporté : quand pymupdf4llm ne parvient pas à capturer
+    l'image elle-même, il laisse un texte de secours entouré de marqueurs
+    (traduits en français par le modèle, d'où le rapport initial) — ils ne
+    doivent jamais fuiter tels quels dans le document traduit/exporté.
+    """
+    from app.services.pdf_extractor import _RE_TEXTE_IMAGE, _nettoyer_texte_image
+
+    brut = (
+        "Texte avant.\n\n"
+        "<!-- Start of picture text -->\n"
+        "Leyden Jar<br>Capacitor<br>\\ ee<br>Metal coating<br>"
+        "<!-- End of picture text -->\n\n"
+        "Texte après."
+    )
+    nettoye = _RE_TEXTE_IMAGE.sub(_nettoyer_texte_image, brut)
+
+    assert "<!-- Start of picture text -->" not in nettoye
+    assert "<!-- End of picture text -->" not in nettoye
+    assert "<br>" not in nettoye
+    assert "Leyden Jar, Capacitor, \\ ee, Metal coating" in nettoye
+    assert "Texte avant." in nettoye and "Texte après." in nettoye
+
+
+def test_nettoyage_texte_image_bloc_vide_ne_laisse_rien():
+    from app.services.pdf_extractor import _RE_TEXTE_IMAGE, _nettoyer_texte_image
+    brut = "Avant.\n\n<!-- Start of picture text -->\n<!-- End of picture text -->\n\nAprès."
+    nettoye = _RE_TEXTE_IMAGE.sub(_nettoyer_texte_image, brut)
+    assert "picture text" not in nettoye
+    assert "Avant." in nettoye and "Après." in nettoye
+
+
+def test_extraction_images_actif_sans_image_ne_cree_pas_de_dossier(pdf_simple, monkeypatch):
+    """Un PDF sans image, même avec le flag actif, ne crée aucun dossier _images."""
+    from app.services import pdf_extractor
+    monkeypatch.setattr(pdf_extractor, "est_active", lambda nom: True)
+
+    pdf_extractor.extraire_texte(pdf_simple)
+    base, _ = os.path.splitext(pdf_simple)
+    assert not os.path.isdir(f"{base}_images")
+
+
+def test_decouper_en_chunks_garde_l_image_avec_du_texte_mais_scinde_par_taille():
+    """
+    Un tag ![]() ne doit jamais se retrouver ISOLÉ seul dans son chunk (il perdrait
+    son contexte de traduction). Mais sa présence ne doit PAS empêcher le découpage
+    par taille : sinon un chapitre illustré devient un unique morceau géant
+    (~45 k chars → contexte Ollama 32 k → stall mémoire, régression du 2026-07-23).
+    Comportement attendu : le tag reste collé à un paragraphe voisin, et le texte
+    trop long est bien scindé.
+    """
+    tag = "![](images/fig.png)"
+    para_avant = "Paragraphe avant l'image, assez long pour dépasser la taille max à lui seul."
+    para_apres = "Paragraphe après l'image, également assez long pour dépasser la taille max."
+    texte = f"{para_avant}\n\n{tag}\n\n{para_apres}"
+
+    chunks = decouper_en_chunks(texte, taille_max=50)
+
+    # Le bloc trop long EST scindé (plus de morceau géant unique).
+    assert len(chunks) > 1
+    # Le tag apparaît dans exactement un chunk, jamais seul (accompagné de texte).
+    chunks_avec_tag = [c for c in chunks if tag in c]
+    assert len(chunks_avec_tag) == 1
+    assert chunks_avec_tag[0].replace(tag, "").strip(), "le tag image ne doit pas être isolé seul"
+
+
+def test_decouper_en_chunks_reconnait_le_tag_image():
+    from app.services.pdf_extractor import _est_tag_image
+    assert _est_tag_image("![](images/x.png)")
+    assert _est_tag_image("  ![alt text](chemin/vers/img.png)  ")
+    assert not _est_tag_image("Du texte normal.")
+    assert not _est_tag_image("[un lien](https://example.com)")
+
+
+# ── Persistance automatique (une seule extraction PDF) ─────────────────────────
+
+def _compter_appels_extraction(monkeypatch):
+    from app.services import pdf_extractor
+    compteur = {"n": 0}
+    original = pdf_extractor.pymupdf4llm.to_markdown
+
+    def to_markdown_compte(*args, **kwargs):
+        compteur["n"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(pdf_extractor.pymupdf4llm, "to_markdown", to_markdown_compte)
+    return compteur
+
+
+def test_flag_actif_extraction_pdf_une_seule_fois(pdf_simple, monkeypatch):
+    """
+    Avec le flag actif, le premier appel persiste le _converti_*.md ; les
+    appels suivants le relisent au lieu de rappeler pymupdf4llm.to_markdown().
+    """
+    from app.services import pdf_extractor
+    monkeypatch.setattr(pdf_extractor, "est_active", lambda nom: True)
+    compteur = _compter_appels_extraction(monkeypatch)
+
+    pdf_extractor.identifier_chapitres(pdf_simple)
+    pdf_extractor.identifier_chapitres(pdf_simple)
+    pdf_extractor.identifier_chapitres(pdf_simple)
+
+    assert compteur["n"] == 1
+    base, _ = os.path.splitext(pdf_simple)
+    assert glob.glob(f"{base}_converti*.md")
+
+
+def test_flag_inactif_extrait_a_chaque_appel(pdf_simple, monkeypatch):
+    """Flag off : comportement inchangé, aucune persistance automatique.
+
+    Flag forcé OFF explicitement (indépendant d'un feature_flags.json local).
+    """
+    from app.services import pdf_extractor
+    monkeypatch.setattr(pdf_extractor, "est_active", lambda nom: False)
+    compteur = _compter_appels_extraction(monkeypatch)
+
+    pdf_extractor.identifier_chapitres(pdf_simple)
+    pdf_extractor.identifier_chapitres(pdf_simple)
+
+    assert compteur["n"] == 2
+    base, _ = os.path.splitext(pdf_simple)
+    assert not glob.glob(f"{base}_converti*.md")
+
+
 def test_relier_toc_progression_monotone():
     """Deux signets qui partagent un mot (« neural ») ne doivent pas matcher le
     même heading : la progression est monotone (chacun matche après le précédent)."""
@@ -127,3 +305,69 @@ def test_relier_toc_progression_monotone():
     relies = relier_toc_a_markdown(toc, chapitres_md)
     assert relies[0]["contenu"] == "C3"
     assert relies[1]["contenu"] == "C7"  # pas « C3 » à nouveau
+
+
+# ── titre_traduit (feature bilbao 348) ───────────────────────────────────────
+# Le corps d'un chapitre traduit commence, par construction, par son titre —
+# déjà traduit puisque tout le corps est passé chez Ollama. On l'expose sans
+# appel LLM supplémentaire. Ces tests couvrent le cas normal ET les anomalies
+# qu'un arrêt impromptu (écriture non atomique interrompue) peut produire.
+
+def _texte_marque(titre_source: str, corps_traduit: str, index: int = 0) -> str:
+    return f"<!-- === chapitre {index} : {titre_source} === -->\n\n{corps_traduit}\n"
+
+
+def test_chapitres_depuis_marqueurs_expose_le_titre_traduit_du_corps():
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+
+    texte = _texte_marque("Chapter 9: From Structure to Function", "# Chapitre 9 : de la structure à la fonction\n\nLe reste du texte traduit.")
+    chapitres = chapitres_depuis_marqueurs(texte)
+
+    assert len(chapitres) == 1
+    # Le marqueur garde le titre SOURCE (alignement feature 297) — inchangé.
+    assert chapitres[0]["titre"] == "Chapter 9: From Structure to Function"
+    # Le titre traduit vient du corps, pas du marqueur.
+    assert chapitres[0]["titre_traduit"] == "Chapitre 9 : de la structure à la fonction"
+
+
+def test_chapitres_depuis_marqueurs_titre_traduit_absent_si_le_corps_ne_commence_pas_par_un_titre():
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+
+    # Chapitre implicite ou traduction qui a perdu la mise en forme du titre :
+    # la première ligne non vide n'est pas un « # ».
+    texte = _texte_marque("Introduction", "Ceci commence directement par du texte, sans titre.")
+    chapitres = chapitres_depuis_marqueurs(texte)
+
+    assert chapitres[0]["titre"] == "Introduction"  # repli : le titre source reste exact
+    assert chapitres[0]["titre_traduit"] is None     # jamais une chaîne vide ou du charabia
+
+
+def test_chapitres_depuis_marqueurs_ignore_un_titre_plus_loin_dans_le_corps():
+    """
+    Ne reproduit PAS le bug qui a motivé le marqueur source (feature 327) :
+    un « # » injecté plus loin par Ollama (ex. un séparateur mal préfixé) ne
+    doit jamais être pris pour le titre — seule la première ligne compte.
+    """
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+
+    texte = _texte_marque(
+        "Un",
+        "Un paragraphe d'abord.\n\n# * * *\n\nPuis la suite du chapitre.",
+    )
+    chapitres = chapitres_depuis_marqueurs(texte)
+    assert chapitres[0]["titre_traduit"] is None
+
+
+def test_chapitres_depuis_marqueurs_titre_traduit_absent_sur_corps_vide_ou_tronque():
+    """
+    Simule ce qu'un arrêt impromptu peut laisser sur disque : l'append n'est
+    PAS atomique (voir _ecrire_chapitre) — un crash en plein milieu de la
+    ligne de titre est possible. Ni crash, ni titre garbled : repli propre.
+    """
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+
+    for corps_tronque in ("", "   \n\n  ", "#", "# "):
+        texte = _texte_marque("Un", corps_tronque)
+        chapitres = chapitres_depuis_marqueurs(texte)
+        assert chapitres[0]["titre"] == "Un"
+        assert chapitres[0]["titre_traduit"] is None, repr(corps_tronque)

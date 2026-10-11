@@ -1,0 +1,53 @@
+================================================================================
+RETRADUCTION DE CHAPTER 9 + REGENERATION DE LA REFERENCE GOLDEN
+================================================================================
+Date     : 2026-07-31
+Branche  : feat/architecture-cible
+Motif    : la reference precedente encodait deux defauts d'extraction corriges
+           le 30/7 (OCR automatique remplacant le texte reel, images extraites
+           qui n'etaient pas les figures du PDF). Elle validait donc une sortie
+           defectueuse contre une reference defectueuse.
+
+--------------------------------------------------------------------------------
+PRECAUTION PRISE AVANT DE MESURER
+--------------------------------------------------------------------------------
+Le backend qui tournait datait du 29/7 22:51 — anterieur aux correctifs. Sans
+--reload, il aurait servi l'ancien extracteur et la retraduction aurait reproduit
+le defaut. Il a donc ete redemarre, PUIS le correctif a ete prouve EN MEMOIRE via
+POST /api/convert avant de lancer quoi que ce soit :
+
+  converti : 50 572 caracteres | "Leonhard Euler" present | "K6nigsberg" absent
+  images   : img-0.jpeg, img-1.jpeg (les figures reelles du PDF)
+
+--------------------------------------------------------------------------------
+TRADUCTION
+--------------------------------------------------------------------------------
+  job aa82b502-f50e-4310-8a14-8923a58720e2
+  44/44 morceaux, 0 echec, statut termine en 570 s (~9 min 30)
+  progression reguliere, jamais figee
+
+Sortie : 60 019 octets (contre 54 845 avant correctif).
+L'ecart correspond a la page 4, dont le texte reel etait auparavant remplace par
+la sortie OCR : "Euler, un polymathe ne en Suisse mais vivant en Russie, a ecrit
+« _Solutio problematis ad geometriam situs..._ »" — 7 occurrences d'Euler, contre
+0 avant. Aucun residu de charabia (K6nigsberg, ®—2, "oy = bridge").
+
+Images : 2 tags (lignes 46 et 128), fichiers de 96 Ko et 82 Ko, soit les figures
+20 (carte de Konigsberg complete) et 21 (les DEUX panneaux et leurs legendes).
+L'ancienne extraction donnait un demi-panneau de 395x311 et un fragment de texte
+de 263x33.
+
+--------------------------------------------------------------------------------
+REFERENCE GOLDEN REGENEREE
+--------------------------------------------------------------------------------
+  Chapter9_source_reference.md  : 48 136 -> 50 950 octets
+  Chapter9_traduit_reference.md : 56 520 -> 60 019 octets
+
+Controles sur la nouvelle reference source : "Leonhard Euler" present,
+"K6nigsberg" absent, les 2 tags images pointent bien vers les .jpeg.
+
+Validation de la sortie contre cette reference : 0 section en echec, taille a
+100 %, 2 tags images preserves a l'identique, sortie en francais. La similarite
+de 100 % est attendue ici — la reference vient d'etre creee A PARTIR de cette
+sortie. Elle ne prouve rien en soi ; c'est au PROCHAIN run, avec une sortie
+Ollama differente, qu'elle redeviendra un vrai test.

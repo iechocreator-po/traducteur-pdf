@@ -1,0 +1,86 @@
+================================================================================
+VALIDATION END-TO-END — branche feat/architecture-cible (phases 1 à 5)
+================================================================================
+Date          : 2026-07-29
+Fichier testé : Models of the Mind_ Chapter 9.pdf (447 KB, 22 pages)
+Modèle        : llama3.1:latest
+Backend       : uvicorn sur 127.0.0.1:8000, DÉMARRÉ SUR LA BRANCHE (voir note 1)
+Flag          : extraction_images_pdf = True (lu via GET /api/feature-flags)
+
+--------------------------------------------------------------------------------
+OBJET
+--------------------------------------------------------------------------------
+Prouver que la refonte des phases 1 à 5 (écritures atomiques, point d'entrée
+unique de soumission, idempotence, récupération généralisée, assertion d'énergie)
+ne casse pas la traduction elle-même. Les 263 tests pytest couvrent la mécanique,
+pas la qualité d'une sortie réelle.
+
+--------------------------------------------------------------------------------
+RÉSULTAT : RÉUSSI
+--------------------------------------------------------------------------------
+Traduction complète du chapitre, via l'API, avec attente du statut terminal :
+
+  analyser  -> 200, 1 chapitre, texte extractible
+  translate -> 200, job 0e87d168-d815-43fb-8f3c-f9a199b49688
+  progression : 1/41 … 41/41, régulière, jamais figée
+  statut final : termine en 534 s (~8 min 54), 0 échec
+
+Validation contre la référence golden (validate_translation.py, fonction valider) :
+
+  [OK] 0 section en échec
+  [OK] taille 54 845 octets — 100 % de la référence
+  [OK] 2 tags images préservés à l'identique
+  [OK] sortie en français (pas un résumé anglais tronqué)
+  [i]  similarité difflib avec la référence : 66 % (indicatif, varie à chaque run
+       — Ollama est non déterministe à temperature 0.3)
+
+--------------------------------------------------------------------------------
+NOTE 1 — PIÈGE RENCONTRÉ, À NE PAS REFAIRE
+--------------------------------------------------------------------------------
+Un backend uvicorn lancé le 23 juillet tournait ENCORE sur le port 8000. Comme il
+n'y a pas de --reload, il servait le code du 23/7 — six jours de correctifs en
+moins. Valider contre lui aurait donné un vert qui ne prouvait rien.
+
+Il a fallu l'arrêter (aucun job actif à ce moment) et redémarrer sur la branche.
+Contrôle utilisé pour s'assurer que le bon code tournait : appeler
+GET /api/scheduler/sante, une route qui n'existe que sur cette branche. Un 404
+aurait signalé un backend périmé.
+
+C'est la même famille de piège que celui déjà documenté dans CLAUDE.md pour
+pdf_extractor.py. Avant toute validation manuelle : vérifier QUEL backend répond.
+
+--------------------------------------------------------------------------------
+NOTE 2 — FAUX VERT CORRIGÉ DANS L'OUTILLAGE
+--------------------------------------------------------------------------------
+test_pdf_translation.py annonçait « T2 SUCCESS / T3 SUCCESS » en 0,1 s avec
+job_id: None. Trois défauts cumulés, tous corrigés le 29/7 :
+
+  1. Le POST partait avec la clé `source`, inconnue de l'API (qui attend
+     chemin_pdf / chemin_md) — donc 422 systématique.
+  2. Le script ne testait que la présence d'une clé `error`. Un 422 FastAPI
+     répond `detail` : l'erreur passait inaperçue.
+  3. Le script n'attendait JAMAIS la fin du job. Un lancement n'est pas une
+     traduction.
+
+S'y ajoutait une illusion de couverture : T2 et T3 prétendaient tester « sans » et
+« avec » extraction d'images, mais `extraction_images_pdf` est une config serveur
+(feature_flags.json / bilbao.features.json), pas un paramètre de requête. Les deux
+tests étaient identiques et ne différaient que par un message affiché. Le script
+lit et affiche désormais la valeur réelle du flag ; comparer les deux modes
+demande de le basculer et de redémarrer le backend entre deux exécutions.
+
+Enfin, un garde a été ajouté : un job qui finit avec 0 section à traduire (document
+déjà traduit — flux additif) est signalé RIEN_A_FAIRE et non SUCCESS. « Rien à
+faire » n'est pas une preuve que la traduction fonctionne.
+
+Conséquence : le rapport RESULTS_2026-07-23.txt (« 3/3 réussis ») doit être relu
+avec prudence pour ses volets T2 et T3. T1, qui ne passe pas par le backend, n'est
+pas concerné par ces trois défauts.
+
+--------------------------------------------------------------------------------
+NOTE 3 — T1 NON EXÉCUTÉ
+--------------------------------------------------------------------------------
+T1 (Ollama direct, sans backend) échoue à l'extraction : `No module named
+'pdfplumber'` dans le python3 système. Le module est présent dans le venv du
+backend, pas globalement. Non corrigé — hors du périmètre de cette validation, qui
+porte sur le backend. Pour l'exécuter : lancer le script avec le python du venv.

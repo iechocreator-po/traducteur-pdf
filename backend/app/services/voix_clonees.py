@@ -9,8 +9,9 @@ terminé, l'embedding de locuteur (embedding.pth) utilisé par tts.py.
 """
 
 import datetime
-import json
 import os
+
+from app.services.persistance import ecrire_json_atomique, lire_json_tolerant
 import threading
 import uuid
 
@@ -24,19 +25,16 @@ _lock = threading.Lock()
 
 
 def _charger() -> list[dict]:
-    if not os.path.exists(CHEMIN_REGISTRE):
+    data = lire_json_tolerant(CHEMIN_REGISTRE, defaut={})
+    if not isinstance(data, dict):
         return []
-    try:
-        with open(CHEMIN_REGISTRE, "r", encoding="utf-8") as f:
-            return json.load(f).get("voix", [])
-    except (json.JSONDecodeError, OSError):
-        return []
+    voix = data.get("voix", [])
+    return voix if isinstance(voix, list) else []
 
 
 def _sauvegarder(voix: list[dict]) -> None:
     os.makedirs(DOSSIER_VOIX_UTILISATEUR, exist_ok=True)
-    with open(CHEMIN_REGISTRE, "w", encoding="utf-8") as f:
-        json.dump({"voix": voix}, f, indent=2, ensure_ascii=False)
+    ecrire_json_atomique(CHEMIN_REGISTRE, {"voix": voix})
 
 
 def chemin_dossier_voix(id_voix: str) -> str:

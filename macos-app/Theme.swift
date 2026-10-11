@@ -37,7 +37,8 @@ extension Color {
 /// Tokens sémantiques du design system, exposés à SwiftUI.
 enum DS {
     // ---- Accent & statuts (valeur clair / valeur sombre) -------------------
-    static let accent = Color(light: 0x2a78d6, dark: 0x5b9be0)
+    /// L'accent suit le style visuel choisi dans Réglages (StylesVisuels.swift).
+    static var accent: Color { StyleVisuel.actuel.accent }
     static let green  = Color(light: 0x0f8a4c, dark: 0x3fbf7f)
     static let red    = Color(light: 0xcf3535, dark: 0xe57373)
     static let amber  = Color(light: 0x9a6a08, dark: 0xd9a94a)
@@ -49,9 +50,10 @@ enum DS {
     static let border = Color(light: 0x141412, dark: 0xffffff).opacity(0.12)
 
     // ---- Rayons (--ds-radius-*) -------------------------------------------
-    static let radiusSm: CGFloat = 8
-    static let radius: CGFloat = 10
-    static let radiusLg: CGFloat = 12
+    // Suivent le style visuel choisi (Classique = 8 / 10 / 12).
+    static var radiusSm: CGFloat { StyleVisuel.actuel.radiusSm }
+    static var radius: CGFloat { StyleVisuel.actuel.radius }
+    static var radiusLg: CGFloat { StyleVisuel.actuel.radiusLg }
 }
 
 /// Choix de thème de l'utilisateur : Auto (suit le système) / Clair / Sombre.

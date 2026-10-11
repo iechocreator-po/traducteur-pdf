@@ -99,30 +99,53 @@ struct ContentView: View {
     @AppStorage("themeChoice") private var themeChoice: ThemeChoice = .auto
     @AppStorage("moduleActif") private var moduleActif: ModuleApp = .nouveauDocument
     @AppStorage("modeAvance") private var modeAvance: Bool = false
+    /// Repères d'interface (Views/Reperes.swift) : OFF par défaut, réglable dans ⚙ Réglages.
+    @AppStorage("reperesInterface") private var reperesInterface: Bool = false
+    /// Cartes du Laboratoire désactivées dans Réglages, sous forme « C2,C4 » (Views/Reperes.swift).
+    @AppStorage("labCartesMasquees") private var labCartesMasquees: String = ""
+    @State private var reglagesOuverts = false
+    @AppStorage(StyleVisuel.cleStockage) private var styleChoisi: StyleVisuel = .classique
 
     var body: some View {
         VStack(spacing: 0) {
             barreApp
             Divider()
-            switch moduleActif {
-            case .nouveauDocument:
-                ImportModuleView(modeAvance: modeAvance)
-            case .bibliotheque:
-                BibliothequeModuleView()
-            case .laboratoire:
-                LaboratoireModuleView()
+            // .id(styleChoisi) : DS.* est lu à chaque rendu mais les sous-vues ne se
+            // redessinent pas d'elles-mêmes quand le style change → on reconstruit le module.
+            Group {
+                switch moduleActif {
+                case .nouveauDocument:
+                    ImportModuleView(modeAvance: modeAvance)
+                case .bibliotheque:
+                    BibliothequeModuleView()
+                case .laboratoire:
+                    LaboratoireModuleView()
+                }
             }
+            .id(styleChoisi)
         }
+        .background(styleChoisi.fondOuNatif)
+        .fontDesign(styleChoisi.design)
+        .tint(styleChoisi.accent)
         .environmentObject(env)
         .frame(minWidth: 860, minHeight: 560)
         .task { await env.rafraichir() }
         .preferredColorScheme(themeChoice.colorScheme)
+        .environment(\.reperesActifs, reperesInterface)
+        .environment(\.cartesMasquees, idsDepuisCSV(labCartesMasquees))
+        .sheet(isPresented: $reglagesOuverts) {
+            ReglagesView(
+                modeAvance: $modeAvance,
+                reperesInterface: $reperesInterface,
+                cartesMasqueesCSV: $labCartesMasquees
+            )
+        }
     }
 
     private var barreApp: some View {
         HStack(spacing: 16) {
             HStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: min(6, DS.radiusSm))
                     .fill(DS.accent)
                     .frame(width: 18, height: 18)
                 Text("toledo")
@@ -130,8 +153,15 @@ struct ContentView: View {
             }
 
             HStack(spacing: 4) {
-                ForEach(ModuleApp.allCases) { module in
-                    Button(module.libelle) { moduleActif = module }
+                ForEach(Array(ModuleApp.allCases.enumerated()), id: \.element.id) { index, module in
+                    Button { moduleActif = module } label: {
+                        HStack(spacing: 6) {
+                            if reperesInterface {
+                                RepereOnglet(texte: lettreRepere(index), actif: moduleActif == module)
+                            }
+                            Text(module.libelle).textCase(styleChoisi.casse)
+                        }
+                    }
                         .buttonStyle(.plain)
                         .font(.system(size: 12.5, weight: .semibold))
                         .padding(.horizontal, 12)
@@ -160,11 +190,13 @@ struct ContentView: View {
             .labelsHidden()
             .fixedSize()
 
-            Toggle("Mode avancé", isOn: $modeAvance)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+            Button { reglagesOuverts = true } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Réglages")
+            .accessibilityLabel("Réglages")
         }
         .padding(.horizontal, 18)
         .frame(height: 52)

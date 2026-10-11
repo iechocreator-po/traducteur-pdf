@@ -5,9 +5,10 @@ Les termes présents dans un chunk sont injectés dans le prompt du traducteur,
 puis leur présence est vérifiée dans la traduction (avertissement sinon).
 """
 
-import json
 import os
 import threading
+
+from app.services.persistance import ecrire_json_atomique, lire_json_tolerant
 
 _FICHIER_GLOSSAIRE = os.path.join(os.path.dirname(__file__), "..", "..", "glossaire.json")
 _FICHIER_GLOSSAIRE = os.path.normpath(_FICHIER_GLOSSAIRE)
@@ -18,14 +19,11 @@ _lock = threading.Lock()
 def charger_termes() -> list[str]:
     """Retourne la liste des termes du glossaire (vide si aucun fichier)."""
     with _lock:
-        if not os.path.exists(_FICHIER_GLOSSAIRE):
+        data = lire_json_tolerant(_FICHIER_GLOSSAIRE, defaut={})
+        if not isinstance(data, dict):
             return []
-        try:
-            with open(_FICHIER_GLOSSAIRE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data.get("termes", [])
-        except (json.JSONDecodeError, OSError):
-            return []
+        termes = data.get("termes", [])
+        return termes if isinstance(termes, list) else []
 
 
 def sauvegarder_termes(termes: list[str]) -> list[str]:
@@ -41,8 +39,7 @@ def sauvegarder_termes(termes: list[str]) -> list[str]:
             vus.add(t.lower())
             nettoyes.append(t)
     with _lock:
-        with open(_FICHIER_GLOSSAIRE, "w", encoding="utf-8") as f:
-            json.dump({"termes": nettoyes}, f, indent=2, ensure_ascii=False)
+        ecrire_json_atomique(_FICHIER_GLOSSAIRE, {"termes": nettoyes})
     return nettoyes
 
 

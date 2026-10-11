@@ -42,3 +42,11 @@ backend/interet_fonctionnalites.log
 backend/processed/
 # Documents uploadés depuis le navigateur (+ leurs traductions) — données locales
 backend/uploads/
+
+# Store transactionnel SQLite (phase 9) — données de l'utilisateur, jamais versionnées.
+# Les trois fichiers : la base, plus le journal WAL et son index, créés dès la
+# première écriture. Motifs ANCRÉS (/) — un motif nu attraperait aussi un
+# éventuel dossier de même nom en profondeur, piège déjà rencontré sur essen.
+/backend/toledo.db
+/backend/toledo.db-wal
+/backend/toledo.db-shm

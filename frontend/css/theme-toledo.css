@@ -1,0 +1,37 @@
+/* ============================================================================
+   PALETTE PROPRE À TOLEDO (10/10/2026) — reprise de l'icône (favicon.svg).
+   Surcharge l'accent du design system PARTAGÉ (bleu) par le vert d'eau de l'icône : #0f766e en
+   clair, la même teinte éclaircie en sombre pour garder le contraste.
+
+   Pourquoi un fichier à part et pas une retouche de tokens.css : tokens.css est une copie vendorée
+   du dossier partagé, surveillée par le détecteur de dérive de bilbao (R10) ; le modifier ferait
+   passer toledo pour « en retard » sur le design system. Même découpe sélecteurs que tokens.css
+   ([data-theme="dark"] et préférence système), chargé APRÈS lui.
+
+   --on-accent : couleur du texte posé SUR l'accent (boutons primaires, lecteur audio). Blanc sur
+   l'accent sombre du mode clair ; presque noir sur l'accent clair du mode sombre.
+   ============================================================================ */
+:root {
+  --accent:     #0f766e;
+  --accent-bg:  #ccfbf1;
+  --on-accent:  #ffffff;
+}
+
+[data-theme="dark"] {
+  --accent:     #2dd4bf;
+  --accent-bg:  #134e4a;
+  --on-accent:  #042f2e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --accent:     #2dd4bf;
+    --accent-bg:  #134e4a;
+    --on-accent:  #042f2e;
+  }
+}
+
+/* Le design system fixe le texte des boutons primaires à #fff ; sur l'accent clair du mode
+   sombre il serait illisible. */
+.ds-btn--primary,
+.ds-btn--primary:hover { color: var(--on-accent); }

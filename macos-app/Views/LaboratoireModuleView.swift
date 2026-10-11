@@ -23,10 +23,10 @@ struct LaboratoireModuleView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                etatSysteme
-                GlossaireView()
-                TTSConfigView()
-                OutilsDocumentView()
+                etatSysteme.repere("C1")
+                GlossaireView().repere("C2")
+                TTSConfigView().repere("C3")
+                OutilsDocumentView().repere("C4")
 
                 if env.flags["teaser_voix_personnalisees"] == true {
                     TeaserView(
@@ -35,6 +35,7 @@ struct LaboratoireModuleView: View {
                         bouton: "＋ Créer une voix",
                         fonctionnalite: "voix_personnalisees"
                     )
+                    .repere("C5")
                 }
                 if env.flags["teaser_export_pdf"] == true {
                     TeaserView(
@@ -43,6 +44,7 @@ struct LaboratoireModuleView: View {
                         bouton: "📄 Exporter en PDF",
                         fonctionnalite: "export_pdf"
                     )
+                    .repere("C6")
                 }
             }
             .padding(24)

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.config.feature_flags import charger_flags, EXTRACTEURS_PDF, EXTRACTEUR_PAR_DEFAUT
 from app.models.schemas import DemandeTraduction, EtatJob, EtatJobEtude, ResultatAnalyse
 from app.services.translator import lister_modeles_disponibles
-from app.api.validation import resoudre_source, valider_chemin_source
+from app.api.validation import EXTENSIONS_IMAGE, resoudre_source, valider_chemin_source
 
 router = APIRouter()
 
@@ -73,33 +73,29 @@ def convertir_pdf(req: ConvertRequest) -> dict:
     """Converts a PDF to Markdown using the chosen extractor. Returns the output path."""
     req.chemin_pdf = valider_chemin_source(req.chemin_pdf, extensions=(".pdf",), label="Fichier PDF")
 
-    from app.services.pdf_extractor import extraire_texte
+    from app.services.pdf_extractor import convertir_et_sauvegarder
 
     try:
-        contenu_md = extraire_texte(req.chemin_pdf, req.extracteur_pdf)
+        chemin_sortie, contenu_md = convertir_et_sauvegarder(req.chemin_pdf, req.extracteur_pdf)
     except NotImplementedError as e:
         raise HTTPException(status_code=501, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'extraction : {e}")
 
-    base, _ = os.path.splitext(req.chemin_pdf)
-    suffixe = req.extracteur_pdf[:2] if req.extracteur_pdf else ""
-    chemin_sortie = f"{base}_converti_{suffixe}.md" if suffixe else f"{base}_converti.md"
-    with open(chemin_sortie, "w", encoding="utf-8") as f:
-        f.write(f"<!-- extracteur : {req.extracteur_pdf} -->\n\n")
-        f.write(contenu_md)
-        # Annexe les liens cliquables du PDF (souvent perdus par l'extraction texte)
-        try:
-            from app.services.pdf_extractor import extraire_urls
-            uniques = list(dict.fromkeys(extraire_urls(req.chemin_pdf)))
-            if uniques:
-                f.write("\n\n---\n\n## Liens du document original\n\n")
-                for url in uniques:
-                    f.write(f"- <{url}>\n")
-        except Exception:
-            pass  # Non critique — la conversion reste valide sans l'annexe
-
     return {"chemin_sortie": chemin_sortie, "nb_caracteres": len(contenu_md)}
+
+
+@router.get("/image")
+def servir_image(chemin: str):
+    """
+    Sert un fichier image extrait d'un PDF (Bibliothèque + export HTML du
+    document traduit — le navigateur ne peut pas lire un fichier disque par
+    chemin). Même garde que les autres routes de fichiers (chemin absolu,
+    extension allowlistée, fichier existant).
+    """
+    from fastapi.responses import FileResponse
+    chemin = valider_chemin_source(chemin, extensions=EXTENSIONS_IMAGE, label="Image")
+    return FileResponse(chemin)
 
 
 class ResumeCheckRequest(BaseModel):
@@ -147,8 +143,12 @@ def lister_chapitres(req: ChapitresRequest) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'identification : {e}")
 
+    # ligne_debut/ligne_fin restent exposés (ajout additif, non-destructif) : le
+    # frontend en a besoin pour détecter les sous-titres imbriqués (export du
+    # document complet, cf. construireDocumentHtml) — seul "contenu" est lourd
+    # et retiré de cette liste, le détail par chapitre reste sur /chapitres/contenu.
     chapitres_publics = [
-        {k: v for k, v in c.items() if k not in ("contenu", "ligne_debut", "ligne_fin")}
+        {k: v for k, v in c.items() if k != "contenu"}
         for c in chapitres
     ]
     return {"chapitres": chapitres_publics, "source": "titres_markdown"}
@@ -195,24 +195,6 @@ def bibliotheque() -> dict:
     """Documents traduits connus du registre, avec statut et progression."""
     from app.services.bibliotheque import lister_documents
     return {"documents": lister_documents()}
-
-
-# Statuts non terminaux : un document dans l'un d'eux peut être repris ou nettoyé
-# depuis « Nouveau document ». `termine` en est exclu (il vit dans la Bibliothèque).
-STATUTS_NON_TERMINAUX = {"en_cours", "en_pause", "en_attente", "erreur", "annule"}
-
-
-@router.get("/jobs/reprenables")
-def jobs_reprenables() -> dict:
-    """
-    Documents dont la traduction n'est pas terminée (en cours, en pause, en
-    attente, en erreur ou annulée). Alimente la section « Reprendre une
-    traduction » du module Nouveau document — persistant, donc survivant au
-    rechargement de page et aux sessions.
-    """
-    from app.services.bibliotheque import lister_documents
-    reprenables = [d for d in lister_documents() if d.get("statut") in STATUTS_NON_TERMINAUX]
-    return {"documents": reprenables}
 
 
 class SupprimerDocumentRequest(BaseModel):
@@ -277,6 +259,10 @@ class TranslateRequest(BaseModel):
     resume: bool = False
     estimation_temps_total: float | None = None
     chapitres_selectionnes: list[int] | None = None
+    # Qualité observée par /analyser (« Excellente », « Correcte »…). Optionnelle
+    # et purement informative : le moteur ne s'en sert pas, elle sert à ce que
+    # l'indicateur reste visible pendant et après la traduction (feature 320).
+    qualite: str | None = None
 
     @model_validator(mode="after")
     def valider_source(self):
@@ -287,19 +273,25 @@ class TranslateRequest(BaseModel):
 
 @router.post("/translate")
 def translate(req: TranslateRequest) -> dict:
-    """Starts or resumes a translation job (from PDF or Markdown) in background. Returns job_id."""
+    """Starts or resumes a translation job (from PDF or Markdown) in background. Returns job_id and output path."""
     chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
 
+    from app.api.erreurs import source_invalide
     from app.models.schemas import Langue
-    from app.services.translation_runner import demarrer_traduction
+    from app.services.soumission import soumettre_traduction
+    from app.services.translation_runner import build_output_path
 
     try:
         langue_source = Langue(req.langue_source)
         langue_cible = Langue(req.langue_cible)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise source_invalide(str(e))
 
-    job_id = demarrer_traduction(
+    # Point d'entrée UNIQUE (principe cible ⑨) : le preflight Ollama et la clé
+    # d'idempotence vivent dans `soumettre_traduction`, que le planificateur
+    # emprunte aussi. Ne jamais rappeler `demarrer_traduction` directement ici —
+    # c'est ainsi que le planificateur avait fini par contourner le garde (F9).
+    job_id, deja_soumis = soumettre_traduction(
         source_path=chemin_source,
         langue_source=langue_source,
         langue_cible=langue_cible,
@@ -309,55 +301,52 @@ def translate(req: TranslateRequest) -> dict:
         estimation_temps_total=req.estimation_temps_total,
         chapitres_selectionnes=req.chapitres_selectionnes,
     )
-    return {"job_id": job_id}
+    chemin_sortie = build_output_path(chemin_source, req.modele_ollama)
 
+    # Qualité observée à l'analyse (feature 320) : le frontend la connaît, le
+    # backend ne la recalcule pas. On l'attache au registre pour qu'elle survive
+    # au passage du lot vers « Vos traductions ». Annotation APRÈS soumission :
+    # l'entrée du registre est créée par le moteur, et un échec d'annotation ne
+    # doit jamais faire échouer un lancement.
+    if req.qualite:
+        from app.services.bibliotheque import annoter_document
+        annoter_document(chemin_sortie, qualite=req.qualite)
 
-@router.get("/job/{job_id}/statut")
-def statut_job(job_id: str, chemin_pdf: str) -> EtatJob:
-    from app.services.translation_runner import lire_statut
-    etat = lire_statut(job_id, chemin_pdf)
-    if etat is None:
-        raise HTTPException(status_code=404, detail="Job introuvable.")
-    return etat
+    return {
+        "job_id": job_id,
+        "chemin_sortie": chemin_sortie,
+        # Permet à l'interface de dire « déjà en cours » au lieu de laisser croire
+        # à un second lancement (F10).
+        "deja_soumis": deja_soumis,
+    }
 
 
 @router.post("/job/{job_id}/pause")
-def pause_job(job_id: str) -> dict:
-    from app.services.job_manager import mettre_en_pause
-    ok = mettre_en_pause(job_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Job introuvable ou déjà terminé.")
-    return {"statut": "pause_demandee"}
-
-
-@router.post("/job/{job_id}/annuler")
-def annuler_job_en_cours(job_id: str) -> dict:
+def pause_job(job_id: str, chemin_sortie: str | None = None) -> dict:
     """
-    Demande l'annulation d'un job en cours ou en file d'attente.
-    Le job s'arrête au prochain chunk et passe au statut « annule ».
+    Demande la mise en pause d'un job en cours ou en file d'attente.
+
+    Deux chemins :
+    - chemin_sortie fourni → charger l'état depuis le disque (résilient après redémarrage)
+    - sinon, chercher le job dans le registre en mémoire (rapide, cas de la pause immédiate)
     """
-    from app.services.job_manager import demander_annulation
-    ok = demander_annulation(job_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Job introuvable ou déjà terminé.")
-    return {"statut": "annulation_demandee"}
+    from app.services.job_manager import mettre_en_pause, charger_etat, sauvegarder_etat
+    from app.models.schemas import StatutJob
 
+    # Essayer d'abord le registre en mémoire (job actif)
+    if mettre_en_pause(job_id):
+        return {"statut": "pause_demandee"}
 
-@router.post("/job/{job_id}/reprendre")
-def reprendre_job(job_id: str) -> dict:
-    """
-    Re-starts a paused job. Reads parameters from the saved state file.
-    The client must pass chemin_pdf so we can locate the state file.
-    """
-    from pydantic import BaseModel as BM
+    # Sinon, chercher sur disque si le chemin est fourni
+    if chemin_sortie:
+        etat = charger_etat(chemin_sortie)
+        if etat and etat.statut in (StatutJob.EN_ATTENTE, StatutJob.EN_COURS):
+            etat.statut = StatutJob.EN_PAUSE
+            sauvegarder_etat(etat)
+            return {"statut": "pause_demandee"}
 
-    class ReprendreRequest(BM):
-        chemin_pdf: str
+    raise HTTPException(status_code=404, detail="Job introuvable ou déjà terminé.")
 
-    raise HTTPException(
-        status_code=400,
-        detail="Utiliser POST /translate avec resume=true pour reprendre un job.",
-    )
 
 
 class ScheduleRequest(BaseModel):
@@ -459,6 +448,109 @@ def liste_tous_jobs_planifies() -> dict:
     return {"jobs": lister_tous_jobs()}
 
 
+@router.get("/jobs/events")
+async def flux_evenements_jobs(request: Request):
+    """
+    Flux SSE de l'état des jobs (principe cible ⑥).
+
+    Remplace six boucles `setInterval` aux cadences et conditions d'arrêt
+    divergentes, dont deux pouvaient tourner indéfiniment. Le serveur pousse, le
+    client ne devine plus.
+
+    Deux choix à ne pas « optimiser » par erreur :
+
+    - **On n'émet que sur CHANGEMENT.** Un flux qui répète le même état chaque
+      seconde coûterait plus cher que le poll qu'il remplace.
+    - **On garde un battement régulier** (`: keep-alive`) même sans changement.
+      Sans lui, un proxy ou le navigateur ferme une connexion inactive, et le
+      client croit le backend mort alors qu'il n'a simplement rien à dire.
+
+    Le poll reste en repli côté client : SSE indisponible ne doit jamais priver
+    l'utilisateur de sa progression.
+    """
+    import asyncio
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    from app.services.bibliotheque import lister_documents
+
+    async def flux():
+        dernier = None
+        battements = 0
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                documents = lister_documents()
+            except Exception as e:
+                # La garde par document rend ce cas très improbable, mais un flux
+                # qui meurt en silence serait pire que le poll qu'il remplace.
+                yield f"event: erreur\ndata: {_json.dumps({'message': str(e)})}\n\n"
+                await asyncio.sleep(5)
+                continue
+
+            # Empreinte de ce qui intéresse l'interface : inutile de repousser un
+            # document dont seule une date de mise à jour a bougé.
+            instantane = [
+                {
+                    "chemin_sortie": d.get("chemin_sortie"),
+                    "nom": d.get("nom"),
+                    "statut": d.get("statut"),
+                    "sections_completees": d.get("sections_completees"),
+                    "total_sections": d.get("total_sections"),
+                    "job_id": d.get("job_id"),
+                    "nb_sections_echouees": d.get("nb_sections_echouees"),
+                }
+                for d in documents
+            ]
+            if instantane != dernier:
+                dernier = instantane
+                yield f"event: documents\ndata: {_json.dumps(instantane)}\n\n"
+                battements = 0
+            else:
+                battements += 1
+                if battements >= 10:  # ~20 s sans changement
+                    yield ": keep-alive\n\n"
+                    battements = 0
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        flux(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # Désactive la mise en tampon d'un éventuel proxy : sans ça le flux
+            # arrive par paquets et perd tout son intérêt.
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/scheduler/sante")
+def sante_planificateur() -> dict:
+    """
+    Santé du planificateur (principe cible ⑫).
+
+    Un composant qui travaille quand personne ne regarde doit pouvoir dire qu'il
+    ne travaille plus. Sans cette route, une boucle de surveillance morte n'avait
+    pour seul signe qu'une ligne sur stdout toutes les 60 s, et l'interface
+    affichait une liste vide indiscernable d'un « rien à faire » (F13).
+
+    `en_panne` et `echeances_depassees` sont les deux champs à afficher : une
+    échéance passée alors que le thread est vivant est une anomalie.
+    """
+    from app.services.persistance import corruptions_rencontrees
+    from app.services.scheduler import sante
+
+    etat = sante()
+    # Les corruptions rencontrées depuis le démarrage : c'est ici qu'une perte de
+    # cache autrefois silencieuse (F2) devient constatable.
+    etat["corruptions"] = corruptions_rencontrees()
+    return etat
+
+
 @router.delete("/scheduled/{job_id}")
 def supprimer_job_planifie(job_id: str) -> dict:
     """
@@ -479,8 +571,30 @@ class EtudeRequest(BaseModel):
     modele_ollama: str = "llama3.1"
     extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
     langue_fiche: str = "français"
-    nb_points: int = Field(default=5, ge=1, le=10)
-    nb_questions: int = Field(default=3, ge=1, le=10)
+    # 0 (ou absent) = AUTOMATIQUE : le nombre est dérivé de la longueur du
+    # chapitre. Cinq points fixes pour un chapitre de livre de 50 000 caractères
+    # ne pouvaient qu'être vagues. Une valeur explicite reste respectée.
+    nb_points: int = Field(default=0, ge=0, le=20)
+    nb_questions: int = Field(default=0, ge=0, le=20)
+    # « sections » (défaut depuis le 19/8) ou « condensation ». Le nom de la
+    # fiche porte la stratégie : les deux coexistent pour être comparées.
+    # La valeur vient de la constante du service, pour qu'un futur changement de
+    # défaut n'ait pas à être répété ici.
+    strategie: str = ""
+
+    @model_validator(mode="after")
+    def defaut_strategie(self):
+        if not self.strategie:
+            from app.services.study_runner import STRATEGIE_PAR_DEFAUT
+            self.strategie = STRATEGIE_PAR_DEFAUT
+        return self
+
+    @model_validator(mode="after")
+    def valider_strategie(self):
+        from app.services.study_runner import STRATEGIES
+        if self.strategie not in STRATEGIES:
+            raise ValueError(f"strategie inconnue : {self.strategie} (attendu : {', '.join(STRATEGIES)})")
+        return self
 
     @model_validator(mode="after")
     def valider(self):
@@ -508,6 +622,7 @@ def generer_fiche_etude(req: EtudeRequest) -> dict:
             chapitres_selectionnes=req.chapitres_selectionnes,
             modele=req.modele_ollama,
             langue_fiche=req.langue_fiche,
+            strategie=req.strategie,
             nb_points=req.nb_points,
             nb_questions=req.nb_questions,
             extracteur=req.extracteur_pdf,
@@ -518,10 +633,19 @@ def generer_fiche_etude(req: EtudeRequest) -> dict:
 
 
 @router.get("/etude/statut", response_model=EtatJobEtude | None)
-def statut_etude(chemin_source: str) -> EtatJobEtude | None:
-    """État du job de fiche d'étude le plus récent pour ce fichier source."""
+def statut_etude(
+    chemin_source: str, modele: str = "", strategie: str = "",
+) -> EtatJobEtude | None:
+    """
+    État du job de fiche pour ce document.
+
+    `modele` et `strategie` sont optionnels — sans eux, on retourne la fiche la
+    plus récente, comme avant. Les fournir cible UNE fiche précise, ce qui est
+    indispensable dès qu'il en existe deux pour le même document : sinon
+    l'interface en affiche une au hasard.
+    """
     from app.services.study_runner import lire_statut_etude
-    return lire_statut_etude(chemin_source)
+    return lire_statut_etude(chemin_source, modele, strategie)
 
 
 class GlossaireRequest(BaseModel):
@@ -611,6 +735,123 @@ def telecharger_audio(chemin_wav: str):
     if not os.path.exists(chemin_wav):
         raise HTTPException(status_code=404, detail="Fichier audio introuvable.")
     return FileResponse(chemin_wav, media_type="audio/wav", filename=os.path.basename(chemin_wav))
+
+
+# ── Historique des traitements (onglet « Chronique ») ────────────────────────
+
+_TYPES_STATS = ("traduction", "etude")
+
+
+@router.get("/stats/traitements")
+def historique_traitements(type: str | None = None, limite: int = 300) -> dict:
+    """
+    Historique des passages du moteur (traduction, fiche d'étude) : une ligne par passage avec
+    taille du texte, modèle, jetons, durées ; plus des agrégats par modèle (vitesse médiane).
+    Les colonnes « non mesurées » (lignes reconstituées) valent null, jamais 0.
+    """
+    if type is not None and type not in _TYPES_STATS:
+        raise HTTPException(status_code=422, detail=f"type inconnu : {type} (attendu : {', '.join(_TYPES_STATS)})")
+    from app.services import stats
+
+    return {
+        "runs": stats.lister_runs(type, limite),
+        "agregats": stats.agreger(stats.lister_runs(type, 5000)),
+    }
+
+
+@router.post("/stats/reconstituer")
+def reconstituer_historique() -> dict:
+    """Crée des lignes « reconstituées » pour les documents déjà traduits (durée et mots du
+    .state.json ; ni jetons ni durée de calcul). Idempotent."""
+    from app.services import stats
+
+    return {"ajoutes": stats.reconstituer_depuis_documents()}
+
+
+@router.get("/stats/estimation")
+def estimation_duree(modele: str, caracteres: int | None = None, mots: int | None = None,
+                     type: str = "traduction") -> dict:
+    """Durée estimée d'un traitement d'après ce que le même modèle a réellement coûté (fourchette
+    en quartiles). Répond « insuffisant » sous 3 échantillons plutôt qu'un chiffre trompeur."""
+    if type not in _TYPES_STATS:
+        raise HTTPException(status_code=422, detail=f"type inconnu : {type}")
+    if not caracteres and not mots:
+        raise HTTPException(status_code=422, detail="caracteres ou mots est requis.")
+    from app.services import stats
+
+    return stats.estimer(modele, caracteres=caracteres, mots=mots, type_=type)
+
+
+# ── Scan multi-colonnes (Laboratoire) ────────────────────────────────────────
+
+class ScanColonnesRequest(BaseModel):
+    chemin_pdf: str
+    page_debut: int | None = Field(default=None, ge=1)
+    page_fin: int | None = Field(default=None, ge=1)
+    langue_ocr: str = "eng"
+    # "auto" : double page si la page est nettement plus large que haute ; "oui"/"non" imposent.
+    double_page: str = Field(default="auto", pattern="^(auto|oui|non)$")
+
+
+def _double_page(valeur: str) -> bool | None:
+    return {"auto": None, "oui": True, "non": False}[valeur]
+
+
+@router.post("/labo/scan-colonnes")
+def lancer_scan_colonnes(req: ScanColonnesRequest) -> dict:
+    """
+    Enfile le nettoyage d'un PDF scanné à colonnes : l'OCR est refait région par
+    région (colonnes, encadrés, titres numérotés) au lieu de reprendre la couche
+    texte du scan. Écrit `<nom>_scan_colonnes.md` à côté du PDF ; les pages déjà
+    traitées d'un passage précédent sont reprises, pas refaites. SANS LLM.
+    """
+    chemin = valider_chemin_source(req.chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.scan_colonnes import ScanColonnesEchec, demarrer_scan
+
+    try:
+        etat = demarrer_scan(chemin, req.page_debut, req.page_fin, req.langue_ocr,
+                             double_page=_double_page(req.double_page))
+    except ScanColonnesEchec as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {k: etat[k] for k in ("job_id", "chemin_sortie", "pages_total", "page_debut", "page_fin")}
+
+
+@router.get("/labo/scan-colonnes/statut")
+def statut_scan_colonnes(chemin_pdf: str) -> dict | None:
+    """État du dernier nettoyage de ce PDF (None si aucun)."""
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.scan_colonnes import lire_etat
+
+    return lire_etat(chemin)
+
+
+@router.get("/labo/scan-colonnes/apercu")
+def apercu_scan_colonnes(chemin_pdf: str, page: int = 1, double_page: str = "auto"):
+    """
+    PNG d'UNE page avec les régions détectées (gouttière, colonnes, encadrés,
+    candidats-titres), sans OCR : à regarder AVANT de lancer un long traitement.
+    """
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.scan_colonnes import ScanColonnesEchec, apercu_pdf
+
+    try:
+        png = apercu_pdf(chemin, page, _double_page(double_page) if double_page in ("auto", "oui", "non") else None)
+    except ScanColonnesEchec as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return Response(content=png, media_type="image/png")
+
+
+@router.get("/labo/scan-colonnes/info")
+def info_scan_colonnes(chemin_pdf: str) -> dict:
+    """Nombre de pages + disponibilité de Tesseract et de ses langues (lecture seule, rapide)."""
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.scan_colonnes import ScanColonnesEchec, langues_tesseract, nombre_de_pages, tesseract_disponible
+
+    try:
+        pages = nombre_de_pages(chemin)
+    except ScanColonnesEchec as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"pages": pages, "tesseract": tesseract_disponible(), "langues": langues_tesseract()}
 
 
 # ── Voix clonées (capture micro → clonage OpenVoice) ─────────────────────────
@@ -709,3 +950,99 @@ def analyser_document(demande: DemandeTraduction) -> ResultatAnalyse:
     from app.agents.analysis_agent import analyser_pdf
 
     return analyser_pdf(chemin_pdf)
+
+
+class EstimationSegmentationRequest(BaseModel):
+    chemin_pdf: str | None = None
+    chemin_md: str | None = None
+    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+
+    @model_validator(mode="after")
+    def valider_source(self):
+        if not self.chemin_pdf and not self.chemin_md:
+            raise ValueError("chemin_pdf ou chemin_md est requis.")
+        return self
+
+
+@router.post("/labo/segmentation/estimation")
+def estimer_segmentation_document(req: EstimationSegmentationRequest) -> dict:
+    """
+    Lecture seule et rapide (AUCUN appel Ollama) : longueur du document et
+    nombre de chapitres suggéré, pour préremplir « Chapitres visés » avant de
+    lancer la vraie segmentation — plutôt que de faire deviner un nombre à
+    l'utilisateur à l'aveugle.
+    """
+    chemin = resoudre_source(req.chemin_pdf, req.chemin_md)
+
+    from app.services.segmentation import estimer_segmentation
+
+    return estimer_segmentation(chemin, req.extracteur_pdf)
+
+
+class SegmentationRequest(BaseModel):
+    chemin_pdf: str | None = None
+    chemin_md: str | None = None
+    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    modele_ollama: str = "llama3.1"
+    cible_max_chapitres: int = 8
+
+    @model_validator(mode="after")
+    def valider_source(self):
+        if not self.chemin_pdf and not self.chemin_md:
+            raise ValueError("chemin_pdf ou chemin_md est requis.")
+        return self
+
+
+@router.post("/labo/segmentation")
+def tester_segmentation(req: SegmentationRequest) -> dict:
+    """
+    Prototype (Laboratoire) : propose une segmentation en chapitres virtuels
+    pour un document SANS structure (transcription brute — aucun signet PDF,
+    aucun titre Markdown), via deux passes Ollama (candidats par fenêtre
+    glissante, puis consolidation). Lecture seule — ne modifie aucun fichier,
+    n'insère aucun marqueur.
+    """
+    chemin = resoudre_source(req.chemin_pdf, req.chemin_md)
+
+    from app.services.segmentation import SegmentationEchec, segmenter_document
+
+    try:
+        return segmenter_document(
+            chemin,
+            modele=req.modele_ollama,
+            extracteur=req.extracteur_pdf,
+            cible_max=req.cible_max_chapitres,
+        )
+    except SegmentationEchec as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+class GenererSegmenteRequest(BaseModel):
+    chemin_pdf: str | None = None
+    chemin_md: str | None = None
+    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    chapitres: list[dict]
+
+    @model_validator(mode="after")
+    def valider_source(self):
+        if not self.chemin_pdf and not self.chemin_md:
+            raise ValueError("chemin_pdf ou chemin_md est requis.")
+        if not self.chapitres:
+            raise ValueError("chapitres est requis — le résultat d'un test de /labo/segmentation.")
+        return self
+
+
+@router.post("/labo/segmentation/generer")
+def generer_document_segmente(req: GenererSegmenteRequest) -> dict:
+    """
+    Écrit un `.md` avec les chapitres consolidés insérés en titres Markdown, à
+    partir d'un résultat DÉJÀ calculé par /labo/segmentation — pas de nouvel
+    appel Ollama, on ne fait qu'insérer ce que l'utilisateur a déjà sous les
+    yeux. Le fichier produit est un document Markdown ordinaire, exploitable
+    partout ailleurs dans l'app (analyse, traduction) sans mécanisme séparé.
+    """
+    chemin = resoudre_source(req.chemin_pdf, req.chemin_md)
+
+    from app.services.segmentation import generer_fichier_segmente
+
+    return generer_fichier_segmente(chemin, req.extracteur_pdf, req.chapitres)

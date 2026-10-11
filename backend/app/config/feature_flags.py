@@ -42,6 +42,15 @@ FLAGS_PAR_DEFAUT = {
     # clonage vocal réel (moteur "openvoice") — sa carte est désormais pilotée
     # par la disponibilité du moteur (GET /tts/moteurs), pas par un flag.
     "teaser_export_pdf": True,
+    # Extraction des images du PDF (pymupdf4llm) + affichage en Bibliothèque +
+    # export HTML du document traduit avec images. Off par défaut (contrairement
+    # aux autres flags) : touche l'extraction PDF et le chunking envoyé à Ollama,
+    # rollout prudent le temps de valider sur un document réel.
+    "extraction_images_pdf": False,
+    # Laboratoire › onglet « Scan multi-colonnes » : nettoyage d'un PDF scanné (OCR refait
+    # par colonne, sans LLM). N'affecte aucun flux existant — c'est un outil à part, déjà
+    # derrière le mode avancé — d'où « on » par défaut, contrairement à extraction_images_pdf.
+    "extraction_scan_colonnes": True,
 }
 
 EXTRACTEURS_PDF = [

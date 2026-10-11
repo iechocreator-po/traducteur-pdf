@@ -3,6 +3,7 @@ Service d'extraction de contenu PDF.
 Logique pure, sans dépendance à une interface ou à Ollama — facile à tester.
 """
 
+import base64
 import glob as _glob
 import os
 import re
@@ -12,11 +13,13 @@ import subprocess
 import pdfplumber
 import pymupdf4llm
 
+from app.config.feature_flags import est_active
+
 
 def extraire_texte(chemin_pdf: str, extracteur: str = "pymupdf4llm") -> str:
     """Extrait tout le texte d'un PDF en utilisant l'extracteur choisi."""
     if extracteur == "pymupdf4llm":
-        return pymupdf4llm.to_markdown(chemin_pdf)
+        return _extraire_avec_pymupdf4llm(chemin_pdf)
     if extracteur == "marker":
         return _extraire_avec_marker(chemin_pdf)
     if extracteur == "tesseract":
@@ -26,6 +29,155 @@ def extraire_texte(chemin_pdf: str, extracteur: str = "pymupdf4llm") -> str:
             f"L'extracteur '{extracteur}' n'est pas encore implémenté."
         )
     raise ValueError(f"Extracteur inconnu : '{extracteur}'")
+
+
+_RE_IMAGE_BASE64 = re.compile(r"!\[([^\]]*)\]\(data:image/(\w+);base64,([A-Za-z0-9+/=]+)\)")
+
+# pymupdf4llm essaie d'extraire le texte natif présent DANS une zone image
+# (utile pour un schéma légendé) et l'entoure de ces marqueurs — déjà présent
+# aujourd'hui (flag off compris, force_text=True par défaut dans la librairie),
+# mais invisible tant qu'aucune UI n'affichait le Markdown brut. Visible
+# seulement quand l'image elle-même n'a pas pu être capturée (zone vide au
+# rendu) : sans nettoyage, ce marqueur fuit tel quel jusque dans le document
+# traduit et l'export HTML.
+_RE_TEXTE_IMAGE = re.compile(
+    r"<!-- Start of picture text -->\n?(.*?)<!-- End of picture text -->\n?",
+    re.DOTALL,
+)
+
+
+def _nettoyer_texte_image(m: re.Match) -> str:
+    morceaux = [p.strip() for p in m.group(1).split("<br>") if p.strip()]
+    return ", ".join(morceaux) + "\n\n" if morceaux else ""
+
+
+def _mode_ocr_jamais():
+    """
+    Interdit à pymupdf4llm de faire de l'OCR (voir _extraire_avec_pymupdf4llm).
+
+    Importé paresseusement et de façon défensive : `OCRMode` vit dans un module
+    interne de la librairie, dont le chemin peut changer d'une version à l'autre.
+    En cas d'absence, on retourne None et l'appelant n'envoie tout simplement pas
+    le paramètre — comportement d'origine, jamais un plantage.
+    """
+    try:
+        from pymupdf4llm.helpers.document_layout import OCRMode
+        return OCRMode.NEVER
+    except Exception:
+        return None
+
+
+def _extraire_avec_pymupdf4llm(chemin_pdf: str) -> str:
+    """
+    Convertit un PDF en Markdown avec pymupdf4llm.
+
+    ⚠️ `use_ocr=OCRMode.NEVER` EST OBLIGATOIRE, et ce n'est pas un détail de
+    performance (bug trouvé le 30/7/2026). Depuis pymupdf4llm 1.28, la librairie
+    active Tesseract TOUTE SEULE dès qu'elle en détecte l'installation
+    (`select_ocr_function` teste `pymupdf.get_tessdata()`, qui trouve le dossier
+    Homebrew même sans TESSDATA_PREFIX). Sur une page contenant une figure, elle
+    décide alors d'OCR-iser la page et **remplace le vrai texte par le résultat
+    de l'OCR**. Mesuré sur Chapter 9 :
+
+        page 4  — texte réel : 1 495 caractères (« …the famous mathematician
+                  Leonhard Euler, the field of graph theory was born… »)
+                  avec OCR    :   148 caractères (« Map of K6nigsberg As a graph
+                  35 ®—2 = @ … »)
+
+    Une page entière du livre disparaissait donc de la traduction, remplacée par
+    du charabia — silencieusement, et d'autant plus insidieusement que Tesseract
+    est documenté chez nous comme un extracteur SÉPARÉ et explicite, à choisir
+    pour les PDF scannés. Le garde s'applique aux DEUX chemins (flag actif ou
+    non) : c'est une perte de contenu, pas une option d'affichage.
+
+    Extraction des images : on n'utilise NI `write_images=True` (sa propre
+    écriture construit le chemin depuis un nom assaini mais sauvegarde sous le
+    nom d'origine — un PDF dont le nom contient un espace fait planter
+    l'extraction, bug vérifié dans pymupdf4llm/helpers/utils.py:md_path), NI
+    `embed_images=True` : les images embarquées sont des rognures produites par
+    l'analyse de mise en page, pas les figures du document. Sur Chapter 9 elles
+    donnaient un panneau de figure tronqué et un simple fragment de texte
+    (« An example hub ») pris pour une image, tandis que la figure 20 (carte de
+    Königsberg) n'était jamais extraite.
+
+    On lit donc les images RÉELLEMENT embarquées dans le PDF avec PyMuPDF
+    (`page.get_images` + `extract_image`), qui rend les deux figures complètes et
+    à leur résolution d'origine (500×271 et 500×257).
+    """
+    mode_ocr = _mode_ocr_jamais()
+    options = {"use_ocr": mode_ocr} if mode_ocr is not None else {}
+
+    if not est_active("extraction_images_pdf"):
+        return pymupdf4llm.to_markdown(chemin_pdf, **options)
+
+    pages = pymupdf4llm.to_markdown(
+        chemin_pdf, page_chunks=True, ignore_images=True, **options
+    )
+    texte = _assembler_pages_avec_images(pages, chemin_pdf)
+    # Filet : sans OCR il ne devrait plus y avoir de « picture text », mais le
+    # nettoyage reste inoffensif et protège les documents déjà convertis.
+    return _RE_TEXTE_IMAGE.sub(_nettoyer_texte_image, texte)
+
+
+def _assembler_pages_avec_images(pages: list[dict], chemin_pdf: str) -> str:
+    """
+    Recolle le Markdown page par page en insérant, à la fin de chaque page, les
+    images réellement embarquées dans cette page du PDF.
+
+    Placer les tags en fin de page plutôt qu'à leur position typographique exacte
+    est un choix assumé : le texte d'une figure et son ancrage visuel ne sont pas
+    représentables fidèlement en Markdown, et une image rattachée à SA page reste
+    juste à la lecture comme à la traduction (le découpage en morceaux respecte
+    les paragraphes, donc le tag reste collé à son contexte).
+    """
+    import pymupdf
+
+    base, _ = os.path.splitext(chemin_pdf)
+    dossier_images = f"{base}_images"
+    nom_dossier = os.path.basename(dossier_images)
+
+    morceaux = []
+    compteur = 0
+    with pymupdf.open(chemin_pdf) as doc:
+        for numero, page_md in enumerate(pages):
+            texte = page_md.get("text", "") if isinstance(page_md, dict) else str(page_md)
+            morceaux.append(texte)
+
+            if numero >= len(doc):
+                continue
+            for info_image in doc[numero].get_images(full=True):
+                try:
+                    image = doc.extract_image(info_image[0])
+                except Exception:
+                    continue  # image illisible : on garde le texte, on saute l'image
+                os.makedirs(dossier_images, exist_ok=True)
+                nom_fichier = f"img-{compteur}.{image['ext']}"
+                compteur += 1
+                with open(os.path.join(dossier_images, nom_fichier), "wb") as f:
+                    f.write(image["image"])
+                morceaux.append(f"\n![]({nom_dossier}/{nom_fichier})\n")
+
+    return "\n".join(morceaux)
+
+
+def _ecrire_images_embarquees(texte: str, chemin_pdf: str) -> str:
+    """Remplace chaque image base64 embarquée par pymupdf4llm par un fichier
+    écrit dans <base>_images/, référencé par un chemin relatif court."""
+    base, _ = os.path.splitext(chemin_pdf)
+    dossier_images = f"{base}_images"
+    nom_dossier = os.path.basename(dossier_images)
+    compteur = {"n": 0}
+
+    def _remplacer(m: re.Match) -> str:
+        alt, extension, donnees_b64 = m.group(1), m.group(2), m.group(3)
+        os.makedirs(dossier_images, exist_ok=True)
+        nom_fichier = f"img-{compteur['n']}.{extension}"
+        compteur["n"] += 1
+        with open(os.path.join(dossier_images, nom_fichier), "wb") as f:
+            f.write(base64.b64decode(donnees_b64))
+        return f"![{alt}]({nom_dossier}/{nom_fichier})"
+
+    return _RE_IMAGE_BASE64.sub(_remplacer, texte)
 
 
 _MARKER_CONVERTER = None
@@ -43,7 +195,13 @@ def _obtenir_marker_converter():
 
 
 def _extraire_avec_marker(chemin_pdf: str) -> str:
-    """Convertit un PDF en Markdown avec la librairie Marker."""
+    """
+    Convertit un PDF en Markdown avec la librairie Marker.
+    Marker retourne aussi un dict d'images (3e valeur, ignorée ci-dessous) —
+    contrairement à Tesseract, ce n'est pas une limite technique mais un choix
+    de portée délibéré : l'extraction d'images (flag "extraction_images_pdf")
+    ne couvre pour l'instant que l'extracteur pymupdf4llm.
+    """
     from marker.output import text_from_rendered
 
     converter = _obtenir_marker_converter()
@@ -120,10 +278,16 @@ def extraire_urls(chemin_pdf: str) -> list[str]:
     return urls
 
 
+def _est_tag_image(ligne: str) -> bool:
+    """Vrai si la ligne est un tag Markdown d'image ![alt](chemin), seule sur sa ligne."""
+    return bool(re.match(r"^!\[.*\]\(.*\)\s*$", ligne.strip()))
+
+
 def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
     """
     Découpe le Markdown en chunks en respectant les frontières structurelles :
-    - Ne coupe jamais à l'intérieur d'un bloc de code (```) ou d'un tableau (|)
+    - Ne coupe jamais à l'intérieur d'un bloc de code (```), d'un tableau (|)
+      ou d'un tag d'image (![]())
     - Préfère couper avant un titre (#) ou entre deux paragraphes
     - Si un bloc dépasse taille_max seul, il est conservé tel quel (non tronqué)
     """
@@ -153,6 +317,14 @@ def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
     # sauf s'ils contiennent du code ou un tableau (jamais coupés).
     blocs_affines: list[str] = []
     for bloc in blocs:
+        # Seuls le CODE (```) et les TABLEAUX (|) doivent rester entiers : les
+        # sous-découper casserait leur structure. Un tag image, lui, occupe une
+        # ligne isolée (![](...)) — le découpage par paragraphes (\n\n) ne le
+        # coupe jamais en deux, donc un bloc qui en contient PEUT être sous-
+        # découpé. L'inclure ici gardait tout chapitre illustré en UN SEUL
+        # morceau géant (45 k chars / ~13 k tokens → contexte Ollama 32k →
+        # stall mémoire). Régression corrigée le 2026-07-23. L'étape de fusion
+        # ci-dessous garde quand même le tag image collé à son paragraphe voisin.
         contient_code_ou_tableau = "```" in bloc or any(
             ligne.strip().startswith("|") for ligne in bloc.splitlines()
         )
@@ -172,7 +344,9 @@ def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
         separateur = "\n\n" if chunk_actuel else ""
         candidat = chunk_actuel + separateur + bloc
 
-        est_tableau = any(ligne.strip().startswith("|") for ligne in bloc.splitlines())
+        est_tableau = any(
+            ligne.strip().startswith("|") or _est_tag_image(ligne) for ligne in bloc.splitlines()
+        )
 
         if chunk_actuel and len(candidat) > taille_max and not est_tableau:
             chunks.append(chunk_actuel.strip())
@@ -214,14 +388,138 @@ def extraire_toc_pdf(chemin_pdf: str) -> list[dict] | None:
         return None
 
 
+# Marqueur écrit par translation_runner au début de chaque chapitre traduit.
+# Il porte l'index ET le titre de la SOURCE — c'est ce qui permet à la
+# Bibliothèque de présenter exactement la même liste que « Nouveau document ».
+_RE_MARQUEUR_CHAPITRE = re.compile(
+    r"^<!--\s*===\s*chapitre\s+(\d+)\s*:\s*(.*?)\s*===\s*-->\s*$", re.MULTILINE
+)
+
+# Titre traduit d'un chapitre (feature bilbao 348) : ligne 0 SEULEMENT du corps,
+# jamais un scan. _extraire_chapitres inclut la ligne # dans le contenu d'un
+# chapitre, donc le corps traduit commence par le titre traduit — mais scanner
+# tout le corps reproduirait exactement le bug qui a motivé le marqueur source
+# (feature 327) : un « # » injecté ailleurs par Ollama (ex. un séparateur
+# « * * * » préfixé à tort) serait pris pour un titre.
+_RE_PREMIERE_LIGNE_TITRE = re.compile(r"^#{1,6}\s+(.+)")
+
+
+def _titre_traduit_depuis_corps(contenu: str) -> str | None:
+    """
+    Déduit le titre traduit d'un chapitre à partir de son corps déjà traduit —
+    sans appel LLM supplémentaire, le titre est déjà là (voir feature 348).
+
+    Retourne None dès que la première ligne non vide n'est pas un titre
+    Markdown — chapitre implicite sans titre, corps tronqué par un arrêt
+    impromptu (écriture non atomique interrompue en cours de ligne), ou toute
+    autre anomalie. L'appelant se replie alors sur le titre SOURCE du marqueur,
+    jamais sur un titre vide ou une exception.
+    """
+    for ligne in contenu.splitlines():
+        ligne = ligne.strip()
+        if not ligne:
+            continue
+        m = _RE_PREMIERE_LIGNE_TITRE.match(ligne)
+        return m.group(1).strip() if m else None
+    return None
+
+
+def chapitres_depuis_marqueurs(texte: str) -> list[dict]:
+    """
+    Découpe un document TRADUIT sur les marqueurs posés par le moteur.
+
+    Pourquoi cette fonction existe (feature bilbao 327) : « Nouveau document »
+    liste les chapitres de la SOURCE — donc les signets du PDF quand il y en a,
+    qui donnent des titres propres. La Bibliothèque, elle, lisait le fichier
+    TRADUIT et y re-détectait des titres Markdown. Les deux listes divergeaient
+    forcément :
+
+      source  (signets PDF) : 1 chapitre — « Chapter 9: From Structure to Function »
+      traduit (titres bruts): 4 entrées  — dont « * * * », un simple séparateur
+                                            qu'Ollama avait préfixé d'un « # »
+
+    Le moteur écrivant déjà `<!-- === chapitre N : titre === -->` avec l'index et
+    le titre de la source, on découpe là-dessus : la correspondance est EXACTE,
+    sans heuristique de rapprochement de titres.
+
+    Retourne [] si le document n'a aucun marqueur (chapitre implicite « Document
+    entier », ou fichier produit avant l'introduction des marqueurs) — l'appelant
+    retombe alors sur la détection historique.
+    """
+    marques = list(_RE_MARQUEUR_CHAPITRE.finditer(texte))
+    if not marques:
+        return []
+
+    lignes_avant = texte[: marques[0].start()].count("\n")
+    chapitres = []
+    for i, m in enumerate(marques):
+        debut = m.end()
+        fin = marques[i + 1].start() if i + 1 < len(marques) else len(texte)
+        contenu = texte[debut:fin].strip("\n")
+
+        # Le niveau n'est pas dans le marqueur : on le déduit du premier titre du
+        # corps, pour conserver l'indentation de la liste. Défaut 1.
+        niveau = 1
+        for ligne in contenu.splitlines():
+            if ligne.startswith("#"):
+                niveau = len(ligne) - len(ligne.lstrip("#"))
+                break
+
+        ligne_debut = texte[: m.start()].count("\n")
+        ligne_fin = texte[:fin].count("\n")
+        chapitres.append({
+            "index": int(m.group(1)),
+            "titre": m.group(2),
+            "titre_traduit": _titre_traduit_depuis_corps(contenu),
+            "niveau": max(1, min(niveau, 6)),
+            "contenu": contenu,
+            "ligne_debut": ligne_debut,
+            "ligne_fin": ligne_fin,
+        })
+    _ = lignes_avant  # en-tête du document, hors de tout chapitre
+    return chapitres
+
+
 def identifier_chapitres(chemin: str, extracteur: str = "pymupdf4llm") -> list[dict]:
     """
     Identifie tous les chapitres (titres # à ######) dans un PDF ou Markdown.
     Si chemin est un PDF et qu'un fichier _converti_*.md existe, l'utilise pour éviter
     une re-extraction. Retourne une liste de dicts {index, titre, niveau, contenu}.
+
+    Un document TRADUIT porte les marqueurs du moteur : on les préfère, ce qui
+    aligne la Bibliothèque sur « Nouveau document » (feature 327).
     """
     texte = _lire_source(chemin, extracteur)
+    depuis_marqueurs = chapitres_depuis_marqueurs(texte)
+    if depuis_marqueurs:
+        return depuis_marqueurs
     return _extraire_chapitres(texte)
+
+
+def convertir_et_sauvegarder(chemin_pdf: str, extracteur: str = "pymupdf4llm") -> tuple[str, str]:
+    """
+    Extrait le Markdown d'un PDF et le sauvegarde dans un _converti_*.md à côté
+    de la source (en-tête `<!-- extracteur : ... -->` + annexe des liens
+    cliquables du PDF). Retourne (chemin_sortie, contenu_md_brut).
+    Partagée par POST /convert et la persistance automatique de _lire_source().
+    """
+    contenu_md = extraire_texte(chemin_pdf, extracteur)
+    base, _ = os.path.splitext(chemin_pdf)
+    suffixe = extracteur[:2] if extracteur else ""
+    chemin_sortie = f"{base}_converti_{suffixe}.md" if suffixe else f"{base}_converti.md"
+    with open(chemin_sortie, "w", encoding="utf-8") as f:
+        f.write(f"<!-- extracteur : {extracteur} -->\n\n")
+        f.write(contenu_md)
+        # Annexe les liens cliquables du PDF (souvent perdus par l'extraction texte)
+        try:
+            uniques = list(dict.fromkeys(extraire_urls(chemin_pdf)))
+            if uniques:
+                f.write("\n\n---\n\n## Liens du document original\n\n")
+                for url in uniques:
+                    f.write(f"- <{url}>\n")
+        except Exception:
+            pass  # Non critique — la conversion reste valide sans l'annexe
+    return chemin_sortie, contenu_md
 
 
 def _lire_source(chemin: str, extracteur: str) -> str:
@@ -234,6 +532,17 @@ def _lire_source(chemin: str, extracteur: str) -> str:
     if candidats:
         with open(candidats[0], "r", encoding="utf-8") as f:
             return f.read()
+    if est_active("extraction_images_pdf"):
+        # Persiste le .md (+ images) au premier appel, comme /convert le fait déjà
+        # manuellement — les appels suivants retombent sur le glob ci-dessus, sans
+        # jamais rappeler l'extraction PDF. Best-effort : une erreur d'écriture ne
+        # doit pas empêcher la lecture, juste renoncer au cache.
+        try:
+            chemin_sortie, _ = convertir_et_sauvegarder(chemin, extracteur)
+            with open(chemin_sortie, "r", encoding="utf-8") as f:
+                return f.read()
+        except OSError:
+            pass
     return extraire_texte(chemin, extracteur)
 
 
