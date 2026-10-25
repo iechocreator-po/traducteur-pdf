@@ -542,7 +542,6 @@ plus dépendre du `feature_flags.json` local qui active le flag).
   un résumé anglais tronqué. Régénérer la référence via `--save-reference` après
   toute amélioration volontaire de la qualité. `pytest` final : **231 verts**.
 
-<!-- bilbao:managed:start -->
 ## Pièges vérifiés — durabilité et messagerie (audit du 27/7/2026, addendum différé du 28/7)
 
 Audit complet de la messagerie backend ↔ frontends (web **et** macOS), de la
@@ -1408,6 +1407,7 @@ RÉELLEMENT coûté, et de quoi estimer les durées futures.
   leur `<label>`** : le texte de la carte voisine n'est pas relié à la case. Les petits commutateurs de
   carte du Laboratoire (`.switch`, `role="switch"`) portent le leur dans `aria-label`.
 
+<!-- bilbao:managed:start -->
 ## Géré par bilbao — ne pas éditer à la main
 _Bloc régénéré par le cockpit bilbao (2026-07-14). La prose hors marqueurs n'est jamais touchée._
 
