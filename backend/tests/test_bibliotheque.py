@@ -202,3 +202,26 @@ def test_enregistrer_interet_trace_dans_le_log(tmp_path, monkeypatch):
     assert "fonctionnalite=clonage_voix email=jp@example.com" in contenu
     assert "fonctionnalite=export_pdf email=autre@example.com" in contenu
     assert len(contenu.strip().splitlines()) == 2
+
+
+def test_retrait_du_dernier_document_ne_le_ressuscite_pas_depuis_le_store(tmp_path, monkeypatch):
+    """
+    Audit zone 1 : quand le JSON se vide, `_charger` se rabat sur le store.
+    Sans retrait côté store, le document retiré réapparaissait.
+    """
+    from app.services import store
+
+    _registre_temporaire(tmp_path, monkeypatch)
+    sortie = tmp_path / "doc_traduit_ll.md"
+    sortie.write_text("contenu traduit")
+    bibliotheque.enregistrer_document(
+        chemin_source=str(tmp_path / "doc.pdf"), chemin_sortie=str(sortie),
+        modele="llama3.1", langue_source="anglais", langue_cible="français",
+    )
+    store.enregistrer_document(
+        str(sortie), str(tmp_path / "doc.pdf"), "llama3.1", "anglais", "français",
+    )
+
+    assert bibliotheque.retirer_document(str(sortie)) is True
+    assert bibliotheque.lister_documents() == []
+    assert store.lister_documents() == []

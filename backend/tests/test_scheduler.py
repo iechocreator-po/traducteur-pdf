@@ -239,3 +239,23 @@ def test_le_planificateur_passe_par_le_preflight_ollama(monkeypatch):
     job = scheduler._charger()[0]
     assert job["statut"] == "planifie"
     assert job["tentatives"] == 1
+
+
+def test_langue_invalide_abandonne_sans_brûler_les_tentatives(monkeypatch):
+    """Audit zone 1 : une langue invalide ne devient jamais valide, abandon immédiat."""
+    lancements = []
+    monkeypatch.setattr(
+        "app.services.translation_runner.demarrer_traduction",
+        lambda **kw: lancements.append(kw) or "x",
+    )
+    job = scheduler.planifier_job(
+        chemin_source="/fake/doc.pdf", langue_source="anglais", langue_cible="english",
+        modele_ollama="llama3.1", extracteur_pdf="pymupdf4llm",
+        executer_a=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+    scheduler._verifier_et_declencher()
+
+    assert lancements == []
+    etat = next(j for j in scheduler._charger() if j["id"] == job["id"])
+    assert etat["statut"] == "abandonne"
+    assert "Langue invalide" in etat["derniere_erreur"]

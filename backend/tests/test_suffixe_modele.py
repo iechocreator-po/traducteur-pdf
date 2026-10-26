@@ -96,3 +96,22 @@ def test_un_modele_sans_traduction_ne_recupere_pas_celle_du_voisin(tmp_path):
     _etat(build_output_path(source, "llama3.1"), "job-llama")
 
     assert _trouver_etat_existant(source, "qwen2.5") is None
+
+
+def test_ancien_nom_court_pas_repris_pour_un_autre_modele(tmp_path):
+    """
+    Audit zone 1 : `_traduit_ll.md` appartient à llama3.1. Lancer llama3.2 ne doit
+    pas retomber dessus (il écraserait ou poursuivrait le travail de l'autre).
+    """
+    source = str(tmp_path / "livre.pdf")
+    ancien = tmp_path / "livre_traduit_ll.md"
+    ancien.write_text("<!-- x -->\n")
+    etat = EtatJob(
+        job_id="j", chemin_pdf=source, chemin_sortie=str(ancien),
+        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS,
+        modele_ollama="llama3.1", statut=StatutJob.TERMINE,
+    )
+    job_manager.sauvegarder_etat(etat)
+
+    assert build_output_path(source, "llama3.1") == str(ancien)
+    assert build_output_path(source, "llama3.2") != str(ancien)

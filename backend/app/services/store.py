@@ -328,6 +328,18 @@ def enregistrer_document(
         )
 
 
+def retirer_document(chemin_sortie: str) -> None:
+    """
+    Retire la ligne du registre. Ne touche ni aux morceaux, ni aux chapitres, ni à
+    l'état : seul le registre est « nettoyé », comme pour `bibliotheque.json`.
+    Sans cela, le repli de `bibliotheque._charger` ressuscite le document quand le
+    JSON devient vide.
+    """
+    conn = connexion()
+    with conn:
+        conn.execute("DELETE FROM documents WHERE chemin_sortie = ?", (chemin_sortie,))
+
+
 def lire_document(chemin_sortie: str) -> dict | None:
     ligne = connexion().execute(
         "SELECT chemin_sortie, chemin_source, modele, langue_source, langue_cible, maj_a "

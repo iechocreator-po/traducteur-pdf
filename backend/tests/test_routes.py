@@ -531,3 +531,15 @@ def test_translate_lance_le_job_si_ollama_pret(tmp_path):
     assert reponse.status_code == 200
     assert reponse.json()["job_id"] == "job-123"
     demarrer.assert_called_once()
+
+
+def test_schedule_refuse_une_langue_invalide():
+    """Audit zone 1 : 422 à la création, pas un abandon silencieux à l'échéance."""
+    corps = {"chemin_pdf": __file__, "langue_cible": "english",
+             "executer_a": "2030-01-01T00:00:00Z"}
+    assert client.post("/api/schedule", json=corps).status_code == 422
+    assert client.post(
+        "/api/schedule/batch",
+        json={"chemins": [__file__], "langue_cible": "english",
+              "executer_a": "2030-01-01T00:00:00Z"},
+    ).status_code == 422

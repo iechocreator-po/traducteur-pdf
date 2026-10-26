@@ -366,9 +366,22 @@ class ScheduleRequest(BaseModel):
         return self
 
 
+def _valider_langues_planifiees(langue_source: str, langue_cible: str) -> None:
+    """422 immédiat : sinon l'erreur n'éclate qu'à l'échéance (la nuit) et brûle les tentatives."""
+    from app.models.schemas import Langue
+
+    try:
+        Langue(langue_source)
+        Langue(langue_cible)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 @router.post("/schedule")
 def creer_job_planifie(req: ScheduleRequest) -> dict:
     chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
+
+    _valider_langues_planifiees(req.langue_source, req.langue_cible)
 
     from datetime import datetime
     from app.services.scheduler import planifier_job
@@ -411,6 +424,8 @@ def creer_jobs_planifies(req: ScheduleBatchRequest) -> dict:
     Planifie plusieurs fichiers d'un coup, à la même heure de départ.
     La file d'attente séquentielle les traduira l'un après l'autre.
     """
+    _valider_langues_planifiees(req.langue_source, req.langue_cible)
+
     from datetime import datetime
     from app.services.scheduler import planifier_job
 

@@ -152,6 +152,10 @@ def retirer_document(chemin_sortie: str) -> bool:
         if len(restants) == len(documents):
             return False
         _sauvegarder(restants)
+        try:
+            store.retirer_document(chemin_sortie)
+        except Exception as e:  # noqa: BLE001 — le store ne doit jamais casser la Bibliothèque
+            print(f"[bibliotheque] retrait du store ignoré : {e}", flush=True)
         return True
 
 

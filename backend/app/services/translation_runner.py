@@ -140,9 +140,16 @@ def build_output_path(source_path: str, modele: str = "") -> str:
     if os.path.exists(nouveau):
         return nouveau
 
+    # ⚠️ Le nom historique à deux lettres est partagé par tous les modèles d'une
+    # même famille (llama3.1 et llama3.2 → « ll ») : on ne le reprend que si l'état
+    # qu'il porte appartient bien à CE modèle, sinon on écraserait le travail d'un autre.
     ancien = f"{base}_traduit_{modele[:2]}.md"
     if os.path.exists(ancien):
-        return ancien
+        etat_ancien = charger_etat(ancien)
+        # Sans état lisible (très ancien document), on ne peut rien affirmer : on
+        # garde le nom historique, comme avant. Avec un état d'un AUTRE modèle, non.
+        if etat_ancien is None or suffixe_modele(etat_ancien.modele_ollama) == suffixe_modele(modele):
+            return ancien
     return nouveau
 
 

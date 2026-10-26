@@ -293,6 +293,16 @@ def _lancer_job(job: dict[str, Any]) -> None:
 
     from app.services.soumission import soumettre_traduction
 
+    # Des langues invalides ne deviendront jamais valides : inutile de brûler les
+    # tentatives (un fichier édité à la main ou un job créé avant la validation de l'API).
+    try:
+        Langue(job["langue_source"])
+        Langue(job["langue_cible"])
+    except (ValueError, KeyError) as e:
+        _marquer(job["id"], statut="abandonne", derniere_erreur=f"Langue invalide : {e}")
+        print(f"[scheduler] job {job['id']} abandonné (langue invalide) : {e}", flush=True)
+        return
+
     try:
         soumettre_traduction(
             source_path=job["chemin_pdf"],
