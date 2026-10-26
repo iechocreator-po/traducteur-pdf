@@ -1407,6 +1407,14 @@ RÉELLEMENT coûté, et de quoi estimer les durées futures.
   leur `<label>`** : le texte de la carte voisine n'est pas relié à la case. Les petits commutateurs de
   carte du Laboratoire (`.switch`, `role="switch"`) portent le leur dans `aria-label`.
 
+## Revue de code (skill commune `/revue-code`)
+
+Lancement manuel : `/revue-code` (diff en attente, avant push) ou `/revue-code audit <zone>` (état des lieux). La méthode est
+commune (`../skills/revue-code/`) ; les **pièges, commandes mécaniques et zones d'audit** de toledo sont dans
+`.claude/revue-pieges.md` (6 zones : `moteur`, `extraction`, `etude-tts`, `api`, `frontend`, `macos`).
+Premier audit : zone `moteur`, 26/10/2026 (3 défauts corrigés, commit `9a69822` ; constats sous le seuil non traités).
+Mécanique : `cd backend && ./venv/bin/python -m pytest tests/ -q`.
+
 <!-- bilbao:managed:start -->
 ## Géré par bilbao — ne pas éditer à la main
 _Bloc régénéré par le cockpit bilbao (2026-07-14). La prose hors marqueurs n'est jamais touchée._
