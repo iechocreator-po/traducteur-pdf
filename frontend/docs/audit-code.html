@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit du code de toledo</title>
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/components.css">
+<link rel="stylesheet" href="../css/theme-toledo.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.55 var(--font-sans); padding: 18px; }
+  main { max-width: 920px; margin: 0 auto; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-2); margin: 0 0 10px; font-weight: 600; }
+  p { margin: 0 0 8px; }
+  .muted { color: var(--text-2); font-size: 12px; }
+  .bandeau { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); border: 1px dashed var(--border); border-radius: 6px; padding: 4px 10px; margin-bottom: 14px; }
+  .carte { margin-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: var(--text-2); font-size: 12px; font-weight: 500; padding: 6px 8px; }
+  td { padding: 8px; border-top: 1px solid var(--border); vertical-align: top; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .gros { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .barre { height: 12px; border-radius: 6px; background: var(--surface-2, var(--border)); overflow: hidden; margin: 6px 0; }
+  .barre > i { display: block; height: 100%; background: var(--accent); width: 18%; }
+  ol { margin: 0; padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  code { font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+<div class="bandeau">Rapport · 26 octobre 2026</div>
+<h1>Audit du code de toledo : où en est-on ?</h1>
+<p class="muted">La skill commune <code>/revue-code</code> a tourné une fois, en mode audit, sur la zone « moteur » (traduction et persistance), avec trois sous-agents en lecture seule. Chaque constat retenu a été relu dans le code avant d'être corrigé. Il reste cinq zones à auditer.</p>
+
+<section class="ds-card carte"><h2>Ce que contient toledo (mesuré, hors tests)</h2>
+<table>
+<tr><th>Bloc</th><th class="n">Fichiers</th><th class="n">Lignes</th></tr>
+<tr><td>Backend : services</td><td class="n">29</td><td class="n">7 020</td></tr>
+<tr><td>Backend : API, config, modèles, agents, main</td><td class="n">14</td><td class="n">1 875</td></tr>
+<tr><td>Backend : scripts de migration</td><td class="n">2</td><td class="n">297</td></tr>
+<tr><td>Interface web (frontend/js)</td><td class="n">12</td><td class="n">4 499</td></tr>
+<tr><td>App macOS (Swift)</td><td class="n">18</td><td class="n">3 821</td></tr>
+<tr><td><b>Total</b></td><td class="n"><b>75</b></td><td class="n"><b>~17 500</b></td></tr>
+<tr><td>Tests (pytest)</td><td class="n">31</td><td class="n">6 150</td></tr>
+</table>
+<p class="muted" style="margin-top:8px">CSS et HTML non comptés. Au 26/10/2026, la suite pytest passe : 389 tests, 0 échec.</p></section>
+
+<section class="ds-card carte"><h2>Couverture des audits</h2>
+<div class="gros">≈ 17 %</div><div class="barre"><i></i></div>
+<p class="muted">≈ 3 000 lignes sur ≈ 17 500 (la zone « moteur » : 10 services et le registre de la Bibliothèque).</p>
+<table>
+<tr><th>Zone</th><th>État</th><th>Ce qui a été trouvé</th></tr>
+<tr><td><b>moteur</b> (translation_runner, translator, store, persistance, job_manager, cache, récupération, planificateur, soumission, énergie, bibliothèque)</td><td><span class="ds-badge ds-badge--success">fait</span></td>
+<td>Trois défauts à 80 ou plus, corrigés et testés (commit <code>9a69822</code>) : un document retiré du registre réapparaissait quand le registre devenait vide (le store n'était pas nettoyé) ; l'ancien nom de sortie à deux lettres faisait reprendre le travail d'un autre modèle de la même famille ; les langues n'étaient pas validées à la planification, donc un job invalide épuisait ses tentatives la nuit. Le noyau (écriture atomique, transaction chapitre + état, règle de lecture du store, bornes de l'annexe des liens) est sain.</td></tr>
+<tr><td>extraction (pdf_extractor, scan_colonnes, segmentation, uploads, ≈ 1 900 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
+<tr><td>etude-tts (étude, TTS, clonage vocal, stats, ≈ 2 300 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
+<tr><td>api (routes, config, modèles, scripts, ≈ 2 000 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
+<tr><td>frontend (≈ 4 500 lignes, 2 sous-agents)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
+<tr><td>macos (≈ 3 800 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
+</table></section>
+
+<section class="ds-card carte"><h2>Constats sous le seuil, pas encore traités</h2>
+<p class="muted">Notés entre 50 et 75 : réels ou probables, mais pas démontrés jusqu'au bout. À corriger avec les nouveaux développements.</p>
+<table>
+<tr><th class="n">Note</th><th>Constat</th></tr>
+<tr><td class="n">75</td><td>Deux soumissions simultanées de la même traduction (double-clic, ou clic pendant un tick du planificateur) peuvent créer deux jobs : la vérification d'idempotence et l'enregistrement de la clé ne sont pas atomiques.</td></tr>
+<tr><td class="n">70</td><td>L'en-tête du fichier traduit est réécrit en entier avec une écriture non atomique après chaque chapitre ; un arrêt brutal peut détruire un document d'avant la phase 9.</td></tr>
+<tr><td class="n">70</td><td>Un chapitre est compté comme traduit avant d'être écrit : si l'écriture échoue (disque plein), il n'est jamais rejoué.</td></tr>
+<tr><td class="n">70</td><td>L'estimation de durée est absurde après une reprise (le temps écoulé inclut les passages précédents).</td></tr>
+<tr><td class="n">65</td><td>La récupération au démarrage ignore les documents retirés du registre : une fiche d'étude interrompue reste bloquée.</td></tr>
+<tr><td class="n">60</td><td>Une panne transitoire d'Ollama épuise les trois tentatives du planificateur en environ trois minutes ; un JSON aux octets invalides fait renvoyer 500 par la Bibliothèque ; aucun contrôle de ratio sous 200 caractères.</td></tr>
+</table></section>
+
+<section class="ds-card carte"><h2>Ce qu'un audit de code ne remplace pas</h2>
+<table>
+<tr><td><span class="ds-badge ds-badge--danger">non fait</span></td><td>Build Xcode réel de l'app macOS (le typecheck laisse passer des erreurs de projet).</td></tr>
+<tr><td><span class="ds-badge ds-badge--danger">non fait</span></td><td>Validation de bout en bout avec Ollama sur un vrai document après les correctifs (<code>tests/validate_translation.py</code>).</td></tr>
+<tr><td><span class="ds-badge ds-badge--danger">non fait</span></td><td>Aucun test automatisé de l'interface web ; essai sous Windows jamais fait.</td></tr>
+</table>
+<p class="muted" style="margin-top:8px">Limite de la méthode : la skill ne retient que les constats notés 80 ou plus. Un audit sans constat prouve qu'aucun défaut à 80 ou plus n'est apparu, pas qu'il n'y en a aucun. Les scénarios n'ont pas été exécutés, sauf pytest.</p></section>
+
+<section class="ds-card carte"><h2>Ce qui reste à faire, par priorité</h2>
+<table>
+<tr><th>Priorité</th><th>Contenu</th></tr>
+<tr><td><b>1. Pertes de données possibles</b></td><td>Écriture atomique de l'en-tête ; ordre « écrire puis compter » pour les chapitres ; récupération au démarrage indépendante du registre ; verrou sur la soumission.</td></tr>
+<tr><td><b>2. Zones non auditées</b></td><td>api, extraction, frontend, etude-tts, macos (les routes sont le candidat le plus probable : trois des défauts trouvés les touchent).</td></tr>
+<tr><td><b>3. Fiabilité de fond</b></td><td>Réessais espacés du planificateur ; contrôle qualité des textes courts ; ETA de reprise ; suppression propagée au store pour les morceaux et les chapitres.</td></tr>
+<tr><td><b>4. Décisions à prendre</b></td><td>Une traduction « possiblement en boucle » doit-elle rester un avertissement ou devenir un échec reprenable ? Persister l'extracteur dans l'état du document ?</td></tr>
+<tr><td><b>5. Dette de structure</b></td><td><code>_executer_traduction</code> (≈ 193 lignes) et <code>demarrer_traduction</code> (≈ 143 lignes) ; <code>translation_runner.py</code> mêle cinq responsabilités ; cache réécrit en entier après chaque morceau.</td></tr>
+</table>
+<p style="margin-top:10px"><b>Règles pour les nouveaux développements :</b></p>
+<ol>
+<li>Tout nouveau code passe par <code>/revue-code</code> avant push et reçoit un test.</li>
+<li>Toute valeur venue de l'API est validée à la création, pas au moment où elle sert.</li>
+<li>Toute suppression se propage aux deux sources (JSON et store).</li>
+<li>Les pièges du produit sont dans <code>.claude/revue-pieges.md</code> : un défaut trouvé s'y ajoute.</li>
+</ol>
+<p class="muted" style="margin-top:8px"><b>Terminé =</b> les six zones auditées, la priorité 1 livrée et vérifiée avec Ollama sur un vrai document, le build Xcode confirmé par JP.</p></section>
+</main>
+</body>
+</html>
