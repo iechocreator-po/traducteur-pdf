@@ -149,10 +149,7 @@ le livre complet).
 
 <!-- bilbao:managed:start -->
 ## Géré par bilbao — ne pas éditer à la main
-_Bloc régénéré par le cockpit bilbao (2026-07-14). La prose hors marqueurs n'est jamais touchée._
-
-### Roadmap (issue des feedbacks)
-- [Livré] Voix TTS personnalisée (9 votes)
+_Bloc régénéré par le cockpit bilbao (2026-11-02). La prose hors marqueurs n'est jamais touchée. Roadmap et features : `feature-factory/data/toledo/features.json`._
 
 ### Feature flags actifs
 _Aucun feature flag actif._
