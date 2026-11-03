@@ -72,6 +72,10 @@ Dossier de travail : `traducteur-pdf/backend/`. Un échec est un constat à 100.
     `git check-ignore -v`.
 17. **Données et secrets.** Rien de `uploads/`, `toledo.db`, `.state.json`, voix clonées, corpus `test_integre/` dans le code ou
     les tests ; les tests n'écrivent jamais dans la vraie base.
+18. **Dépendances non épinglées.** Une ligne de `backend/requirements.txt` sans borne peut casser la CI sans changement de code
+    (`pymupdf4llm` 2.0 du 19/10/2026 : roue vide, import impossible sur le runner, le `venv` local restant sur 1.28). Toute
+    dépendance ajoutée porte au moins une borne de version majeure (`<N+1`) ; une CI rouge sans diff suspect → comparer
+    `pip show` local et la version installée par le runner.
 
 ## Zones d'audit
 
