@@ -1025,3 +1025,21 @@ button.bouton-launcher { font-size: var(--t-corps); font-weight: 500; }
 .chronique-tableau .ds-table .is-num { text-align: right; font-variant-numeric: tabular-nums; }
 .chronique-nd { color: var(--text-3); }
 @media (max-width: 700px) { .chronique-formulaire { grid-template-columns: 1fr; } }
+
+/* ── Module E : Anticipation (cartes de js/module-anticipation.js, repris de castellana) ── */
+.antic-carte.is-pinned { border-color: var(--accent); }
+.antic-tete { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.antic-tete h2 { margin: 0; }
+.antic-epingle { border: 1px solid var(--border); background: var(--surface); color: var(--text-2); border-radius: 999px; padding: 2px 10px; font: inherit; font-size: 12px; cursor: pointer; filter: grayscale(1); }
+.antic-epingle.is-on { border-color: var(--accent); color: var(--accent); filter: none; }
+.antic-barre { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin: 4px 0 12px; }
+.antic-barre .ds-select { width: auto; display: inline-block; }
+.antic-puces { display: flex; flex-wrap: wrap; gap: 6px; }
+.antic-puce { font: inherit; font-size: 12.5px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-2); cursor: pointer; }
+.antic-puce.is-on { border-color: var(--accent); color: var(--accent); background: var(--surface-2); }
+.antic-revue { list-style: none; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); display: grid; gap: 4px; font-size: 13px; }
+.antic-elements { list-style: none; margin: 8px 0; padding: 0; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+.antic-elements > li { border-left: 2px solid var(--border); padding: 2px 0 2px 10px; display: flex; flex-direction: column; gap: 3px; }
+.antic-liens ul { margin: 4px 0 0 18px; padding: 0; }
+.antic-commits code, .antic-revue code { font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); }
+.antic-actions { margin-top: 10px; }

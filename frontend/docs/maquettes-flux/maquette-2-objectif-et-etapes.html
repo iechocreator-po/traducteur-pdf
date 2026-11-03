@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette 2 — Démarrer par l'objectif, avec barre d'étapes</title>
+<link rel="stylesheet" href="../../css/tokens.css">
+<link rel="stylesheet" href="../../css/components.css">
+<link rel="stylesheet" href="../../css/theme-toledo.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.5 var(--font-sans); }
+  .bandeau { background: var(--amber-bg); color: var(--amber); padding: 8px 20px; font-size: 12px; }
+  .barre { display: flex; align-items: center; gap: 18px; padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .logo { font-weight: 700; letter-spacing: .02em; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-2); margin: 0 0 10px; font-weight: 600; }
+  .meta { color: var(--text-2); font-size: 12px; }
+  .buts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 18px 0 8px; }
+  .but { text-align: left; font: inherit; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); cursor: pointer; }
+  .but:hover { border-color: var(--accent); }
+  .but.sel { border-color: var(--accent); background: var(--accent-bg); }
+  .but .t { font-weight: 600; margin-bottom: 4px; }
+  .but .e { font-size: 12px; color: var(--text-2); }
+  .carte { margin-bottom: 16px; }
+  .ligne { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  /* Barre d'étapes */
+  .rail { display: flex; align-items: center; margin: 14px 0 6px; }
+  .pas { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; position: relative; min-width: 0; }
+  .pas::before { content: ""; position: absolute; top: 11px; left: -50%; width: 100%; height: 2px; background: var(--border); z-index: 0; }
+  .pas:first-child::before { display: none; }
+  .pas.fait::before, .pas.cours::before { background: var(--accent); }
+  .pas .pt { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--surface-2); color: var(--text-2); z-index: 1; border: 2px solid var(--surface); }
+  .pas.fait .pt { background: var(--accent); color: var(--on-accent); }
+  .pas.cours .pt { background: var(--surface); color: var(--accent); border-color: var(--accent); }
+  .pas.saute .pt { background: var(--surface); border: 2px dashed var(--text-3); color: var(--text-3); }
+  .pas .lb { font-size: 11px; color: var(--text-2); text-align: center; }
+  .pas.cours .lb { color: var(--accent); font-weight: 600; }
+  .etat { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 14px; padding: 12px; border-radius: 10px; background: var(--surface-2); }
+  .progress { height: 6px; border-radius: 3px; background: var(--surface); overflow: hidden; margin-top: 6px; width: 220px; }
+  .progress i { display: block; height: 100%; background: var(--accent); width: 62%; }
+  .avance { margin-top: 12px; }
+  .avance summary { cursor: pointer; color: var(--text-2); font-size: 12px; }
+  .reglages { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
+  .reglages label { font-size: 12px; color: var(--text-2); display: block; margin-bottom: 3px; }
+  .reglages .ds-select { width: 100%; }
+  .masque { display: none; }
+</style>
+</head>
+<body>
+<div class="bandeau">Maquette statique — rien n'est branché. Choisissez un objectif : les étapes et les réglages affichés changent.</div>
+
+<header class="barre">
+  <span class="logo">toledo</span>
+  <span class="meta">Accueil · Bibliothèque · Chronique · Laboratoire (mode avancé)</span>
+</header>
+
+<main>
+  <h1>Que voulez-vous faire ?</h1>
+  <p class="meta">Choisissez un objectif ; toledo enchaîne les étapes nécessaires.</p>
+
+  <div class="buts" id="buts">
+    <button class="but sel" data-o="lire"><div class="t">Lire dans ma langue</div><div class="e">Convertir si besoin, puis traduire</div></button>
+    <button class="but" data-o="etudier"><div class="t">Étudier un document</div><div class="e">Traduire, résumer, générer un quiz</div></button>
+    <button class="but" data-o="ecouter"><div class="t">Écouter un document</div><div class="e">Traduire si besoin, puis lecture audio</div></button>
+    <button class="but" data-o="nettoyer"><div class="t">Nettoyer un document</div><div class="e">Scan, double page, gros bloc de texte</div></button>
+  </div>
+
+  <section class="ds-card carte">
+    <h2>Votre document</h2>
+    <div class="ligne">
+      <button class="ds-btn ds-btn--primary">Parcourir…</button>
+      <span class="meta">« Cycle I (sample).pdf » — scan, 3 colonnes détectées</span>
+    </div>
+
+    <div class="rail" id="rail" aria-label="Étapes du parcours"></div>
+
+    <div class="etat">
+      <div>
+        <strong id="etat-titre">Étape 2 sur 3 — Traduire</strong>
+        <div class="meta" id="etat-detail">7 chapitres sur 12 · environ 18 min restantes (estimation de la Chronique)</div>
+        <div class="progress"><i></i></div>
+      </div>
+      <button class="ds-btn">Pause</button>
+    </div>
+
+    <details class="avance">
+      <summary>Réglages (langues, modèle) — par défaut : anglais → français, llama3.1</summary>
+      <div class="reglages">
+        <div><label>Langue source</label><select class="ds-select"><option>Anglais</option><option>Français</option><option>Espagnol</option></select></div>
+        <div><label>Langue cible</label><select class="ds-select"><option>Français</option><option>Anglais</option><option>Espagnol</option></select></div>
+        <div><label>Modèle</label><select class="ds-select"><option>llama3.1</option><option>qwen2.5</option></select></div>
+      </div>
+    </details>
+  </section>
+
+  <p class="meta">Chaque étape reste accessible seule depuis la Bibliothèque : le parcours guide, il n'enferme pas.</p>
+</main>
+
+<script>
+  const PARCOURS = {
+    lire:     [['Importer','fait'],['Préparer','saute'],['Traduire','cours'],['Lire','']],
+    etudier:  [['Importer','fait'],['Traduire','cours'],['Résumé','' ],['Quiz','']],
+    ecouter:  [['Importer','fait'],['Traduire','cours'],['Voix',''],['Écouter','']],
+    nettoyer: [['Importer','fait'],['Analyser','fait'],['Scan colonnes','cours'],['Vérifier','']]
+  };
+  function rendre(o) {
+    const rail = document.getElementById('rail'); rail.innerHTML = '';
+    PARCOURS[o].forEach(([nom, etat], i) => {
+      const d = document.createElement('div'); d.className = 'pas ' + etat;
+      d.innerHTML = '<div class="pt">' + (etat === 'fait' ? '✓' : (etat === 'saute' ? '–' : (i + 1))) + '</div><div class="lb">' + nom + '</div>';
+      rail.appendChild(d);
+    });
+    const n = PARCOURS[o].length, c = PARCOURS[o].findIndex(p => p[1] === 'cours') + 1;
+    document.getElementById('etat-titre').textContent = 'Étape ' + c + ' sur ' + n + ' — ' + PARCOURS[o][c - 1][0];
+  }
+  document.querySelectorAll('.but').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.but').forEach(x => x.classList.remove('sel')); b.classList.add('sel'); rendre(b.dataset.o);
+  }));
+  rendre('lire');
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+{
+ "_note": "Cartes de l'onglet Anticipation de toledo (format repris de castellana et de bilbao, sans votes). `statut` : maquette | planifiee | en_construction | livree | rejetee | rapport. `page` = page autonome du frontend à ouvrir dans un nouvel onglet (chemin sous docs/, sans ..). Champs facultatifs : `epingle` (true = épinglée par défaut, en haut), `derniereRevue` et `dernierAudit` ({date, statut (revue seulement : corrigee | constats_ouverts | en_cours), portee, resultat, commits}, mis à jour à la main après chaque /revue-code, jamais inventés), `elements` (sous-entrées {titre, statut, featureId, description, commits}), `commits` (affichés si livree), `liens` ({titre, url http(s), note}).",
+ "cards": [
+  {
+   "id": "audit-code",
+   "featureId": null,
+   "titre": "Audit du code : où en est la revue",
+   "description": "Taille de toledo, zones auditées avec les défauts trouvés, constats encore ouverts et ce qui reste à faire par priorité (skill commune /revue-code).",
+   "onglet": "Tous",
+   "statut": "rapport",
+   "date": "2026-10-26",
+   "page": "docs/audit-code.html",
+   "libelleBouton": "Ouvrir le rapport",
+   "epingle": true,
+   "dernierAudit": {
+    "date": "2026-10-26",
+    "portee": "Audit /revue-code de la zone « moteur » (traduction et persistance, ≈ 3 000 lignes sur ≈ 17 500) ; cinq zones restent à auditer",
+    "resultat": "Constats retenus relus dans le code et corrigés.",
+    "commits": ["9a69822"]
+   }
+  },
+  {
+   "id": "objectif-etapes",
+   "featureId": null,
+   "titre": "Objectif et étapes",
+   "description": "Le parcours d'une traduction présenté par objectif, découpé en étapes.",
+   "onglet": "Accueil",
+   "statut": "maquette",
+   "date": "2026-10-11",
+   "page": "docs/maquettes-flux/maquette-2-objectif-et-etapes.html"
+  }
+ ]
+}

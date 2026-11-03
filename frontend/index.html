@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/components.css?v=1">
   <link rel="stylesheet" href="css/theme-toledo.css?v=1">
-  <link rel="stylesheet" href="css/style.css?v=17">
+  <link rel="stylesheet" href="css/style.css?v=18">
   <link rel="stylesheet" href="css/styles-visuels.css?v=1">
   <link rel="stylesheet" href="css/commutateurs.css?v=2">
   <script>
@@ -38,6 +38,7 @@
       <button type="button" class="onglet-module" data-module="bibliotheque" role="tab">Bibliothèque</button>
       <button type="button" class="onglet-module" data-module="laboratoire" role="tab" data-avance hidden>Laboratoire</button>
       <button type="button" class="onglet-module" data-module="chronique" role="tab">Chronique</button>
+      <button type="button" class="onglet-module" data-module="anticipation" role="tab">Anticipation</button>
     </nav>
     <div class="barre-espace"></div>
     <div class="statuts-mini">
@@ -306,6 +307,20 @@
       </div>
 
     </div>
+  </main>
+
+  <!-- ══ Module E : Anticipation ═══════════════════════════════════════════
+       Maquettes de ce qui est envisagé mais pas encore construit (même idée que l'onglet
+       Anticipation de castellana). Chaque carte pointe vers une maquette HTML autonome. -->
+  <main id="module-anticipation" class="module module-centre" hidden>
+    <div class="labo-entete">
+      <h1>Anticipation</h1>
+      <p class="aide">Ce qui est envisagé et pas encore construit. Ces maquettes ne font rien : elles servent à juger l'idée avant d'écrire le code. Une carte épinglée (📌) reste en haut ; l'épingle est gardée dans ce navigateur.</p>
+    </div>
+
+    <!-- Cartes rendues par js/module-anticipation.js depuis anticipation/cards.json (épingles, filtre, tri,
+         dernière revue et dernier audit) ; créées dynamiquement, elles n'ont pas de repère d'interface. -->
+    <div id="anticipation-liste" class="antic-liste"><p class="aide">Chargement…</p></div>
   </main>
 
   <!-- ══ Module D : Chronique ══════════════════════════════════════════════
@@ -609,6 +624,7 @@
   <script src="js/module-bibliotheque.js?v=11"></script>
   <script src="js/module-laboratoire.js?v=11"></script>
   <script src="js/module-chronique.js?v=1"></script>
+  <script src="js/module-anticipation.js?v=1"></script>
   <script src="js/labo-scan-colonnes.js?v=5"></script>
   <script src="js/ui-ids.js?v=1"></script>
   <script src="js/reglages.js?v=3"></script>

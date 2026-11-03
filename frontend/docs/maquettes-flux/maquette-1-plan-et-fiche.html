@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette 1 — Plan recommandé et fiche document</title>
+<link rel="stylesheet" href="../../css/tokens.css">
+<link rel="stylesheet" href="../../css/components.css">
+<link rel="stylesheet" href="../../css/theme-toledo.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.5 var(--font-sans); }
+  .bandeau { background: var(--amber-bg); color: var(--amber); padding: 8px 20px; font-size: 12px; }
+  .barre { display: flex; align-items: center; gap: 18px; padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .logo { font-weight: 700; letter-spacing: .02em; }
+  .onglets { display: flex; gap: 4px; }
+  .onglets button { font: inherit; padding: 6px 12px; border: 0; border-radius: 8px; background: none; color: var(--text-2); cursor: pointer; }
+  .onglets button.actif { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-2); margin: 0 0 10px; font-weight: 600; }
+  .carte { margin-bottom: 16px; }
+  .ligne { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .nom { font-family: var(--font-mono); font-size: 12px; }
+  .meta { color: var(--text-2); font-size: 12px; }
+  .diag { display: flex; gap: 14px; align-items: flex-start; }
+  .diag .ico { width: 34px; height: 34px; border-radius: 50%; background: var(--accent-bg); color: var(--accent); display: grid; place-items: center; font-weight: 700; flex: none; }
+  .diag p { margin: 0 0 8px; }
+  .etapes { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 14px; }
+  .etape { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-size: 12px; }
+  .etape b { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-size: 11px; }
+  .etape.opt { border-style: dashed; color: var(--text-2); }
+  .etape.opt b { background: var(--text-3); }
+  .fleche { color: var(--text-3); align-self: center; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .lien { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; text-decoration: underline; }
+  .doc-liste { display: grid; gap: 8px; }
+  .doc { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; }
+  .doc:hover { border-color: var(--accent); }
+  .doc.sel { border-color: var(--accent); background: var(--accent-bg); }
+  .doc .sous { color: var(--text-2); font-size: 12px; }
+  .grow { flex: 1; min-width: 0; }
+  .fiche-onglets { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 12px 0 14px; }
+  .fiche-onglets button { font: inherit; padding: 7px 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-2); cursor: pointer; }
+  .fiche-onglets button.actif { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .panneau { display: none; }
+  .panneau.actif { display: block; }
+  .carres { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+  .tuile { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .tuile .t { font-weight: 600; margin-bottom: 2px; }
+  .progress { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin-top: 6px; }
+  .progress i { display: block; height: 100%; background: var(--accent); }
+  .masque { display: none; }
+  #chap-ex { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
+</style>
+</head>
+<body>
+<div class="bandeau">Maquette statique — rien n'est branché. Cliquez sur les documents, « Voir le plan » et les onglets de la fiche pour sentir le parcours.</div>
+
+<header class="barre">
+  <span class="logo">toledo</span>
+  <nav class="onglets">
+    <button class="actif">Documents</button>
+    <button>Chronique</button>
+    <button>Laboratoire</button>
+  </nav>
+</header>
+
+<main>
+
+  <section class="ds-card carte">
+    <h2>Ajouter un document</h2>
+    <div class="ligne">
+      <button class="ds-btn ds-btn--primary">Parcourir…</button>
+      <span class="meta">ou glissez un .pdf / .md ici</span>
+    </div>
+  </section>
+
+  <section class="ds-card carte" id="plan">
+    <h2>Analyse de « Cycle I (sample).pdf »</h2>
+    <div class="diag">
+      <div class="ico">✓</div>
+      <div class="grow">
+        <p><strong>PDF scanné, 3 colonnes par page.</strong> La couche texte est mal ordonnée : une traduction directe mélangerait les colonnes.</p>
+        <p class="meta">Plan recommandé :</p>
+        <div class="etapes">
+          <div class="etape"><b>1</b>Scan multi-colonnes</div>
+          <span class="fleche">→</span>
+          <div class="etape"><b>2</b>Traduire (EN → FR)</div>
+          <span class="fleche">→</span>
+          <div class="etape opt"><b>3</b>Résumé et quiz</div>
+        </div>
+        <div class="actions">
+          <button class="ds-btn ds-btn--primary">Appliquer le plan</button>
+          <button class="ds-btn" id="btn-autre">Choisir autrement…</button>
+        </div>
+        <div id="autre" class="masque" style="margin-top:10px">
+          <p class="meta">Autres cas possibles (selon l'analyse) :</p>
+          <ul class="meta" style="margin:4px 0 0 18px;padding:0">
+            <li>PDF propre → <em>Traduire</em></li>
+            <li>Gros bloc de texte sans titres → <em>Segmenter en chapitres</em>, puis <em>Traduire</em></li>
+            <li>Fichier .md déjà structuré → <em>Traduire</em></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ds-card carte">
+    <h2>Vos documents</h2>
+    <div class="doc-liste">
+      <div class="doc sel" data-doc="1">
+        <div class="grow"><div class="nom">Models of the Mind — Chapter 9</div><div class="sous">Traduit EN → FR · 12/12 chapitres · fiche d'étude prête</div></div>
+        <span class="ds-badge ds-badge--success">Terminé</span>
+      </div>
+      <div class="doc" data-doc="2">
+        <div class="grow"><div class="nom">S. Pinker 14 septembre</div><div class="sous">Conférence · segmenté en 9 chapitres · traduction 6/9</div></div>
+        <span class="ds-badge ds-badge--warning">En pause</span>
+      </div>
+      <div class="doc" data-doc="3">
+        <div class="grow"><div class="nom">Cycle I (Inward Odyssey)</div><div class="sous">Scan multi-colonnes terminé · prêt à traduire</div></div>
+        <span class="ds-badge ds-badge--accent">À traduire</span>
+      </div>
+    </div>
+
+    <div id="fiche">
+      <div class="fiche-onglets" role="tablist">
+        <button class="actif" data-p="lire">Lire</button>
+        <button data-p="etudier">Résumé et quiz</button>
+        <button data-p="ecouter">Écouter</button>
+        <button data-p="exporter">Exporter</button>
+      </div>
+
+      <div class="panneau actif" id="p-lire">
+        <div class="ligne" style="justify-content:space-between">
+          <span class="meta">Chapitre 3 — <span id="chap-ex">traduction à droite, original à gauche</span></span>
+          <button class="ds-btn ds-btn--sm">⇄ Comparer</button>
+        </div>
+      </div>
+
+      <div class="panneau" id="p-etudier">
+        <div class="carres">
+          <div class="tuile"><div class="t">Points clés</div><div class="meta">12 chapitres · stratégie par sections</div><div class="progress"><i style="width:100%"></i></div><p style="margin:10px 0 0"><button class="ds-btn ds-btn--sm">Régénérer</button></p></div>
+          <div class="tuile"><div class="t">Quiz</div><div class="meta">4 questions par chapitre</div><div class="progress"><i style="width:100%"></i></div><p style="margin:10px 0 0"><button class="ds-btn ds-btn--sm">Faire le quiz</button></p></div>
+        </div>
+      </div>
+
+      <div class="panneau" id="p-ecouter">
+        <div class="ligne">
+          <select class="ds-select"><option>Voix : Siwis (fr)</option><option>Ma voix clonée</option></select>
+          <button class="ds-btn ds-btn--primary">▶ Lire le chapitre 3</button>
+        </div>
+      </div>
+
+      <div class="panneau" id="p-exporter">
+        <div class="actions">
+          <button class="ds-btn">Document HTML autonome</button>
+          <button class="ds-btn">Fiche d'étude HTML</button>
+          <button class="ds-btn">Markdown</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  document.getElementById('btn-autre').addEventListener('click', () => document.getElementById('autre').classList.toggle('masque'));
+  document.querySelectorAll('.doc').forEach(d => d.addEventListener('click', () => {
+    document.querySelectorAll('.doc').forEach(x => x.classList.remove('sel')); d.classList.add('sel');
+  }));
+  document.querySelectorAll('.fiche-onglets button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.fiche-onglets button').forEach(x => x.classList.remove('actif')); b.classList.add('actif');
+    document.querySelectorAll('.panneau').forEach(p => p.classList.toggle('actif', p.id === 'p-' + b.dataset.p));
+  }));
+</script>
+</body>
+</html>
