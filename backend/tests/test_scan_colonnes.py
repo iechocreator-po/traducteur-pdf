@@ -1,4 +1,3 @@
-import os
 """
 Tests du nettoyage de PDF scannés à colonnes (services/scan_colonnes.py, Laboratoire).
 
@@ -7,6 +6,7 @@ titres), un test bout en bout sur un vrai PDF fabriqué avec Tesseract (ignoré 
 est absent), et les routes.
 """
 
+import os
 import shutil
 
 import pytest

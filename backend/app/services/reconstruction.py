@@ -25,7 +25,6 @@ import base64
 import difflib
 import html as html_mod
 import io
-import json
 import os
 import re
 import time
@@ -238,7 +237,7 @@ def _blocs_traduits(corps: str) -> list[tuple[str, str]]:
             if reste.strip():
                 blocs.append(("para", reste.strip()))
         elif morceau.startswith(">"):
-            blocs.append(("encadre", " ".join(l.lstrip(">").strip() for l in morceau.splitlines())))
+            blocs.append(("encadre", " ".join(ligne.lstrip(">").strip() for ligne in morceau.splitlines())))
         else:
             blocs.append(("para", " ".join(morceau.splitlines())))
     return blocs

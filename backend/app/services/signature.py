@@ -132,12 +132,12 @@ def signer(chemin_pdf: str, signature: bytes, placements: list[dict], mention: s
             n = int(pl["page"])
             if not 1 <= n <= doc.page_count:
                 raise SignatureInvalide(f"Page {n} hors du document ({doc.page_count} pages).")
-            x, y, l, h = (float(pl[k]) for k in ("x", "y", "largeur", "hauteur"))
-            if not (0 <= x < 1 and 0 <= y < 1 and 0 < l <= 1 and 0 < h <= 1):
+            x, y, larg, haut = (float(pl[k]) for k in ("x", "y", "largeur", "hauteur"))
+            if not (0 <= x < 1 and 0 <= y < 1 and 0 < larg <= 1 and 0 < haut <= 1):
                 raise SignatureInvalide("Emplacement hors de la page.")
             page = doc[n - 1]
             W, H = page.rect.width, page.rect.height
-            visible = pymupdf.Rect(x * W, y * H, min(1, x + l) * W, min(1, y + h) * H)
+            visible = pymupdf.Rect(x * W, y * H, min(1, x + larg) * W, min(1, y + haut) * H)
             # page.rect est la page AFFICHÉE ; insert_image attend les coordonnées non tournées
             page.insert_image(visible * page.derotation_matrix, stream=png, keep_proportion=True,
                               overlay=True, rotate=page.rotation)
