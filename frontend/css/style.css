@@ -105,7 +105,7 @@ body {
 
 /* ── Modules ───────────────────────────────────────────────────────────────── */
 .module-centre {
-  max-width: 680px;
+  max-width: min(1120px, 100%);   /* zone de travail élargie (11/10/2026) : 680 px n'occupait qu'un tiers d'un grand écran */
   margin: 0 auto;
   padding: 2rem 1rem 3rem;
 }
@@ -922,6 +922,10 @@ html.avance .biblio-lecture {
 .reglages-panneau.is-active { display: block; }
 .reglages-ligne { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .reglages-ligne p { flex: 1 1 260px; margin: 0; }
+/* Le texte enveloppé dans un .aide (Mode avancé) doit aussi prendre la place, sinon l'interrupteur colle à gauche. */
+.reglages-ligne > .aide { flex: 1 1 260px; }
+.reglages-ligne > .aide > p { flex: none; }
+.reglages-ligne > .ui-switch { margin-left: auto; }
 
 /* Interrupteur rond (recréation du « 16. Switch button » de Mojtaba Seyedi, recensé sur
    prismic.io/blog/css-button-animations) — même composant que castellana, accent de toledo. */
@@ -948,7 +952,7 @@ html.avance .biblio-lecture {
    innerHTML. OFF par défaut. */
 :root[data-ui-ids="off"] .onglet-module[data-ui-tab]::before,
 :root[data-ui-ids="off"] .reglages-tab-btn[data-ui-tab]::before,
-:root[data-ui-ids="off"] .ds-card[data-ui-card]::before { display: none; }
+:root[data-ui-ids="off"] .ds-card[data-ui-card]::before { display: none !important; }
 .onglet-module[data-ui-tab]::before,
 .reglages-tab-btn[data-ui-tab]::before {
   content: attr(data-ui-tab);
@@ -962,12 +966,46 @@ html.avance .biblio-lecture {
 .ds-card[data-ui-card] { position: relative; }
 .ds-card[data-ui-card]::before {
   content: attr(data-ui-card);
-  position: absolute; top: -9px; right: 12px; z-index: 2;
-  padding: 2px 7px 2px 6px; border-radius: 6px;
-  background: var(--text); color: var(--surface);
-  font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
-  box-shadow: 0 1px 3px rgba(0,0,0,.18);
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .02em; line-height: 1.5;
+  z-index: 2;
 }
+/* A · étiquette discrète en coin bas : dans la carte, ne touche jamais le titre */
+:root[data-ui-ids-style="a"] .ds-card[data-ui-card] { padding-bottom: calc(1rem + 14px); }
+:root[data-ui-ids-style="a"] .ds-card[data-ui-card]::before {
+  position: absolute; right: 8px; bottom: 5px; padding: 0 5px; border-radius: 4px;
+  color: var(--text-3); border: 1px solid var(--border); background: var(--surface);
+}
+/* B · pastille en tête de carte, dans le flux : prend sa propre place, aucun chevauchement */
+:root[data-ui-ids-style="b"] .ds-card[data-ui-card]::before {
+  display: block; width: fit-content; margin: 0 0 6px; padding: 0 6px; border-radius: 4px;
+  color: var(--accent); background: var(--accent-bg);
+}
+/* C · marge extérieure : à gauche du cadre (écran large) ; en dessous de 1000 px, retombe sur A */
+:root[data-ui-ids-style="c"] .ds-card[data-ui-card]::before {
+  position: absolute; left: -34px; top: 10px; color: var(--text-3);
+}
+@media (max-width: 1000px) {
+  :root[data-ui-ids-style="c"] .ds-card[data-ui-card] { padding-bottom: calc(1rem + 14px); }
+  :root[data-ui-ids-style="c"] .ds-card[data-ui-card]::before {
+    left: auto; top: auto; right: 8px; bottom: 5px; padding: 0 5px; border-radius: 4px;
+    border: 1px solid var(--border); background: var(--surface);
+  }
+}
+/* D · languette sur le coin haut-droit du cadre */
+:root[data-ui-ids-style="d"] .ds-card[data-ui-card]::before {
+  position: absolute; top: -1px; right: -1px; padding: 1px 8px; border-radius: 0 var(--radius-lg, 8px) 0 var(--radius-lg, 8px);
+  color: var(--accent); background: var(--accent-bg); border: 1px solid var(--border);
+}
+
+/* Choix de l'apparence des repères (Réglages › Personnalisation) */
+.reperes-choix { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-top: 0.9rem; }
+button.reperes-option {
+  display: flex; align-items: center; gap: 10px; text-align: left; padding: 8px 10px; margin: 0;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm, 6px);
+  color: var(--text); font-size: var(--t-corps, 13px); font-weight: 400; cursor: pointer;
+}
+button.reperes-option b { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--accent); }
+button.reperes-option.is-active { border-color: var(--accent); background: var(--accent-bg); }
 
 /* ── Réglages : mode avancé et cartes du Laboratoire ────────────────────────── */
 .carte-masquee { display: none !important; }
@@ -1026,6 +1064,87 @@ button.bouton-launcher { font-size: var(--t-corps); font-weight: 500; }
 .chronique-nd { color: var(--text-3); }
 @media (max-width: 700px) { .chronique-formulaire { grid-template-columns: 1fr; } }
 
+
+/* ── Accueil : parcours par objectif (11/10/2026) ────────────────────────────── */
+.objectifs { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 1rem; }
+button.objectif-option {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; margin: 0;
+  padding: 10px 12px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px); color: var(--text); cursor: pointer;
+}
+button.objectif-option:hover { border-color: var(--accent); }
+button.objectif-option.is-active { border-color: var(--accent); background: var(--accent-bg); }
+.objectif-option .obj-t { font-size: var(--t-corps, 13px); font-weight: 600; }
+.objectif-option .obj-e { font-size: var(--t-aide, 12px); font-weight: 400; color: var(--text-2); }
+.parcours-rail { display: flex; align-items: flex-start; margin: 0.4rem 0 0.9rem; }
+.parcours-pas { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; position: relative; min-width: 0; }
+.parcours-pas::before { content: ""; position: absolute; top: 11px; left: -50%; width: 100%; height: 2px; background: var(--border); }
+.parcours-pas:first-child::before { display: none; }
+.parcours-pas.fait::before, .parcours-pas.cours::before { background: var(--accent); }
+.parcours-pas .pt {
+  position: relative; z-index: 1; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 11px; font-weight: 700; background: var(--surface-2); color: var(--text-2); border: 2px solid var(--surface);
+}
+.parcours-pas.fait .pt { background: var(--accent); color: var(--on-accent); }
+.parcours-pas.cours .pt { background: var(--surface); color: var(--accent); border-color: var(--accent); }
+.parcours-pas .lb { font-size: 11px; color: var(--text-2); text-align: center; }
+.parcours-pas.cours .lb { color: var(--accent); font-weight: 600; }
+.parcours-etat { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--radius-sm, 8px); background: var(--surface-2); }
+.parcours-etat-texte { flex: 1 1 240px; min-width: 0; }
+.parcours-etat .aide { margin: 2px 0 0; }
+
+/* Réglages du lot repliés par défaut : le résumé (langues, modèle) reste visible dans le <summary>. */
+details.reglages-lot > summary { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; cursor: pointer; list-style: none; margin-bottom: 0.9rem; }
+details.reglages-lot > summary::-webkit-details-marker { display: none; }
+details.reglages-lot > summary .carte-sous-titre::before { content: "▸"; color: var(--text-3); margin-right: 6px; }
+details.reglages-lot[open] > summary .carte-sous-titre::before { content: "▾"; }
+details.reglages-lot > summary .carte-sous-titre { margin: 0; flex: 1 1 auto; }
+details.reglages-lot > summary .aide { margin: 0; }
+.parcours-pas.saute .pt { background: var(--surface); color: var(--text-3); border: 2px dashed var(--text-3); }
+.parcours-pas.saute .lb { color: var(--text-3); text-decoration: line-through; }
+
+.scan-enchainer { display: flex; align-items: flex-start; gap: 8px; margin: 0.6rem 0; cursor: pointer; }
+.scan-enchainer input { margin-top: 3px; }
+
+.parcours-progress { margin-top: 10px; }
+.parcours-ocr { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
+.parcours-ocr label:not(.scan-enchainer) { display: block; font-size: var(--t-aide, 12px); color: var(--text-2); margin-bottom: 3px; }
+.parcours-ocr .ds-select { width: 100%; }
+.parcours-ocr-auto { grid-column: 1 / -1; margin: 0; }
+
+/* ── Accueil : objectifs hors carte, « Votre document » regroupe import, parcours et lot (11/10/2026) ── */
+.parcours-objectifs h1 { font-size: var(--t-page, 20px); margin: 0 0 2px; }
+.parcours-objectifs > .aide { margin: 0; }
+.parcours-objectifs .objectifs { margin: 1rem 0 1.2rem; }
+#parcours-document .carte-dropzone { border: 2px dashed var(--border); border-radius: var(--radius-sm, 8px); padding: 1.2rem 1rem; margin-bottom: 1rem; }
+#parcours-document .carte-dropzone.is-survol { border-color: var(--accent); background: var(--accent-bg); }
+#parcours-document .parcours-rail { margin-top: 0.2rem; }
+#parcours-zone-lot-sep, #zone-lot { margin-top: 1rem; }
+#zone-lot .liste-lot .lot-ligne { margin-bottom: 0.6rem; }
+.reglages-ligne-unique { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+.reglages-ligne-unique label { display: block; font-size: var(--t-aide, 12px); color: var(--text-2); margin-bottom: 3px; }
+.reglages-ligne-unique .ds-select { width: 100%; margin: 0; }
+
+/* Dropzone compacte : icône | titre + aide | bouton, sur une seule ligne (T2) */
+#parcours-document .carte-dropzone { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 14px; text-align: left; padding: 0.6rem 1rem; margin-bottom: 0.9rem; }
+#parcours-document .dropzone-icone { width: 28px; height: 28px; border-radius: 8px; margin: 0; }
+#parcours-document .dropzone-texte .aide { margin: 0; }
+#parcours-document .carte-dropzone .ligne-ajout { margin: 0; }
+#parcours-document .carte-dropzone .ligne-ajout-chemin { grid-column: 1 / -1; justify-content: flex-start; }
+#parcours-document .carte-dropzone #import-upload-statut { grid-column: 1 / -1; margin: 0; }
+#parcours-document .carte-dropzone #import-upload-statut:empty { display: none; }
+
+/* Objectif « Nettoyer » : jamais de lancement de traduction depuis le lot (le PDF brut serait traduit sans
+   nettoyage) ; la suite se fait par le bouton du parcours. Les réglages restent visibles pour la traduction enchaînée. */
+:root[data-objectif="nettoyer"] .ligne-actions-lot, :root[data-objectif="nettoyer"] #zone-planifier { display: none; }
+#parcours-titre:empty { display: none; }
+.parcours-ocr input.ds-input { width: 100%; margin: 0; }
+.parcours-ocr-apercu { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.parcours-ocr-apercu .scan-apercu { max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm, 8px); }
+.parcours-ocr-apercu .aide { margin: 0; }
+#parcours-titre:empty + .aide { color: var(--text); font-size: var(--t-corps, 13px); margin-top: 0; }
+.parcours-boutons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
 /* ── Module E : Anticipation (cartes de js/module-anticipation.js, repris de castellana) ── */
 .antic-carte.is-pinned { border-color: var(--accent); }
 .antic-tete { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
@@ -1043,3 +1162,63 @@ button.bouton-launcher { font-size: var(--t-corps); font-weight: 500; }
 .antic-liens ul { margin: 4px 0 0 18px; padding: 0; }
 .antic-commits code, .antic-revue code { font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); }
 .antic-actions { margin-top: 10px; }
+
+/* ── Bibliothèque : exports « mise en page d'origine » + signature ─────────── */
+.lecture-bandeau { flex-wrap: wrap; }
+.doc-export-statut { flex-basis: 100%; min-height: 0; }
+.doc-export-statut:empty { display: none; }
+
+/* T2 : explication des stratégies de fiche */
+.ia-strategie-aide {
+  margin: 0.5rem 0 0.2rem;
+  padding: 0.55rem 0.75rem;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-bg);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+.ia-strategie-aide strong { color: var(--accent); }
+.ia-strategie-details { margin: 0.3rem 0 0.4rem; font-size: 0.8rem; }
+.ia-strategie-details summary { cursor: pointer; color: var(--text-2); }
+.ia-strategie-table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.76rem; }
+.ia-strategie-table th, .ia-strategie-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.ia-strategie-table thead th { color: var(--text-2); font-weight: 600; }
+.ia-strategie-table tbody th { color: var(--text-2); font-weight: 600; white-space: nowrap; }
+
+/* T3 : dialogue de signature */
+.sig-dialog {
+  width: min(1080px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.sig-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.sig-form { display: flex; flex-direction: column; gap: 0.6rem; padding: 1.1rem 1.4rem; max-height: calc(100vh - 34px); overflow: auto; }
+.sig-entete { display: flex; justify-content: space-between; align-items: center; }
+.sig-entete h2 { margin: 0; font-size: 1.1rem; }
+.sig-avertissement { margin: 0; padding: 0.5rem 0.7rem; border-radius: var(--radius-sm); background: var(--amber-bg); color: var(--text); }
+.sig-grille { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 1.2rem; }
+.sig-colonne { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+.sig-etape { font-weight: 700; font-size: 0.82rem; margin-top: 0.4rem; }
+.sig-onglets { display: flex; gap: 4px; }
+.sig-onglet { flex: 1; padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-2); font: inherit; font-size: 0.8rem; cursor: pointer; }
+.sig-onglet[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sig-panneau { display: flex; flex-direction: column; gap: 0.4rem; }
+.sig-canvas { width: 100%; height: auto; aspect-ratio: 14 / 5; border: 1px dashed var(--border); border-radius: var(--radius-sm); background: #fff; touch-action: none; cursor: crosshair; }
+.sig-outils { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.sig-case { display: flex; gap: 6px; align-items: center; font-size: 0.8rem; }
+.sig-pages-nav { display: flex; align-items: center; gap: 8px; }
+.sig-apercu { position: relative; align-self: flex-start; max-width: 100%; border: 1px solid var(--border); background: var(--surface-2); cursor: copy; user-select: none; }
+.sig-apercu > img { display: block; max-width: 100%; max-height: 62vh; }
+.sig-boite { position: absolute; border: 1.5px dashed var(--accent); background: transparent; cursor: move; touch-action: none; }
+.sig-boite img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.sig-poignee { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; border-radius: 3px; background: var(--accent); cursor: nwse-resize; }
+.sig-pied { display: flex; justify-content: flex-end; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding-top: 0.7rem; }
+.sig-pied #sig-statut { margin-right: auto; }
+@media (max-width: 760px) { .sig-grille { grid-template-columns: 1fr; } }

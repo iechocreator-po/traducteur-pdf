@@ -51,6 +51,13 @@ FLAGS_PAR_DEFAUT = {
     # par colonne, sans LLM). N'affecte aucun flux existant — c'est un outil à part, déjà
     # derrière le mode avancé — d'où « on » par défaut, contrairement à extraction_images_pdf.
     "extraction_scan_colonnes": True,
+    # Bibliothèque : pour une traduction issue du Scan multi-colonnes, boutons « PDF mis en page »
+    # (format d'origine, illustrations replacées) et « HTML interactif » (services/reconstruction.py).
+    # Lecture seule sur le scan, écrit seulement à côté de la traduction → « on » par défaut.
+    "reconstruction_scan": True,
+    # Bibliothèque : « ✍ Signer un PDF » — signature visuelle apposée sur une copie `_signe.pdf`
+    # (services/signature.py). Le PDF d'origine n'est jamais modifié.
+    "signature_pdf": True,
 }
 
 EXTRACTEURS_PDF = [

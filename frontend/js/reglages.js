@@ -1,5 +1,5 @@
 // Réglages (⚙) : panneau plein écran, onglets internes. Même principe que castellana.
-// Pour l'instant un seul onglet (« Personnalisation » : repères d'interface) ; la structure
+// Deux onglets : « Configuration » (mode avancé, Laboratoire) et « Personnalisation » (repères, style) ; la structure
 // accueille les suivants sans rien changer ici.
 
 function ouvrirReglages() { $("reglages-overlay").hidden = false; }
@@ -23,6 +23,9 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("reglages-overlay").hidden) fermerReglages();
 });
 $("ui-ids-toggle").addEventListener("change", (e) => setUiIdsVisible(e.target.checked));
+document.querySelectorAll(".reperes-option").forEach((b) => {
+  b.addEventListener("click", () => setUiIdsStyle(b.dataset.reperesStyle));
+});
 
 // ── Laboratoire : chaque carte activable unitairement (10/10/2026) ───────────
 // La liste est DÉRIVÉE des cartes du Laboratoire (même règle de sélection que les repères

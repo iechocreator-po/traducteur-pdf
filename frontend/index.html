@@ -11,8 +11,8 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/components.css?v=1">
   <link rel="stylesheet" href="css/theme-toledo.css?v=1">
-  <link rel="stylesheet" href="css/style.css?v=18">
-  <link rel="stylesheet" href="css/styles-visuels.css?v=1">
+  <link rel="stylesheet" href="css/style.css?v=32">
+  <link rel="stylesheet" href="css/styles-visuels.css?v=4">
   <link rel="stylesheet" href="css/commutateurs.css?v=2">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
@@ -34,7 +34,7 @@
   <header class="barre-app">
     <div class="logo"><span class="logo-pastille"></span>toledo</div>
     <nav class="modules-nav" role="tablist">
-      <button type="button" class="onglet-module" data-module="import" role="tab">Nouveau document</button>
+      <button type="button" class="onglet-module" data-module="import" role="tab">Accueil</button>
       <button type="button" class="onglet-module" data-module="bibliotheque" role="tab">Bibliothèque</button>
       <button type="button" class="onglet-module" data-module="laboratoire" role="tab" data-avance hidden>Laboratoire</button>
       <button type="button" class="onglet-module" data-module="chronique" role="tab">Chronique</button>
@@ -61,9 +61,11 @@
     </div>
     <div class="reglages-main">
       <div class="reglages-tabs" role="tablist">
-        <button type="button" class="reglages-tab-btn is-active" data-stab="personnalisation" role="tab" aria-selected="true">Personnalisation</button>
+        <button type="button" class="reglages-tab-btn is-active" data-stab="configuration" role="tab" aria-selected="true">Configuration</button>
+        <button type="button" class="reglages-tab-btn" data-stab="personnalisation" role="tab" aria-selected="false">Personnalisation</button>
+        <button type="button" class="reglages-tab-btn" data-stab="technique" role="tab" aria-selected="false">Technique</button>
       </div>
-      <div id="reglages-tab-personnalisation" class="reglages-panneau is-active" role="tabpanel">
+      <div id="reglages-tab-configuration" class="reglages-panneau is-active" role="tabpanel">
         <div class="ds-card carte" id="reglages-carte-avance">
           <h2>Mode avancé</h2>
           <div class="reglages-ligne">
@@ -83,6 +85,14 @@
             </div>
           </div>
         </div>
+        <div class="ds-card carte" id="reglages-carte-lab">
+          <h2>Laboratoire — éléments affichés</h2>
+          <p class="aide">Choisissez, carte par carte, ce que le Laboratoire affiche. Le repère (C1, C2…) est celui des Repères d'interface ; une carte masquée garde son repère. Réservé au mode avancé, qui donne accès au Laboratoire.</p>
+          <div id="reglages-lab-liste" class="reglages-lab-liste"></div>
+          <button type="button" id="bouton-lab-tout-afficher" class="ds-btn ds-btn--sm">Tout afficher</button>
+        </div>
+      </div>
+      <div id="reglages-tab-personnalisation" class="reglages-panneau" role="tabpanel">
         <div class="ds-card carte">
           <h2>Repères d'interface</h2>
           <div class="reglages-ligne">
@@ -93,12 +103,12 @@
               <input type="checkbox" id="ui-ids-toggle">
             </div>
           </div>
-        </div>
-        <div class="ds-card carte" id="reglages-carte-lab">
-          <h2>Laboratoire — éléments affichés</h2>
-          <p class="aide">Choisissez, carte par carte, ce que le Laboratoire affiche. Le repère (C1, C2…) est celui des Repères d'interface ; une carte masquée garde son repère. Réservé au mode avancé, qui donne accès au Laboratoire.</p>
-          <div id="reglages-lab-liste" class="reglages-lab-liste"></div>
-          <button type="button" id="bouton-lab-tout-afficher" class="ds-btn ds-btn--sm">Tout afficher</button>
+          <div class="reperes-choix" id="ui-ids-style-groupe" role="radiogroup" aria-label="Apparence des repères">
+            <button type="button" class="reperes-option" data-reperes-style="a" role="radio"><b>A</b><span>Étiquette discrète en coin bas</span></button>
+            <button type="button" class="reperes-option" data-reperes-style="b" role="radio"><b>B</b><span>Pastille au-dessus du titre</span></button>
+            <button type="button" class="reperes-option" data-reperes-style="c" role="radio"><b>C</b><span>Marge extérieure (écran large)</span></button>
+            <button type="button" class="reperes-option" data-reperes-style="d" role="radio"><b>D</b><span>Languette sur le coin du cadre</span></button>
+          </div>
         </div>
         <div class="ds-card carte" id="reglages-carte-style">
           <h2>Style de l'interface</h2>
@@ -111,65 +121,146 @@
           <ul id="commutateurs-grille" class="styles-grille" role="radiogroup" aria-label="Format des commutateurs"></ul>
         </div>
       </div>
+
+      <div id="reglages-tab-technique" class="reglages-panneau" role="tabpanel">
+        <section class="ds-card carte">
+      <h2>État du système</h2>
+      <div class="parametre-ligne">
+        <span class="parametre-label">Backend FastAPI</span>
+        <span id="statut-api" class="ds-badge">Vérification…</span>
+        <button id="bouton-lancer-backend" class="bouton-launcher">Lancer</button>
+      </div>
+      <div class="parametre-ligne">
+        <span class="parametre-label">Ollama</span>
+        <span id="statut-ollama" class="ds-badge"></span>
+        <button id="bouton-reconnecter" class="ds-btn ds-btn--sm" title="Re-vérifier les connexions backend et Ollama">Reconnecter</button>
+      </div>
+    </section>
+        <section class="ds-card carte">
+      <h2>Documentation technique</h2>
+      <p class="aide">
+        Audit de la messagerie backend ↔ frontends (web et macOS), épreuve de durabilité
+        sur 12 scénarios d'interruption, et architecture cible. Document autonome, lisible
+        hors ligne.
+      </p>
+      <a id="lien-doc-architecture"
+         class="ds-btn"
+         href="docs/architecture-messagerie.html"
+         target="_blank"
+         rel="noopener">Messagerie, durabilité, architecture cible</a>
+    </section>
+      </div>
     </div>
   </div>
 
   <!-- ══ Module A : Nouveau document ═══════════════════════════════════════ -->
   <main id="module-import" class="module module-centre">
 
-    <section class="ds-card carte carte-dropzone" id="dropzone">
-      <div class="dropzone-icone"></div>
-      <div class="dropzone-titre">Ajoute tes documents</div>
-      <p class="aide">Glisse tes fichiers .pdf ou .md ici, ou parcours ton disque — ils s'accumulent dans le lot.</p>
-      <input type="file" id="import-fichier" accept=".pdf,.md,.markdown" multiple hidden>
-      <div class="ligne-ajout">
-        <button id="bouton-parcourir" class="ds-btn ds-btn--primary">📂 Parcourir…</button>
+    <!-- Parcours par objectif (maquette 2, 11/10/2026) : on choisit ce qu'on veut faire, l'app montre
+         les étapes. Les outils (lot, reprise, Bibliothèque, Laboratoire) restent tous accessibles. -->
+    <!-- Accueil (maquette 2, 11/10/2026) : les objectifs sont HORS de la carte ; « Votre document »
+         regroupe l'import (ex-A2), le lot, le parcours (rail + état) et les réglages du lot (ex-A3), avec les
+         réglages en bas, sur une seule ligne. -->
+    <section class="parcours-objectifs" id="parcours-objectifs">
+      <h1>Que voulez-vous faire ?</h1>
+      <p class="aide">Choisissez un objectif ; toledo montre les étapes à suivre.</p>
+      <div class="objectifs" id="objectifs-groupe" role="radiogroup" aria-label="Objectif">
+        <button type="button" class="objectif-option" data-objectif="lire" role="radio"><span class="obj-t">Lire dans ma langue</span><span class="obj-e">Importer, puis traduire</span></button>
+        <button type="button" class="objectif-option" data-objectif="etudier" role="radio"><span class="obj-t">Étudier un document</span><span class="obj-e">Traduire, résumer, quiz</span></button>
+        <button type="button" class="objectif-option" data-objectif="ecouter" role="radio"><span class="obj-t">Écouter un document</span><span class="obj-e">Traduire, puis lecture audio</span></button>
+        <button type="button" class="objectif-option" data-objectif="nettoyer" role="radio"><span class="obj-t">Nettoyer un document</span><span class="obj-e">Scan, colonnes, gros bloc de texte</span></button>
       </div>
-      <div class="ligne-ajout ligne-ajout-chemin" data-avance hidden>
-        <input class="ds-input" type="text" id="import-chemin" placeholder="/Users/.../document.pdf ou .md">
-        <button id="bouton-ajouter-lot" class="ds-btn">＋ Ajouter par chemin</button>
-      </div>
-      <p id="import-upload-statut" class="aide"></p>
     </section>
 
-    <div id="zone-lot" hidden>
-      <div class="lot-entete">
-        <span id="lot-compte" class="lot-compte"></span>
-        <span id="lot-prets" class="aide"></span>
+    <section class="ds-card carte" id="parcours-document">
+      <h2>Votre document</h2>
+
+      <div class="carte-dropzone" id="dropzone">
+        <div class="dropzone-icone"></div>
+        <div class="dropzone-texte">
+          <div class="dropzone-titre">Ajoute tes documents</div>
+          <p class="aide">Glisse des .pdf ou .md ici, ou parcours ton disque.</p>
+        </div>
+        <input type="file" id="import-fichier" accept=".pdf,.md,.markdown" multiple hidden>
+        <div class="ligne-ajout">
+          <button id="bouton-parcourir" class="ds-btn ds-btn--primary">📂 Parcourir…</button>
+        </div>
+        <div class="ligne-ajout ligne-ajout-chemin" data-avance hidden>
+          <input class="ds-input" type="text" id="import-chemin" placeholder="/Users/.../document.pdf ou .md">
+          <button id="bouton-ajouter-lot" class="ds-btn">＋ Ajouter par chemin</button>
+        </div>
+        <p id="import-upload-statut" class="aide"></p>
       </div>
 
-      <section class="ds-card carte">
-        <div class="carte-sous-titre">Réglages du lot — appliqués à tous les fichiers</div>
-        <div class="reglages-langues">
-          <select class="ds-select" id="langue-source" aria-label="Langue source">
-            <option value="anglais" selected>Depuis l'anglais</option>
-            <option value="francais">Depuis le français</option>
-            <option value="espagnol">Depuis l'espagnol</option>
-          </select>
-          <span class="fleche">→</span>
-          <select class="ds-select" id="langue-cible" aria-label="Langue cible">
-            <option value="français" selected>Traduire vers le français</option>
-            <option value="anglais">Traduire vers l'anglais</option>
-            <option value="espagnol">Traduire vers l'espagnol</option>
-          </select>
+      <div class="parcours-rail" id="parcours-rail" aria-label="Étapes du parcours"></div>
+      <div class="parcours-etat">
+        <div class="parcours-etat-texte">
+          <strong id="parcours-titre"></strong>
+          <div class="aide" id="parcours-detail"></div>
+        </div>
+        <div class="parcours-boutons">
+          <button type="button" class="ds-btn ds-btn--sm" id="parcours-reset" hidden title="Efface les pages en cache, le fichier nettoyé et l'état du scan de ce PDF (le PDF d'origine n'est pas touché)">Recommencer à zéro</button>
+          <button type="button" class="ds-btn ds-btn--primary" id="parcours-action" hidden></button>
+        </div>
+      </div>
+      <div class="barre-conteneur barre-fine parcours-progress" id="parcours-progress" hidden><div class="barre-progression" id="parcours-progress-barre"></div></div>
+      <div class="parcours-ocr" id="parcours-ocr" hidden>
+        <div><label for="parcours-ocr-langue">Langue du document (OCR)</label><select class="ds-select" id="parcours-ocr-langue"></select></div>
+        <div><label for="parcours-ocr-double">Mise en page</label>
+          <select class="ds-select" id="parcours-ocr-double">
+            <option value="auto">Auto (large = double page)</option>
+            <option value="oui">Double page</option>
+            <option value="non">Page simple</option>
+          </select></div>
+        <div><label for="parcours-ocr-debut">Page de départ</label><input class="ds-input" type="number" id="parcours-ocr-debut" min="1" value="1"></div>
+        <div><label for="parcours-ocr-fin">Page de fin</label><input class="ds-input" type="number" id="parcours-ocr-fin" min="1" placeholder="dernière"></div>
+        <div class="parcours-ocr-apercu">
+          <button type="button" class="ds-btn" id="parcours-apercu-bouton">Aperçu des régions (page de départ)</button>
+          <span class="aide" id="parcours-apercu-info"></span>
+          <img id="parcours-apercu-image" class="scan-apercu" alt="Aperçu des régions détectées" hidden>
+          <p class="aide" id="parcours-apercu-legende" hidden><span class="scan-legende scan-vert">colonnes</span>, <span class="scan-legende scan-bleu">encadrés</span>, <span class="scan-legende scan-orange">candidats-titres</span> et gouttière <span class="scan-legende scan-rouge">rouge</span>. Vérifiez une page ou deux <em>avant</em> de lancer tout le document.</p>
+        </div>
+        <label class="scan-enchainer parcours-ocr-auto"><input type="checkbox" id="parcours-auto"><span>Traduire ensuite, automatiquement <span class="aide">(si le scan se termine sans page en erreur)</span></span></label>
+      </div>
+
+      <div id="zone-lot" hidden>
+        <div class="lot-entete">
+          <span id="lot-compte" class="lot-compte"></span>
+          <span id="lot-prets" class="aide"></span>
         </div>
 
-        <!-- Le choix du modèle est un réglage ORDINAIRE, pas un réglage avancé :
-             plusieurs modèles peuvent cohabiter (feature 338) et on en change
-             d'un document à l'autre pour comparer les traductions. Le moteur de
-             conversion, lui, reste avancé — on n'y touche qu'en cas de PDF
-             récalcitrant. -->
-        <div class="reglage-modele">
-          <label for="modele">Modèle IA (Ollama)</label>
-          <select class="ds-select" id="modele"></select>
-        </div>
+        <div id="liste-lot" class="liste-lot"></div>
 
-        <div class="zone-avance" data-avance hidden>
-          <div>
-            <label for="extracteur-pdf">Moteur de conversion</label>
-            <select class="ds-select" id="extracteur-pdf"></select>
+        <details class="reglages-lot" id="reglages-lot">
+          <summary><span class="carte-sous-titre">Réglages du lot — appliqués à tous les fichiers</span><span class="aide" id="reglages-lot-resume"></span></summary>
+          <!-- Une seule ligne : langues et modèle (réglage ordinaire, feature 338), moteur de conversion en mode avancé. -->
+          <div class="reglages-ligne-unique">
+            <div>
+              <label for="langue-source">Langue source</label>
+              <select class="ds-select" id="langue-source" aria-label="Langue source">
+                <option value="anglais" selected>Depuis l'anglais</option>
+                <option value="francais">Depuis le français</option>
+                <option value="espagnol">Depuis l'espagnol</option>
+              </select>
+            </div>
+            <div>
+              <label for="langue-cible">Langue cible</label>
+              <select class="ds-select" id="langue-cible" aria-label="Langue cible">
+                <option value="français" selected>Traduire vers le français</option>
+                <option value="anglais">Traduire vers l'anglais</option>
+                <option value="espagnol">Traduire vers l'espagnol</option>
+              </select>
+            </div>
+            <div>
+              <label for="modele">Modèle IA (Ollama)</label>
+              <select class="ds-select" id="modele"></select>
+            </div>
+            <div data-avance hidden>
+              <label for="extracteur-pdf">Moteur de conversion</label>
+              <select class="ds-select" id="extracteur-pdf"></select>
+            </div>
           </div>
-        </div>
+        </details>
 
         <div class="ligne-actions-lot">
           <button id="bouton-lancer-lot" class="ds-btn ds-btn--primary" disabled>Lancer la traduction</button>
@@ -184,10 +275,8 @@
           <p class="aide">Ce Mac doit rester allumé et éveillé à l'heure prévue — le redémarrage automatique planifié nécessite des droits administrateur non accordés à cette application.</p>
           <span id="plan-statut" class="aide"></span>
         </div>
-      </section>
-
-      <div id="liste-lot" class="liste-lot"></div>
-    </div>
+      </div>
+    </section>
 
     <section class="ds-card carte" id="zone-reprendre" hidden>
       <div class="lot-entete">
@@ -248,6 +337,24 @@
               <option value="condensation">Condensation (historique)</option>
             </select>
           </div>
+          <!-- T2 : bénéfice de chaque stratégie, expliqué à l'utilisateur (texte selon le choix,
+               js/module-bibliotheque.js › majAideStrategie). -->
+          <div class="ia-strategie-aide" id="ia-strategie-aide" aria-live="polite"></div>
+          <details class="ia-strategie-details">
+            <summary>Comparer les deux stratégies</summary>
+            <table class="ia-strategie-table">
+              <thead><tr><th></th><th>Par sections</th><th>Condensation</th></tr></thead>
+              <tbody>
+                <tr><th>Le modèle lit</th><td>Le texte réel, section par section</td><td>Un résumé du chapitre (s'il est long)</td></tr>
+                <tr><th>Couverture</th><td>Tout le chapitre, début comme fin</td><td>Peut privilégier le début</td></tr>
+                <tr><th>Points clés</th><td>Précis : noms, dates, chiffres conservés</td><td>Plus synthétiques, parfois plus vagues</td></tr>
+                <tr><th>Quiz</th><td>Bâti sur les points retenus</td><td>Bâti sur le résumé</td></tr>
+                <tr><th>Durée</th><td>Comparable (souvent un peu plus rapide)</td><td>Comparable</td></tr>
+                <tr><th>Idéal pour</th><td>Réviser un chapitre dense</td><td>Un aperçu rapide, ou comparer</td></tr>
+              </tbody>
+            </table>
+            <p class="aide">Chaque stratégie garde sa propre fiche : vous pouvez générer les deux sur le même chapitre et les comparer.</p>
+          </details>
           <button id="ia-generer" class="bouton-ia" disabled>Générer les points clés + quiz</button>
           <button id="ia-exporter" class="ds-btn" hidden>⬇ Exporter la fiche (HTML)…</button>
           <p id="ia-statut" class="aide"></p>
@@ -265,6 +372,15 @@
           <button id="doc-comparer" class="ds-btn ds-btn--sm" aria-pressed="false"
                   title="Afficher la version d'origine à côté de la traduction">⇄ Comparer</button>
           <button id="doc-exporter" class="ds-btn ds-btn--sm" hidden>⬇ Exporter (HTML)…</button>
+          <!-- Traduction issue du Scan multi-colonnes : document recréé avec ses illustrations
+               (js/bibliotheque-exports.js, services/reconstruction.py). -->
+          <button id="doc-pdf-mise-en-page" class="ds-btn ds-btn--sm" hidden
+                  title="PDF au format d'origine : illustrations replacées, texte traduit dans les colonnes">⬇ PDF mis en page</button>
+          <button id="doc-html-interactif" class="ds-btn ds-btn--sm" hidden
+                  title="Page HTML autonome : lecture continue avec illustrations, ou page par page avec le scan d'origine">⬇ HTML interactif</button>
+          <button id="doc-signer" class="ds-btn ds-btn--sm" hidden
+                  title="Apposer une signature sur un PDF de ce document (copie _signe.pdf)">✍ Signer un PDF…</button>
+          <span id="doc-export-statut" class="aide doc-export-statut" role="status"></span>
         </div>
         <div class="lecture-echec" id="lecture-echec" hidden>
           <span class="lecture-echec-icone">⚠</span>
@@ -393,19 +509,7 @@
 
     <div id="labo-panneau-outils" class="labo-panneau" role="tabpanel">
 
-    <section class="ds-card carte">
-      <h2>État du système</h2>
-      <div class="parametre-ligne">
-        <span class="parametre-label">Backend FastAPI</span>
-        <span id="statut-api" class="ds-badge">Vérification…</span>
-        <button id="bouton-lancer-backend" class="bouton-launcher">Lancer</button>
-      </div>
-      <div class="parametre-ligne">
-        <span class="parametre-label">Ollama</span>
-        <span id="statut-ollama" class="ds-badge"></span>
-        <button id="bouton-reconnecter" class="ds-btn ds-btn--sm" title="Re-vérifier les connexions backend et Ollama">Reconnecter</button>
-      </div>
-    </section>
+    
 
     <section class="ds-card carte">
       <h2>Glossaire</h2>
@@ -539,19 +643,7 @@
     <!-- Documentation technique. Le fichier vit sous frontend/docs/ (et non
          docs/ à la racine) parce que le serveur du frontend a pour racine
          frontend/ : un ../docs/ serait refusé par python -m http.server. -->
-    <section class="ds-card carte">
-      <h2>Documentation technique</h2>
-      <p class="aide">
-        Audit de la messagerie backend ↔ frontends (web et macOS), épreuve de durabilité
-        sur 12 scénarios d'interruption, et architecture cible. Document autonome, lisible
-        hors ligne.
-      </p>
-      <a id="lien-doc-architecture"
-         class="ds-btn"
-         href="docs/architecture-messagerie.html"
-         target="_blank"
-         rel="noopener">Messagerie, durabilité, architecture cible</a>
-    </section>
+    
     </div>
 
     <!-- Onglet « Scan multi-colonnes » (10/10/2026) : nettoie un PDF scanné dont la couche
@@ -601,6 +693,8 @@
           </div>
         </div>
 
+        <label class="scan-enchainer"><input type="checkbox" id="scan-puis-traduire">
+          <span>Traduire ensuite, automatiquement <span class="aide">(langues et modèle réglés dans l'Accueil ; seulement si le scan se termine sans page en erreur)</span></span></label>
         <div class="ligne-ajout">
           <button id="bouton-scan-apercu" class="ds-btn">Aperçu des régions (page de départ)</button>
           <button id="bouton-scan-lancer" class="ds-btn ds-btn--primary">Nettoyer le document</button>
@@ -619,17 +713,98 @@
     </div>
   </main>
 
-  <script src="js/commun.js?v=9"></script>
-  <script src="js/module-import.js?v=12"></script>
-  <script src="js/module-bibliotheque.js?v=11"></script>
+  <!-- ══ Signature électronique (Bibliothèque › ✍ Signer un PDF) ═══════════
+       Signature VISUELLE apposée sur une copie <nom>_signe.pdf (services/signature.py).
+       Logique : js/bibliotheque-exports.js. -->
+  <dialog id="sig-dialog" class="sig-dialog" aria-labelledby="sig-titre">
+    <form method="dialog" class="sig-form" id="sig-form">
+      <div class="sig-entete">
+        <h2 id="sig-titre">✍ Signer un PDF</h2>
+        <button type="button" class="ds-btn ds-btn--sm" id="sig-fermer" aria-label="Fermer">✕</button>
+      </div>
+      <p class="aide sig-avertissement">Signature <strong>visuelle</strong>, comme dans Aperçu ou « Remplir et signer » :
+        elle n'est pas un certificat numérique et ne prouve pas l'identité du signataire.
+        Le PDF d'origine n'est jamais modifié — une copie <code>_signe.pdf</code> est créée à côté.</p>
+
+      <div class="sig-grille">
+        <div class="sig-colonne">
+          <label for="sig-pdf" class="sig-etape">1. Document</label>
+          <select id="sig-pdf" class="ds-select"></select>
+
+          <span class="sig-etape">2. Votre signature</span>
+          <div class="sig-onglets" role="tablist">
+            <button type="button" role="tab" class="sig-onglet" data-sig-mode="dessiner" aria-selected="true">Dessiner</button>
+            <button type="button" role="tab" class="sig-onglet" data-sig-mode="taper" aria-selected="false">Taper</button>
+            <button type="button" role="tab" class="sig-onglet" data-sig-mode="importer" aria-selected="false">Importer</button>
+          </div>
+          <div class="sig-panneau" data-sig-panneau="dessiner">
+            <canvas id="sig-canvas" class="sig-canvas" width="560" height="200" aria-label="Zone de dessin de la signature"></canvas>
+            <div class="sig-outils">
+              <label class="aide">Couleur
+                <select id="sig-couleur" class="ds-select">
+                  <option value="#1b2a6b">Bleu encre</option>
+                  <option value="#111111">Noir</option>
+                </select>
+              </label>
+              <button type="button" class="bouton-lien" id="sig-effacer">Effacer</button>
+            </div>
+          </div>
+          <div class="sig-panneau" data-sig-panneau="taper" hidden>
+            <input type="text" id="sig-texte" class="ds-input" maxlength="60" placeholder="Votre nom" aria-label="Nom à écrire comme signature">
+            <select id="sig-police" class="ds-select" aria-label="Style d'écriture">
+              <option value="'Snell Roundhand', 'Apple Chancery', 'Brush Script MT', cursive">Calligraphie</option>
+              <option value="'Bradley Hand', 'Segoe Print', cursive">Manuscrite</option>
+              <option value="'Zapfino', 'Lucida Handwriting', cursive">Élégante</option>
+            </select>
+          </div>
+          <div class="sig-panneau" data-sig-panneau="importer" hidden>
+            <input type="file" id="sig-fichier" accept="image/png,image/jpeg" aria-label="Image de signature (PNG ou JPEG)">
+            <p class="aide">Un PNG à fond transparent donne le meilleur rendu. Le fond blanc d'une photo est rendu transparent.</p>
+          </div>
+          <label class="sig-case"><input type="checkbox" id="sig-memoriser"> Mémoriser ma signature dans ce navigateur</label>
+
+          <span class="sig-etape">3. Mention (facultative)</span>
+          <label class="sig-case"><input type="checkbox" id="sig-mention-active" checked> Ajouter « Signé électroniquement par … le … »</label>
+          <input type="text" id="sig-nom" class="ds-input" maxlength="80" placeholder="Nom du signataire" aria-label="Nom du signataire pour la mention">
+        </div>
+
+        <div class="sig-colonne sig-colonne-page">
+          <span class="sig-etape">4. Placez la signature — cliquez sur la page, glissez pour déplacer, coin ↘ pour redimensionner</span>
+          <div class="sig-pages-nav">
+            <button type="button" class="ds-btn ds-btn--sm" id="sig-prec" aria-label="Page précédente">◀</button>
+            <span id="sig-page-num" class="aide">—</span>
+            <button type="button" class="ds-btn ds-btn--sm" id="sig-suiv" aria-label="Page suivante">▶</button>
+            <button type="button" class="bouton-lien" id="sig-retirer" hidden>Retirer de cette page</button>
+          </div>
+          <div class="sig-apercu" id="sig-apercu">
+            <img id="sig-page-img" alt="Aperçu de la page à signer">
+            <div id="sig-boite" class="sig-boite" hidden><img id="sig-boite-img" alt=""><span class="sig-poignee" id="sig-poignee"></span></div>
+          </div>
+          <p class="aide" id="sig-placements">Aucun emplacement pour l'instant.</p>
+        </div>
+      </div>
+
+      <div class="sig-pied">
+        <span id="sig-statut" class="aide" role="status"></span>
+        <button type="button" class="ds-btn" id="sig-annuler">Annuler</button>
+        <button type="button" class="ds-btn ds-btn--primary" id="sig-valider" disabled>Signer et télécharger</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="js/commun.js?v=11"></script>
+  <script src="js/module-import.js?v=16"></script>
+  <script src="js/module-bibliotheque.js?v=12"></script>
+  <script src="js/bibliotheque-exports.js?v=1"></script>
   <script src="js/module-laboratoire.js?v=11"></script>
   <script src="js/module-chronique.js?v=1"></script>
   <script src="js/module-anticipation.js?v=1"></script>
-  <script src="js/labo-scan-colonnes.js?v=5"></script>
-  <script src="js/ui-ids.js?v=1"></script>
-  <script src="js/reglages.js?v=3"></script>
-  <script src="js/reglages-styles.js?v=1"></script>
+  <script src="js/labo-scan-colonnes.js?v=8"></script>
+  <script src="js/ui-ids.js?v=2"></script>
+  <script src="js/reglages.js?v=4"></script>
+  <script src="js/reglages-styles.js?v=2"></script>
   <script src="js/commutateurs.js?v=2"></script>
+  <script src="js/parcours.js?v=7"></script>
   <script>initUiIds(); rendreListeCartesLab(); // en dernier : numérote les cartes déjà en place (js/ui-ids.js), puis affiche leurs repères dans la liste des Réglages</script>
 </body>
 </html>

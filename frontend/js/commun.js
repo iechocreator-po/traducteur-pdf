@@ -173,7 +173,7 @@ document.querySelectorAll("#theme-switch button").forEach((b) => {
 // "classique" = pas d'attribut (design system d'origine). Les autres styles sont
 // définis dans css/styles-visuels.css via <html data-style="…">.
 
-const STYLES_IDS = ["classique", "suisse", "machine", "classeur", "plan", "calque"];
+const STYLES_IDS = ["classique", "suisse", "machine", "classeur", "plan", "calque", "atelier"];
 
 function styleActuel() {
   return document.documentElement.getAttribute("data-style") || "classique";
@@ -193,7 +193,7 @@ function appliquerStyle(id) {
 function appliquerModeAvance(actif) {
   document.querySelectorAll("[data-avance]").forEach((el) => { el.hidden = !actif; });
   document.documentElement.classList.toggle("avance", actif);
-  // Interrupteur des Réglages (⚙ › Personnalisation) : même composant que les repères d'interface.
+  // Interrupteur des Réglages (⚙ › Configuration) : même composant que les repères d'interface.
   $("avance-toggle").checked = actif;
   $("avance-switch").classList.toggle("is-on", actif);
   $("avance-state").textContent = actif ? "ON" : "OFF";
@@ -339,3 +339,13 @@ window.addEventListener("DOMContentLoaded", () => {
   activerModule(localStorage.getItem("module") || "import");
   reconnecter();
 });
+
+// ── Extraction (ex-« Qualité ») ──────────────────────────────────────────────
+// Global : utilisé par le lot ET par « Vos traductions », qui vivent dans deux blocs distincts de module-import.js.
+// L'ancienne « Qualité : Excellente » ne mesurait QUE l'extractibilité du texte (une couche texte
+// existe, aucun avertissement) — pas l'ordre de lecture. Un scan à colonnes dont l'OCR est mélangé
+// sortait « Excellente ». La valeur stockée (registre, macOS) ne change pas : seul le libellé affiché.
+function libelleExtraction(q) {
+  return ({ Excellente: "texte extractible", Correcte: "texte extractible, avec avertissements",
+            "Problème": "texte non extractible" })[q] || q;
+}

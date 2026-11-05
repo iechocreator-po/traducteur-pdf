@@ -9,6 +9,7 @@ const STYLES_VISUELS = [
   { id: "classeur", nom: "Classeur d'archives", desc: "Onglets de chemise, fiches lignées, statuts en tampon, règle graduée." },
   { id: "plan", nom: "Plan de travail", desc: "Bleu de plan quadrillé, texte technique, repères de cadrage jaunes." },
   { id: "calque", nom: "Calque", desc: "Feuilles de papier calque superposées, titres en italique d'encre." },
+  { id: "atelier", nom: "Atelier", desc: "Papier chaud, cartes très arrondies, boutons en pastille, vert d'eau." },
 ];
 
 function construireChoixStyles() {

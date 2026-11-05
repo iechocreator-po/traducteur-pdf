@@ -1,3 +1,4 @@
+import os
 """
 Tests du nettoyage de PDF scannés à colonnes (services/scan_colonnes.py, Laboratoire).
 
@@ -310,6 +311,53 @@ def test_route_statut_sans_traitement_renvoie_null(tmp_path):
     _pdf_trois_colonnes(pdf)
     r = client.get("/api/labo/scan-colonnes/statut", params={"chemin_pdf": str(pdf)})
     assert r.status_code == 200 and r.json() is None
+
+
+def test_route_annuler_sans_traitement_en_cours(tmp_path):
+    pdf = tmp_path / "x.pdf"
+    _pdf_trois_colonnes(pdf)
+    r = client.post("/api/labo/scan-colonnes/annuler", params={"chemin_pdf": str(pdf)})
+    assert r.status_code == 409
+
+
+def test_route_annuler_demande_l_annulation_du_job_actif(tmp_path):
+    pdf = tmp_path / "x.pdf"
+    _pdf_trois_colonnes(pdf)
+    sorties = S.chemins_sortie(str(pdf))
+    etat = {"job_id": "annul-1", "statut": "en_cours", "chemin_etat": sorties["etat"]}
+    S._sauvegarder_etat(etat)
+    S.enregistrer_job("annul-1")
+    r = client.post("/api/labo/scan-colonnes/annuler", params={"chemin_pdf": str(pdf)})
+    assert r.status_code == 200 and r.json()["annulation_demandee"] is True
+    assert S.est_annule("annul-1")
+
+
+def test_reinitialiser_efface_les_sorties_mais_jamais_le_pdf(tmp_path):
+    pdf = tmp_path / "x.pdf"
+    _pdf_trois_colonnes(pdf)
+    sorties = S.chemins_sortie(str(pdf))
+    os.makedirs(sorties["pages"])
+    (tmp_path / "x_scan_colonnes_pages" / "page-0001.json").write_text("{}")
+    (tmp_path / "x_scan_colonnes.md").write_text("# t")
+    S._sauvegarder_etat({"job_id": "r1", "statut": "termine", "chemin_etat": sorties["etat"]})
+    autre = tmp_path / "x_traduit_ll.md"       # un document voisin : ne doit pas être touché
+    autre.write_text("traduction")
+
+    r = client.post("/api/labo/scan-colonnes/reinitialiser", params={"chemin_pdf": str(pdf)})
+    assert r.status_code == 200 and len(r.json()["supprimes"]) == 3
+    assert pdf.exists() and autre.exists()
+    assert not os.path.exists(sorties["markdown"]) and not os.path.exists(sorties["pages"]) and not os.path.exists(sorties["etat"])
+    assert S.lire_etat(str(pdf)) is None
+
+
+def test_reinitialiser_refuse_pendant_un_nettoyage(tmp_path):
+    pdf = tmp_path / "x.pdf"
+    _pdf_trois_colonnes(pdf)
+    sorties = S.chemins_sortie(str(pdf))
+    S._sauvegarder_etat({"job_id": "r2", "statut": "en_cours", "chemin_etat": sorties["etat"]})
+    r = client.post("/api/labo/scan-colonnes/reinitialiser", params={"chemin_pdf": str(pdf)})
+    assert r.status_code == 409
+    assert os.path.exists(sorties["etat"])
 
 
 def test_route_apercu_renvoie_un_png(tmp_path):

@@ -70,7 +70,27 @@ function setUiIdsVisible(visible) {
   try { localStorage.setItem(UI_IDS_STORAGE_KEY, visible ? "on" : "off"); } catch { /* navigation privée */ }
 }
 
+// Apparence des repères sur les cartes (4 choix, laissés à l'utilisateur dans Réglages › Personnalisation) :
+// a = étiquette discrète en coin bas, b = pastille au-dessus du titre, c = marge extérieure,
+// d = languette sur le coin du cadre. Pur CSS, via <html data-ui-ids-style>.
+const UI_IDS_STYLE_KEY = "toledo-ui-ids-style";
+const UI_IDS_STYLES = ["a", "b", "c", "d"];
+
+function setUiIdsStyle(choix) {
+  if (!UI_IDS_STYLES.includes(choix)) choix = "b";
+  document.documentElement.setAttribute("data-ui-ids-style", choix);
+  document.querySelectorAll(".reperes-option").forEach((b) => {
+    const actif = b.dataset.reperesStyle === choix;
+    b.setAttribute("aria-checked", String(actif));
+    b.classList.toggle("is-active", actif);
+  });
+  try { localStorage.setItem(UI_IDS_STYLE_KEY, choix); } catch { /* navigation privée */ }
+}
+
 function initUiIds() {
+  let style = null;
+  try { style = localStorage.getItem(UI_IDS_STYLE_KEY); } catch { /* navigation privée */ }
+  setUiIdsStyle(style);
   uiIdsNumber();
   let saved = null;
   try { saved = localStorage.getItem(UI_IDS_STORAGE_KEY); } catch { /* navigation privée */ }

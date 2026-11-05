@@ -518,6 +518,28 @@ def chemins_sortie(chemin_pdf: str) -> dict:
     }
 
 
+def reinitialiser(chemin_pdf: str) -> list[str]:
+    """
+    Efface les résultats du nettoyage de CE PDF (pages en cache, Markdown produit, état) pour repartir de
+    zéro : sans cela, relancer reprend les pages déjà traitées. Le PDF d'origine n'est jamais touché ; seuls
+    les trois chemins dérivés de `chemins_sortie` sont supprimés. Refuse si un nettoyage est en cours.
+    Retourne la liste des éléments réellement supprimés.
+    """
+    etat = lire_etat(chemin_pdf)
+    if etat and etat.get("statut") in ("en_attente", "en_cours"):
+        raise ScanColonnesEchec("Un nettoyage est en cours pour ce PDF : arrêtez-le d'abord.")
+    sorties = chemins_sortie(chemin_pdf)
+    supprimes = []
+    for cle in ("markdown", "etat"):
+        if os.path.isfile(sorties[cle]):
+            os.remove(sorties[cle])
+            supprimes.append(sorties[cle])
+    if os.path.isdir(sorties["pages"]):
+        shutil.rmtree(sorties["pages"])
+        supprimes.append(sorties["pages"])
+    return supprimes
+
+
 def _chemin_page(dossier: str, numero: int) -> str:
     return os.path.join(dossier, f"page-{numero:04d}.json")
 

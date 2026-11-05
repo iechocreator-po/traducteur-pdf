@@ -12,10 +12,15 @@
 
   // ── Ajout au lot ────────────────────────────────────────────────────────────
 
-  function ajouterAuLot(chemin) {
+
+  function ajouterAuLot(chemin, lancerAuto = false) {
     chemin = (chemin || "").trim();
     if (!chemin) { alert("Indique le chemin absolu d'un fichier .pdf ou .md."); return; }
-    if (lot.some(f => f.chemin === chemin)) { return; } // déjà présent — silencieux (multi-ajout)
+    const existant = lot.find(f => f.chemin === chemin);
+    if (existant) {   // déjà présent — silencieux (multi-ajout) ; mais on honore une demande d'enchaînement
+      if (lancerAuto) { existant.lancerAuto = true; if (itemLancable(existant)) lancerLot([existant.id]); }
+      return;
+    }
 
     const item = {
       id: `f${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -26,6 +31,7 @@
       jobId: null, statutJob: null, pct: 0, sections: "",
       listeChapitres: null, chapitresCoches: null, chapitresDejaTraduits: null,
       chapitresOuverts: false, chapitresChargement: false,
+      lancerAuto,   // enchaînement scan → traduction : lancer ce fichier dès qu'il est prêt
     };
     lot.push(item);
     rendreLot();
@@ -96,6 +102,8 @@
       item.recommandation = String(e.message || e);
     }
     rendreLot();
+    // Enchaînement demandé (scan → traduction) : lance CE fichier seulement, pas le reste du lot.
+    if (item.lancerAuto && itemLancable(item)) { item.lancerAuto = false; lancerLot([item.id]); }
   }
 
   // ── Sélection fine des chapitres à traduire ─────────────────────────────────
@@ -152,10 +160,10 @@
 
   // ── Lancement du lot ────────────────────────────────────────────────────────
 
-  async function lancerLot() {
+  async function lancerLot(ids = null) {   // ids : restreint le lancement à ces fichiers (enchaînement auto)
     const btn = $("bouton-lancer-lot");
     if (!(await exigerSante())) return;
-    const prets = lot.filter(itemLancable);
+    const prets = lot.filter(f => itemLancable(f) && (!ids || ids.includes(f.id)));
     if (prets.length === 0) return;
 
     // Feedback immédiat : le bouton grise pendant le lancement (le traitement
@@ -436,7 +444,7 @@
         const info = document.createElement("div");
         info.className = "lot-info";
         const morceaux = [];
-        if (item.qualite) morceaux.push(`Qualité : ${item.qualite}`);
+        if (item.qualite) morceaux.push(`Extraction : ${libelleExtraction(item.qualite)}`);
         if (item.eta != null) morceaux.push(`≈ ${formaterDuree(item.eta)}`);
         if (item.chapitres != null) morceaux.push(`${item.chapitres} chapitre${item.chapitres > 1 ? "s" : ""}`);
         info.textContent = morceaux.join("   ·   ");
@@ -489,6 +497,11 @@
   // Un autre module (ex. Laboratoire › Scan multi-colonnes) envoie un fichier produit ici :
   // il passe par un événement plutôt que par un appel direct, ajouterAuLot() étant privée.
   document.addEventListener("ajouter-au-lot", (e) => ajouterAuLot(e.detail));
+  // Lecture seule du lot pour l'Accueil (js/parcours.js) ; retrait d'un fichier remplacé par sa version nettoyée.
+  window.__lotItems = () => lot.map(({ id, chemin, type, stage }) => ({ id, chemin, type, stage }));
+  document.addEventListener("retirer-du-lot", (e) => { lot = lot.filter(f => f.chemin !== e.detail); rendreLot(); });
+  // Scan multi-colonnes → traduction enchaînée : même ajout au lot, avec lancement dès que l'analyse est prête.
+  document.addEventListener("ajouter-au-lot-et-traduire", (e) => { ajouterAuLot(e.detail, true); activerModule("import"); });
 
   // Parcourir : ouvre le sélecteur natif puis uploade.
   $("bouton-parcourir").addEventListener("click", () => $("import-fichier").click());
@@ -512,7 +525,7 @@
     zone.classList.remove("is-survol");
     if (e.dataTransfer.files.length) televerserPlusieurs(e.dataTransfer.files);
   });
-  $("bouton-lancer-lot").addEventListener("click", lancerLot);
+  $("bouton-lancer-lot").addEventListener("click", () => lancerLot());
   $("bouton-planifier").addEventListener("click", planifierLot);
   $("bouton-planifier-toggle").addEventListener("click", () => {
     $("zone-planifier").hidden = !$("zone-planifier").hidden;
@@ -764,7 +777,7 @@
     if (doc.nb_sections_echouees) morceaux.push(`${doc.nb_sections_echouees} en échec`);
     // Qualité (feature 320) : lue du registre, donc elle survit au passage du
     // lot vers cette liste — et à un rechargement de page.
-    if (doc.qualite) morceaux.push(`Qualité : ${doc.qualite}`);
+    if (doc.qualite) morceaux.push(`Extraction : ${libelleExtraction(doc.qualite)}`);
     info.textContent = morceaux.join("   ·   ");
     ligne.appendChild(info);
 

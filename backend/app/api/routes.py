@@ -840,6 +840,38 @@ def statut_scan_colonnes(chemin_pdf: str) -> dict | None:
     return lire_etat(chemin)
 
 
+@router.post("/labo/scan-colonnes/annuler")
+def annuler_scan_colonnes(chemin_pdf: str) -> dict:
+    """
+    Arrête le nettoyage en cours ou en file de ce PDF. Les pages déjà traitées sont conservées :
+    relancer le scan les reprend au lieu de les refaire (c'est ce qui rend l'arrêt « reprenable »).
+    """
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.job_manager import demander_annulation
+    from app.services.scan_colonnes import lire_etat
+
+    etat = lire_etat(chemin)
+    if not etat or etat.get("statut") not in ("en_attente", "en_cours"):
+        raise HTTPException(status_code=409, detail="Aucun nettoyage en cours pour ce PDF.")
+    return {"annulation_demandee": demander_annulation(etat["job_id"])}
+
+
+@router.post("/labo/scan-colonnes/reinitialiser")
+def reinitialiser_scan_colonnes(chemin_pdf: str) -> dict:
+    """
+    Repart de zéro pour ce PDF : efface les pages en cache, le Markdown produit et l'état du nettoyage.
+    Le PDF d'origine et les documents déjà envoyés à la traduction ne sont pas touchés.
+    """
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.scan_colonnes import ScanColonnesEchec, reinitialiser
+
+    try:
+        supprimes = reinitialiser(chemin)
+    except ScanColonnesEchec as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"supprimes": supprimes}
+
+
 @router.get("/labo/scan-colonnes/apercu")
 def apercu_scan_colonnes(chemin_pdf: str, page: int = 1, double_page: str = "auto"):
     """
@@ -867,6 +899,121 @@ def info_scan_colonnes(chemin_pdf: str) -> dict:
     except ScanColonnesEchec as e:
         raise HTTPException(status_code=422, detail=str(e))
     return {"pages": pages, "tesseract": tesseract_disponible(), "langues": langues_tesseract()}
+
+
+# ── Reconstruction d'un scan traduit (PDF mis en page + HTML interactif) ─────
+
+def _exiger_flag(nom: str) -> None:
+    if not charger_flags().get(nom, False):
+        raise HTTPException(status_code=403, detail=f"Fonctionnalité désactivée (flag {nom}).")
+
+
+@router.get("/reconstruction/info")
+def info_reconstruction(chemin_sortie: str) -> dict:
+    """Le document vient-il du Scan multi-colonnes (donc reconstructible) ? Lecture seule, rapide."""
+    chemin = valider_chemin_source(chemin_sortie, extensions=(".md",), label="Traduction")
+    from app.services.reconstruction import info
+    return info(chemin)
+
+
+@router.post("/reconstruction/{format_sortie}")
+def generer_reconstruction(format_sortie: str, chemin_sortie: str, titre: str | None = None) -> dict:
+    """
+    Écrit à côté de la traduction `_mise_en_page.pdf` (format=pdf) ou `_interactif.html` (format=html).
+    Synchrone : quelques secondes pour un scan de 3 pages (rendu + détection mis en cache).
+    """
+    _exiger_flag("reconstruction_scan")
+    if format_sortie not in ("pdf", "html"):
+        raise HTTPException(status_code=404, detail="Format inconnu (pdf ou html).")
+    chemin = valider_chemin_source(chemin_sortie, extensions=(".md",), label="Traduction")
+    from app.services import reconstruction
+
+    try:
+        if format_sortie == "pdf":
+            return reconstruction.generer_pdf(chemin)
+        return reconstruction.generer_html(chemin, titre=titre)
+    except reconstruction.ReconstructionImpossible as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.get("/telecharger")
+def telecharger_fichier(chemin: str):
+    """
+    Sert un PDF (d'origine, mis en page, signé) ou un HTML interactif produit par l'app, en pièce
+    jointe. Même garde que /image ; le HTML est limité aux fichiers `_interactif.html` générés ici.
+    """
+    from fastapi.responses import FileResponse
+    chemin = valider_chemin_source(chemin, extensions=(".pdf", ".html"), label="Fichier")
+    if chemin.endswith(".html") and not chemin.endswith("_interactif.html"):
+        raise HTTPException(status_code=422, detail="Seul un HTML interactif généré par l'app peut être téléchargé.")
+    return FileResponse(chemin, filename=os.path.basename(chemin))
+
+
+# ── Signature électronique (visuelle) d'un PDF ───────────────────────────────
+
+class PlacementSignature(BaseModel):
+    page: int = Field(ge=1)
+    x: float = Field(ge=0, lt=1)
+    y: float = Field(ge=0, lt=1)
+    largeur: float = Field(gt=0, le=1)
+    hauteur: float = Field(gt=0, le=1)
+
+
+class SignatureRequest(BaseModel):
+    chemin_pdf: str
+    signature_png_base64: str
+    placements: list[PlacementSignature] = Field(min_length=1)
+    mention: str | None = None
+
+
+@router.get("/signature/pdfs")
+def lister_pdfs_signables(chemin_sortie: str, chemin_source: str | None = None) -> dict:
+    _exiger_flag("signature_pdf")
+    chemin = valider_chemin_source(chemin_sortie, extensions=(".md",), label="Traduction")
+    from app.services.signature import pdfs_signables
+    return {"pdfs": pdfs_signables(chemin, chemin_source)}
+
+
+@router.get("/signature/info")
+def info_pdf_a_signer(chemin_pdf: str) -> dict:
+    _exiger_flag("signature_pdf")
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF")
+    from app.services.signature import SignatureInvalide, info_pdf
+    try:
+        return info_pdf(chemin)
+    except SignatureInvalide as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/signature/apercu")
+def apercu_pdf_a_signer(chemin_pdf: str, page: int = 1, largeur: int = 900):
+    _exiger_flag("signature_pdf")
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF")
+    from app.services.signature import SignatureInvalide, apercu_page
+    try:
+        return Response(content=apercu_page(chemin, page, largeur), media_type="image/png")
+    except SignatureInvalide as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.post("/signature")
+def signer_pdf(req: SignatureRequest) -> dict:
+    """Écrit `<base>_signe.pdf` (le PDF d'origine n'est jamais modifié)."""
+    _exiger_flag("signature_pdf")
+    import base64
+    import binascii
+    chemin = valider_chemin_source(req.chemin_pdf, extensions=(".pdf",), label="PDF")
+    from app.services.signature import SignatureInvalide, signer
+
+    donnees = req.signature_png_base64.split(",", 1)[-1]   # accepte un data-URI
+    try:
+        octets = base64.b64decode(donnees, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=422, detail="Signature : base64 invalide.")
+    try:
+        return signer(chemin, octets, [p.model_dump() for p in req.placements], req.mention)
+    except SignatureInvalide as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 # ── Voix clonées (capture micro → clonage OpenVoice) ─────────────────────────

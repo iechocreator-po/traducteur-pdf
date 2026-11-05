@@ -2,7 +2,7 @@ import SwiftUI
 
 // ============================================================================
 // STYLES VISUELS — équivalent macOS de l'onglet web « Réglages ».
-// Mêmes 6 styles que frontend/css/styles-visuels.css, mêmes palettes d'accent et
+// Mêmes 7 styles que frontend/css/styles-visuels.css, mêmes palettes d'accent et
 // de fond (clair / sombre). Choix mémorisé dans UserDefaults ("styleVisuel"),
 // lu par DS (Theme.swift) pour l'accent et les rayons.
 //
@@ -15,7 +15,7 @@ import SwiftUI
 // ============================================================================
 
 enum StyleVisuel: String, CaseIterable, Identifiable {
-    case classique, suisse, machine, classeur, plan, calque
+    case classique, suisse, machine, classeur, plan, calque, atelier
 
     /// Clé UserDefaults / @AppStorage partagée par toute l'app.
     static let cleStockage = "styleVisuel"
@@ -35,6 +35,7 @@ enum StyleVisuel: String, CaseIterable, Identifiable {
         case .classeur: return "Classeur d'archives"
         case .plan: return "Plan de travail"
         case .calque: return "Calque"
+        case .atelier: return "Atelier"
         }
     }
 
@@ -46,6 +47,7 @@ enum StyleVisuel: String, CaseIterable, Identifiable {
         case .classeur: return "Teintes de chemise cartonnée, brique, coins peu arrondis."
         case .plan: return "Bleu de plan, texte technique, repère jaune en sombre."
         case .calque: return "Papier calque gris-bleu, titres en empattement, encre bleue."
+        case .atelier: return "Papier chaud, cartes très arrondies, vert d'eau."
         }
     }
 
@@ -58,6 +60,7 @@ enum StyleVisuel: String, CaseIterable, Identifiable {
         case .classeur: return Color(light: 0xa8321f, dark: 0xe2745f)
         case .plan: return Color(light: 0x0a58ca, dark: 0xffd24a)
         case .calque: return Color(light: 0x1d3fd0, dark: 0x9bb0ff)
+        case .atelier: return Color(light: 0x0f766e, dark: 0x2dd4bf)
         }
     }
 
@@ -70,6 +73,7 @@ enum StyleVisuel: String, CaseIterable, Identifiable {
         case .classeur: return Color(light: 0xe8d3a2, dark: 0x2a2620)
         case .plan: return Color(light: 0xeaf1f8, dark: 0x0e2b4d)
         case .calque: return Color(light: 0xd9dee2, dark: 0x1a2128)
+        case .atelier: return Color(light: 0xf3efe6, dark: 0x1e1c18)
         }
     }
 
@@ -80,7 +84,7 @@ enum StyleVisuel: String, CaseIterable, Identifiable {
         switch self {
         case .machine, .plan: return .monospaced
         case .calque: return .serif
-        case .classique, .suisse, .classeur: return .default
+        case .classique, .suisse, .classeur, .atelier: return .default
         }
     }
 
@@ -88,7 +92,7 @@ enum StyleVisuel: String, CaseIterable, Identifiable {
     var casse: Text.Case? {
         switch self {
         case .machine, .classeur, .plan: return .uppercase
-        case .classique, .suisse, .calque: return nil
+        case .classique, .suisse, .calque, .atelier: return nil
         }
     }
 
@@ -96,6 +100,7 @@ enum StyleVisuel: String, CaseIterable, Identifiable {
     var radiusSm: CGFloat {
         switch self {
         case .classique: return 8
+        case .atelier: return 10
         case .classeur, .calque: return 3
         case .suisse, .machine, .plan: return 0
         }
@@ -104,6 +109,7 @@ enum StyleVisuel: String, CaseIterable, Identifiable {
     var radius: CGFloat {
         switch self {
         case .classique: return 10
+        case .atelier: return 14
         case .classeur, .calque: return 3
         case .suisse, .machine, .plan: return 0
         }
@@ -112,6 +118,7 @@ enum StyleVisuel: String, CaseIterable, Identifiable {
     var radiusLg: CGFloat {
         switch self {
         case .classique: return 12
+        case .atelier: return 18
         case .classeur, .calque: return 3
         case .suisse, .machine, .plan: return 0
         }

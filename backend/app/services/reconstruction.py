@@ -1,0 +1,698 @@
+"""
+Reconstruction d'un document SCANNÉ traduit (Laboratoire › Scan multi-colonnes → traduction).
+
+Deux sorties, écrites à côté de la traduction (comme toutes les sorties de l'app) :
+  1. `<traduction>_mise_en_page.pdf` : même format de page que le scan, illustrations découpées
+     dans le scan et replacées à LEUR position, texte traduit coulé dans les colonnes d'origine ;
+  2. `<traduction>_interactif.html` : page autonome (aucune ressource externe) — lecture continue
+     avec les illustrations, ou page par page avec le scan d'origine en regard, sommaire, thème, taille.
+
+Chaîne : PDF scanné → (par page) illustrations + cadres de texte, mis en cache dans
+`<base>_scan_colonnes_illustrations/` → paragraphes traduits rattachés à LEUR page source
+(les titres de chapitre servent d'ancres) → PDF / HTML.
+
+Limites assumées (affichées à l'utilisateur, jamais masquées) :
+  - le texte traduit est plus long que l'original : la police est réduite page par page jusqu'à
+    TAILLE_MIN_PT ; au-delà, le reste part sur une page « suite » plutôt que d'être tronqué ;
+  - les petits pictogrammes inline du livre (⟦icône⟧ de l'OCR) ne sont pas recadrés : ils sont
+    remplacés par un losange ;
+  - seule la géométrie du scan est utilisée : aucun appel à Ollama ici.
+"""
+
+from __future__ import annotations
+
+import base64
+import difflib
+import html as html_mod
+import io
+import json
+import os
+import re
+import time
+
+from app.services import scan_colonnes
+from app.services.persistance import ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
+
+SUFFIXE_SCAN = "_scan_colonnes"
+VERSION_CACHE = 2            # à incrémenter quand la détection change (invalide le cache)
+DPI_APERCU = 90              # scan d'origine embarqué dans le HTML (mode « Pages »)
+QUALITE_ILLUS = 85
+QUALITE_APERCU = 65
+# Le scan type est enregistré à demi-taille (Cycle I : une double page = 587 pt de large, soit
+# ~10 cm par page) : y couler le texte demanderait une police de 4 pt. La sortie est donc agrandie
+# ×ECHELLE_SORTIE (même format, proportions identiques) pour retrouver la taille d'un vrai livre.
+ECHELLE_SORTIE = 2.0
+TAILLE_MAX_PT = 10.0
+TAILLE_MIN_PT = 7.0
+PAS_TAILLE_PT = 0.5
+AIRE_MIN_ILLUS = 0.02        # fraction de la page en dessous de laquelle une zone n'est pas une illustration
+COTE_MIN_ILLUS = 0.08        # idem pour chaque côté (écarte l'ombre de reliure, haute mais étroite)
+MARGE_HAUT, MARGE_BAS = 0.03, 0.93   # le texte n'est jamais coulé dans le titre courant / folio
+
+
+class ReconstructionImpossible(Exception):
+    """Le document ne peut pas être reconstruit (pas issu du scan, fichiers manquants…)."""
+
+
+# ── Où sont les fichiers ─────────────────────────────────────────────────────
+
+def localiser(chemin_traduit: str) -> dict:
+    """
+    Traduction → PDF scanné d'origine + dossier des pages du scan. Le chemin source vient de
+    l'état de la traduction (`.state.json`) ; à défaut, il est dérivé du nom (`…_traduit_<modèle>.md`).
+    """
+    etat = lire_json_tolerant(os.path.splitext(chemin_traduit)[0] + ".state.json")
+    source = etat.get("chemin_pdf") if isinstance(etat, dict) else None
+    if not source:
+        m = re.match(r"^(.*)_traduit(?:_[^/]*)?\.md$", chemin_traduit)
+        source = f"{m.group(1)}.md" if m else None
+    if not source or not source.endswith(f"{SUFFIXE_SCAN}.md"):
+        raise ReconstructionImpossible(
+            "Ce document ne vient pas du Scan multi-colonnes : la mise en page d'origine "
+            "n'est reconstruite que pour un PDF scanné nettoyé dans le Laboratoire.")
+    pdf = source[: -len(f"{SUFFIXE_SCAN}.md")] + ".pdf"
+    sorties = scan_colonnes.chemins_sortie(pdf)
+    if not os.path.isfile(pdf):
+        raise ReconstructionImpossible(f"PDF d'origine introuvable : {pdf}")
+    if not os.path.isdir(sorties["pages"]):
+        raise ReconstructionImpossible("Les pages du scan ont été effacées : relancez le Scan multi-colonnes.")
+    pages = sorted(int(m.group(1)) for f in os.listdir(sorties["pages"])
+                   if (m := re.match(r"page-(\d{4})\.json$", f)))
+    if not pages:
+        raise ReconstructionImpossible("Aucune page scannée trouvée : relancez le Scan multi-colonnes.")
+    base = os.path.splitext(chemin_traduit)[0]
+    return {
+        "pdf": pdf,
+        "dossier_pages": sorties["pages"],
+        "dossier_illus": f"{os.path.splitext(pdf)[0]}{SUFFIXE_SCAN}_illustrations",
+        "pages": pages,
+        "sortie_pdf": f"{base}_mise_en_page.pdf",
+        "sortie_html": f"{base}_interactif.html",
+    }
+
+
+# ── Géométrie d'une page : illustrations + cadres de texte ───────────────────
+
+def detecter_illustrations(image) -> list[tuple[int, int, int, int]]:
+    """
+    Rectangles (x0, y0, x1, y1, en pixels) des illustrations d'une page scannée.
+
+    Le texte, vu de loin, reste « clair » : moyenné sur une tuile, l'encre d'un paragraphe ne
+    descend le gris que d'une vingtaine de niveaux sous le papier. Une illustration est soit
+    nettement plus sombre, soit colorée. D'où : réduction ×8 (moyenne), médiane 9×9 (efface les
+    lignes de texte isolées), seuil sur le gris OU la saturation, puis composantes connexes.
+    Mesuré sur le Cycle I : le navire (p. 1) et la salle (p. 3) sont isolés, la p. 2 (texte seul)
+    n'en a aucune ; sans le filtre de côté, l'ombre de reliure était prise pour une illustration.
+    """
+    import cv2
+    import numpy as np
+
+    rgb = np.array(image.convert("RGB"))
+    h, w, _ = rgb.shape
+    gris = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    sat = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)[..., 1]
+    fond = float(np.percentile(gris, 85))
+    k = 8
+    g = cv2.medianBlur(cv2.resize(gris, (w // k, h // k), interpolation=cv2.INTER_AREA), 9)
+    s = cv2.medianBlur(cv2.resize(sat, (w // k, h // k), interpolation=cv2.INTER_AREA), 9)
+    masque = ((g < fond - 35) | (s > 60)).astype(np.uint8)
+    masque = cv2.morphologyEx(masque, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    masque = cv2.morphologyEx(masque, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+    nb, _, stats, _ = cv2.connectedComponentsWithStats(masque)
+    rects = []
+    for i in range(1, nb):
+        x, y, ww, hh, _ = stats[i]
+        # Rognage : un bord dont la ligne (ou colonne) n'est remplie qu'à moitié est un bandeau
+        # collé à l'illustration (titre de chapitre en couleur, mesuré p. 1), pas l'illustration.
+        zone = masque[y:y + hh, x:x + ww]
+        lignes = (zone.mean(axis=1) >= 0.5).nonzero()[0]
+        cols = (zone.mean(axis=0) >= 0.5).nonzero()[0]
+        if not len(lignes) or not len(cols):
+            continue
+        y, hh = y + int(lignes[0]), int(lignes[-1] - lignes[0] + 1)
+        x, ww = x + int(cols[0]), int(cols[-1] - cols[0] + 1)
+        x0, y0, x1, y1 = x * k, y * k, min(w, (x + ww) * k), min(h, (y + hh) * k)
+        if (x1 - x0) * (y1 - y0) < AIRE_MIN_ILLUS * w * h:
+            continue
+        if x1 - x0 < COTE_MIN_ILLUS * w or y1 - y0 < COTE_MIN_ILLUS * h:
+            continue
+        rects.append((int(x0), int(y0), int(x1), int(y1)))
+    return sorted(rects, key=lambda r: (r[0] >= w // 2, r[1], r[0]))
+
+
+def cadres_texte(mise: dict, illustrations: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
+    """
+    Cadres où couler le texte traduit, DANS L'ORDRE DE LECTURE (demi-page gauche puis droite,
+    colonnes de gauche à droite, haut en bas) : chaque colonne détectée par le scan, bornée à
+    l'encre réelle, privée des bandes occupées par une illustration qui la recouvre.
+    """
+    gris, h = mise["gris"], mise["h"]
+    cadres = []
+    for moitie in mise["moities"]:
+        for a, b in moitie["colonnes"]:
+            lignes = ((gris[:, a:b] < 120).mean(axis=1) > 0.004).nonzero()[0]
+            haut = max(int(lignes[0]) if len(lignes) else 0, int(h * MARGE_HAUT))
+            bas = min(int(lignes[-1]) if len(lignes) else h, int(h * MARGE_BAS))
+            intervalles = [(haut, bas)]
+            for x0, y0, x1, y1 in illustrations:
+                if min(b, x1) - max(a, x0) <= 0.3 * (b - a):
+                    continue
+                coupe0, coupe1 = y0 - 12, y1 + 12
+                nouveaux = []
+                for p, q in intervalles:
+                    if coupe1 <= p or coupe0 >= q:
+                        nouveaux.append((p, q))
+                        continue
+                    if coupe0 > p:
+                        nouveaux.append((p, coupe0))
+                    if coupe1 < q:
+                        nouveaux.append((coupe1, q))
+                intervalles = nouveaux
+            cadres += [(a, p, b, q) for p, q in intervalles if q - p > 0.05 * h]
+    return cadres
+
+
+def _couleur_papier(image) -> list[int]:
+    import numpy as np
+    rgb = np.array(image.convert("RGB")).reshape(-1, 3)
+    clair = rgb[rgb.sum(axis=1) >= np.percentile(rgb.sum(axis=1), 60)]   # >= : un papier uniforme laisserait sinon un ensemble vide
+    return [int(v) for v in np.median(clair, axis=0)]
+
+
+def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int]) -> dict:
+    """
+    Géométrie + images de chaque page, en cache (une page déjà faite n'est jamais refaite tant
+    que le PDF et VERSION_CACHE n'ont pas changé). Retourne le manifeste {page: {...}}.
+    """
+    manifeste_chemin = os.path.join(dossier, "manifeste.json")
+    signature = {"version": VERSION_CACHE, "mtime": os.path.getmtime(chemin_pdf), "dpi": scan_colonnes.DPI_RENDU}
+    manifeste = lire_json_tolerant(manifeste_chemin)
+    if not isinstance(manifeste, dict) or manifeste.get("signature") != signature:
+        manifeste = {"signature": signature, "pages": {}}
+    a_faire = [n for n in pages if str(n) not in manifeste["pages"]]
+    if a_faire:
+        os.makedirs(dossier, exist_ok=True)
+        doc = scan_colonnes._ouvrir_pdf(chemin_pdf)
+        try:
+            for n in a_faire:
+                image = scan_colonnes.rendre_page(doc, n)
+                illus = detecter_illustrations(image)
+                mise = scan_colonnes.analyser_mise_en_page(image)
+                fichiers = []
+                for i, (x0, y0, x1, y1) in enumerate(illus):
+                    nom = f"page-{n:04d}-illus-{i + 1}.jpg"
+                    image.crop((x0, y0, x1, y1)).save(os.path.join(dossier, nom), "JPEG", quality=QUALITE_ILLUS)
+                    fichiers.append({"rect": [x0, y0, x1, y1], "fichier": nom})
+                apercu = f"page-{n:04d}-apercu.jpg"
+                r = DPI_APERCU / scan_colonnes.DPI_RENDU
+                image.resize((int(image.width * r), int(image.height * r))).save(
+                    os.path.join(dossier, apercu), "JPEG", quality=QUALITE_APERCU)
+                manifeste["pages"][str(n)] = {
+                    "largeur": image.width, "hauteur": image.height,
+                    "papier": _couleur_papier(image),
+                    "illustrations": fichiers,
+                    "cadres": [list(c) for c in cadres_texte(mise, illus)],
+                    "apercu": apercu,
+                }
+        finally:
+            doc.close()
+        ecrire_json_atomique(manifeste_chemin, manifeste)
+    return manifeste
+
+
+# ── Texte traduit rattaché à sa page ─────────────────────────────────────────
+
+_RE_MARQUEUR = re.compile(r"<!-- === chapitre (\d+) : (.*?) === -->")
+
+
+def _blocs_traduits(corps: str) -> list[tuple[str, str]]:
+    """Corps Markdown d'un chapitre traduit → [(type, texte)] ('titre' | 'encadre' | 'para')."""
+    blocs = []
+    for morceau in re.split(r"\n\s*\n", corps):
+        morceau = re.sub(r"<!--.*?-->", "", morceau, flags=re.S).strip()
+        if not morceau:
+            continue
+        if morceau.startswith("#"):
+            premiere, _, reste = morceau.partition("\n")
+            blocs.append(("titre", premiere.lstrip("#").strip()))
+            if reste.strip():
+                blocs.append(("para", reste.strip()))
+        elif morceau.startswith(">"):
+            blocs.append(("encadre", " ".join(l.lstrip(">").strip() for l in morceau.splitlines())))
+        else:
+            blocs.append(("para", " ".join(morceau.splitlines())))
+    return blocs
+
+
+def chapitres_traduits(md: str) -> list[dict]:
+    """[{index, titre_source, blocs}] — un seul chapitre implicite si le document n'a pas de marqueur."""
+    parts = _RE_MARQUEUR.split(md)
+    if len(parts) == 1:
+        return [{"index": 0, "titre_source": None, "blocs": _blocs_traduits(md)}]
+    return [{"index": int(parts[i]), "titre_source": parts[i + 1], "blocs": _blocs_traduits(parts[i + 2])}
+            for i in range(1, len(parts), 3)]
+
+
+def _norm(t: str) -> str:
+    return re.sub(r"\W+", " ", t.lower()).strip()
+
+
+def repartir_par_page(dossier_pages: str, pages: list[int], md_traduit: str) -> dict[int, list[tuple[str, str]]]:
+    """
+    Paragraphes traduits → page source. Les titres de chapitre (marqueurs de la traduction) sont
+    retrouvés parmi les titres du scan, dans l'ordre (rapprochement approximatif : le scan stocke
+    les titres AVANT réparation, ex. « 1 Garden » pour « 11 Garden »). Dans un chapitre :
+      - même nombre de paragraphes qu'à la source (cas mesuré le plus fréquent, 15 chapitres sur 20
+        du Cycle I) → correspondance 1 pour 1, la page est exacte ;
+      - sinon (paragraphes fusionnés par l'OCR ou le modèle) → position proportionnelle aux caractères.
+    """
+    plat = []   # (page, type, texte) dans l'ordre du document
+    for n in pages:
+        d = lire_json_tolerant(os.path.join(dossier_pages, f"page-{n:04d}.json"))
+        if isinstance(d, dict):
+            plat += [(n, k, t) for k, t in d.get("blocs", [])]
+    if not plat:
+        raise ReconstructionImpossible("Les pages du scan sont vides.")
+    titres = [i for i, (_, k, _) in enumerate(plat) if k == "titre"]
+    chapitres = chapitres_traduits(md_traduit)
+
+    # 1. ancre de chaque chapitre dans `plat`
+    ancres, curseur = [], 0
+    for chap in chapitres:
+        cible = _norm(chap["titre_source"] or "")
+        meilleur, score = None, 0.0
+        for i in titres:
+            if i < curseur:
+                continue
+            r = difflib.SequenceMatcher(None, cible, _norm(plat[i][2])).ratio()
+            if r > score:
+                meilleur, score = i, r
+            if r > 0.95:
+                break
+        if chap["titre_source"] is None:
+            meilleur, score = 0, 1.0
+        if meilleur is not None and score >= 0.6:
+            ancres.append(meilleur)
+            curseur = meilleur + 1
+        else:
+            ancres.append(None)
+
+    par_page: dict[int, list[tuple[str, str]]] = {n: [] for n in pages}
+    connues = [a for a in ancres if a is not None]
+    for c, chap in enumerate(chapitres):
+        debut = ancres[c]
+        if debut is None:   # titre introuvable : on le rattache à la fin du chapitre précédent
+            debut = max([a for a in ancres[:c] if a is not None], default=0)
+        suivants = [a for a in ancres[c + 1:] if a is not None and a > debut]
+        fin = suivants[0] if suivants else len(plat)
+        source = [b for b in plat[debut:fin] if b[1] != "titre"] or [plat[debut]]
+        traduits = chap["blocs"]
+        corps = [b for b in traduits if b[0] != "titre"]
+        if len(corps) == len(source):
+            pages_corps = [s[0] for s in source]
+        else:
+            cumul, total = [], 0
+            for s in source:
+                total += len(s[2])
+                cumul.append(total)
+            t_total = sum(len(b[1]) for b in corps) or 1
+            pages_corps, vu = [], 0
+            for b in corps:
+                milieu = (vu + len(b[1]) / 2) / t_total * total
+                vu += len(b[1])
+                j = next((j for j, v in enumerate(cumul) if v >= milieu), len(source) - 1)
+                pages_corps.append(source[j][0])
+        page_titre = plat[debut][0] if debut in connues or c == 0 else (pages_corps[0] if pages_corps else plat[debut][0])
+        j = 0
+        for k, t in traduits:
+            if k == "titre":
+                par_page[page_titre].append((k, t))
+            else:
+                par_page[pages_corps[j]].append((k, t))
+                j += 1
+    return par_page
+
+
+# ── Rendu commun ─────────────────────────────────────────────────────────────
+
+def inline_html(texte: str) -> str:
+    """Markdown inline minimal → HTML sûr (échappé d'abord)."""
+    t = html_mod.escape(texte, quote=False)
+    t = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", t)
+    t = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"<i>\1</i>", t)
+    t = t.replace(scan_colonnes.MARQUEUR_ICONE, '<span class="ico">◆</span>')
+    return t
+
+
+def _blocs_html(blocs: list[tuple[str, str]], ancre_chap=None) -> str:
+    sortie = []
+    for k, t in blocs:
+        if k == "titre":
+            ident = f' id="{ancre_chap(t)}"' if ancre_chap else ""
+            sortie.append(f"<h3{ident}>{inline_html(t)}</h3>")
+        elif k == "encadre":
+            sortie.append(f'<div class="encadre"><p>{inline_html(t)}</p></div>')
+        else:
+            sortie.append(f"<p>{inline_html(t)}</p>")
+    return "\n".join(sortie)
+
+
+def _ecrire_binaire_atomique(chemin: str, contenu: bytes) -> None:
+    tmp = f"{chemin}.tmp-{os.getpid()}"
+    with open(tmp, "wb") as f:
+        f.write(contenu)
+    os.replace(tmp, chemin)
+
+
+# ── 1. PDF mis en page ───────────────────────────────────────────────────────
+
+_CSS_PDF = """
+* {{ font-family: serif; }}
+body {{ font-size: {taille}pt; line-height: 1.18; color: #1f1a14; text-align: justify; margin: 0; }}
+p {{ margin: 0 0 {espace}pt 0; }}
+h3 {{ font-size: {titre}pt; color: #7a2418; font-weight: bold; margin: {espace}pt 0 {espace}pt 0; text-align: left; }}
+.encadre {{ background-color: #ffffff; border: 0.6pt solid #8a6d3b; padding: 2pt 3pt; margin: 0 0 {espace}pt 0; }}
+.ico {{ color: #7a2418; }}
+"""
+
+
+def _css_pdf(taille: float) -> str:
+    return _CSS_PDF.format(taille=taille, titre=round(taille * 1.25, 1), espace=round(taille * 0.3, 1))
+
+
+def _tient(html: str, taille: float, cadres) -> bool:
+    import pymupdf
+    story = pymupdf.Story(html=html, user_css=_css_pdf(taille))
+    for cadre in cadres:
+        plus, _ = story.place(cadre)
+        if not plus:
+            return True
+    return False
+
+
+def _cadres_suite(largeur: float, hauteur: float):
+    import pymupdf
+    m, g = largeur * 0.06, largeur * 0.04
+    col = (largeur - 2 * m - 3 * g) / 4
+    return [pymupdf.Rect(m + i * (col + g), hauteur * 0.07, m + i * (col + g) + col, hauteur * 0.92) for i in range(4)]
+
+
+def generer_pdf(chemin_traduit: str) -> dict:
+    """
+    Écrit `<traduction>_mise_en_page.pdf`. Retourne {chemin, pages, illustrations, pages_suite,
+    tailles} — `pages_suite` liste les pages dont le texte n'a pas tenu même à TAILLE_MIN_PT.
+    """
+    import pymupdf
+
+    loc = localiser(chemin_traduit)
+    manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"])
+    with open(chemin_traduit, encoding="utf-8") as f:
+        par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read())
+
+    ech = 72 / scan_colonnes.DPI_RENDU * ECHELLE_SORTIE
+    sortie = pymupdf.open()
+    nb_illus, pages_suite, tailles = 0, [], {}
+    for n in loc["pages"]:
+        info = manifeste["pages"][str(n)]
+        W, H = info["largeur"] * ech, info["hauteur"] * ech
+        papier = tuple(v / 255 for v in info["papier"])
+        page = sortie.new_page(width=W, height=H)
+        page.draw_rect(page.rect, color=None, fill=papier)
+        for ill in info["illustrations"]:
+            x0, y0, x1, y1 = ill["rect"]
+            page.insert_image(pymupdf.Rect(x0 * ech, y0 * ech, x1 * ech, y1 * ech),
+                              filename=os.path.join(loc["dossier_illus"], ill["fichier"]))
+            nb_illus += 1
+        blocs = par_page.get(n) or []
+        if not blocs:
+            continue
+        cadres = [pymupdf.Rect(a * ech, b * ech, c * ech, d * ech) for a, b, c, d in info["cadres"]]
+        if not cadres:
+            cadres = _cadres_suite(W, H)
+        contenu = _blocs_html(blocs)
+        taille = TAILLE_MAX_PT
+        while taille > TAILLE_MIN_PT and not _tient(contenu, taille, cadres):
+            taille = round(taille - PAS_TAILLE_PT, 2)
+        tailles[n] = taille
+
+        # Calque de texte : dessiné dans un document temporaire de même format, puis superposé.
+        tampon = io.BytesIO()
+        ecrivain = pymupdf.DocumentWriter(tampon)
+        story = pymupdf.Story(html=contenu, user_css=_css_pdf(taille))
+        dev = ecrivain.begin_page(pymupdf.Rect(0, 0, W, H))
+        plus = 1
+        for cadre in cadres:
+            plus, _ = story.place(cadre)
+            story.draw(dev)
+            if not plus:
+                break
+        ecrivain.end_page()
+        nb_suites = 0
+        while plus and nb_suites < 20:   # le reste n'est jamais tronqué : il continue sur une page « suite »
+            dev = ecrivain.begin_page(pymupdf.Rect(0, 0, W, H))
+            for cadre in _cadres_suite(W, H):
+                plus, _ = story.place(cadre)
+                story.draw(dev)
+                if not plus:
+                    break
+            ecrivain.end_page()
+            nb_suites += 1
+        ecrivain.close()
+        calque = pymupdf.open("pdf", tampon.getvalue())
+        page.show_pdf_page(page.rect, calque, 0)
+        for s in range(1, calque.page_count):
+            suite = sortie.new_page(width=W, height=H)
+            suite.draw_rect(suite.rect, color=None, fill=papier)
+            suite.show_pdf_page(suite.rect, calque, s)
+            suite.insert_text((W * 0.06, H * 0.045), f"Suite de la page {n}", fontsize=9, color=(0.45, 0.4, 0.35))
+        if calque.page_count > 1:
+            pages_suite.append(n)
+        calque.close()
+
+    sortie.set_metadata({"title": os.path.basename(os.path.splitext(chemin_traduit)[0]),
+                         "creator": "Traducteur PDF (toledo) — mise en page reconstruite"})
+    _ecrire_binaire_atomique(loc["sortie_pdf"], sortie.tobytes(garbage=3, deflate=True))
+    sortie.close()
+    return {"chemin": loc["sortie_pdf"], "pages": len(loc["pages"]), "illustrations": nb_illus,
+            "pages_suite": pages_suite, "tailles": tailles}
+
+
+# ── 2. HTML interactif ───────────────────────────────────────────────────────
+
+def _data_uri(chemin: str) -> str:
+    with open(chemin, "rb") as f:
+        return "data:image/jpeg;base64," + base64.b64encode(f.read()).decode("ascii")
+
+
+def _position_illustration(info: dict, ill: dict) -> float:
+    """Part (0–1) du texte de la page qui PRÉCÈDE l'illustration dans l'ordre de lecture,
+    estimée par la surface des cadres de texte situés avant elle."""
+    x0, y0, x1, y1 = ill["rect"]
+    milieu = info["largeur"] / 2
+    moitie_ill = (x0 + x1) / 2 >= milieu
+    avant = total = 0.0
+    for a, b, c, d in info["cadres"]:
+        aire = (c - a) * (d - b)
+        total += aire
+        moitie_cadre = (a + c) / 2 >= milieu
+        # avant l'illustration : toute la demi-page précédente, et dans la même demi-page
+        # les cadres qui se terminent au-dessus d'elle
+        if moitie_cadre < moitie_ill or (moitie_cadre == moitie_ill and d <= y0 + 12):
+            avant += aire
+    return avant / total if total else 0.0
+
+
+def generer_html(chemin_traduit: str, titre: str | None = None, langue_cible: str = "fr") -> dict:
+    """Écrit `<traduction>_interactif.html` (autonome : images en data-URI). Retourne {chemin, pages, illustrations, octets}."""
+    loc = localiser(chemin_traduit)
+    manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"])
+    with open(chemin_traduit, encoding="utf-8") as f:
+        par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read())
+
+    ancres: dict[str, str] = {}
+
+    def ancre(t: str) -> str:
+        return ancres.setdefault(t, f"chap-{len(ancres) + 1}")
+
+    pages_html, sommaire, nb_illus = [], [], 0
+    for n in loc["pages"]:
+        info = manifeste["pages"][str(n)]
+        blocs = par_page.get(n) or []
+        for k, t in blocs:
+            if k == "titre":
+                sommaire.append((ancre(t), t, n))
+        # illustrations insérées dans le flux à leur position estimée
+        inserts = sorted(((_position_illustration(info, ill), ill) for ill in info["illustrations"]),
+                         key=lambda x: x[0])
+        total = sum(len(t) for _, t in blocs) or 1
+        morceaux, cumul, i_ins = [], 0, 0
+        for k, t in blocs:
+            while i_ins < len(inserts) and inserts[i_ins][0] * total <= cumul:
+                morceaux.append(_figure(loc, inserts[i_ins][1], n))
+                i_ins += 1
+            morceaux.append(_blocs_html([(k, t)], ancre))
+            cumul += len(t)
+        morceaux += [_figure(loc, ill, n) for _, ill in inserts[i_ins:]]
+        nb_illus += len(inserts)
+        pages_html.append(
+            f'<section class="page" id="page-{n}" data-page="{n}">'
+            f'<div class="page-tete"><span class="folio">Page {n}</span>'
+            f'<button type="button" class="bascule-original" aria-pressed="false">Voir le scan d\'origine</button></div>'
+            f'<div class="page-corps"><figure class="original" hidden>'
+            f'<img loading="lazy" src="{_data_uri(os.path.join(loc["dossier_illus"], info["apercu"]))}" '
+            f'alt="Scan d\'origine, page {n}"><figcaption>Scan d\'origine — page {n}</figcaption></figure>'
+            f'<div class="texte">{"".join(morceaux) or "<p class=vide>(page sans texte)</p>"}</div></div></section>')
+
+    titre = titre or os.path.basename(os.path.splitext(chemin_traduit)[0])
+    toc = "".join(f'<li><a href="#{a}">{inline_html(t)}</a> <span class="p">p. {p}</span></li>' for a, t, p in sommaire)
+    page = _GABARIT_HTML.replace("{{TITRE}}", html_mod.escape(titre)) \
+        .replace("{{LANG}}", html_mod.escape(langue_cible)) \
+        .replace("{{SOMMAIRE}}", toc) \
+        .replace("{{PAGES}}", "\n".join(pages_html)) \
+        .replace("{{META}}", html_mod.escape(f"{len(loc['pages'])} page(s) · {nb_illus} illustration(s) · généré le "
+                                             f"{time.strftime('%d/%m/%Y %H:%M')}"))
+    ecrire_texte_atomique(loc["sortie_html"], page)
+    return {"chemin": loc["sortie_html"], "pages": len(loc["pages"]), "illustrations": nb_illus,
+            "octets": len(page.encode("utf-8"))}
+
+
+def _figure(loc: dict, ill: dict, n: int) -> str:
+    return (f'<figure class="illus"><img loading="lazy" src="{_data_uri(os.path.join(loc["dossier_illus"], ill["fichier"]))}" '
+            f'alt="Illustration de la page {n}"><figcaption>Illustration — page {n}</figcaption></figure>')
+
+
+def info(chemin_traduit: str) -> dict:
+    """Disponibilité (rapide, sans rendu) + sorties déjà présentes."""
+    try:
+        loc = localiser(chemin_traduit)
+    except ReconstructionImpossible as e:
+        return {"disponible": False, "raison": str(e)}
+    return {
+        "disponible": True,
+        "pdf_source": loc["pdf"],
+        "pages": len(loc["pages"]),
+        "pdf_genere": loc["sortie_pdf"] if os.path.isfile(loc["sortie_pdf"]) else None,
+        "html_genere": loc["sortie_html"] if os.path.isfile(loc["sortie_html"]) else None,
+    }
+
+
+_GABARIT_HTML = r"""<!DOCTYPE html>
+<html lang="{{LANG}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITRE}}</title>
+<style>
+:root { --papier:#f4efe6; --surface:#fffdf8; --texte:#1f1a14; --doux:#6b6257; --accent:#7a2418; --bord:#d9cfbf; --taille:17px; }
+:root[data-theme="dark"] { --papier:#16130f; --surface:#211d18; --texte:#ece4d6; --doux:#a89c8a; --accent:#e08a6f; --bord:#3a332a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --papier:#16130f; --surface:#211d18; --texte:#ece4d6; --doux:#a89c8a; --accent:#e08a6f; --bord:#3a332a; } }
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; background:var(--papier); color:var(--texte); font:var(--taille)/1.6 Georgia, "Iowan Old Style", "Palatino Linotype", serif; }
+header { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:10px 16px; background:var(--surface); border-bottom:1px solid var(--bord); font-family:-apple-system, system-ui, sans-serif; font-size:14px; }
+header h1 { font-size:16px; margin:0 auto 0 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:40vw; }
+header button, header select { font:inherit; padding:5px 10px; border-radius:6px; border:1px solid var(--bord); background:var(--papier); color:var(--texte); cursor:pointer; }
+header button[aria-pressed="true"] { background:var(--accent); color:#fff; border-color:var(--accent); }
+.mise { display:grid; grid-template-columns:260px minmax(0,1fr); max-width:1280px; margin:0 auto; }
+nav { position:sticky; top:52px; align-self:start; max-height:calc(100vh - 52px); overflow:auto; padding:16px; font-family:-apple-system, system-ui, sans-serif; font-size:13px; }
+nav ul { list-style:none; padding-left:0; margin:6px 0; } nav li { margin:4px 0; } nav a { color:var(--texte); text-decoration:none; } nav a:hover { color:var(--accent); }
+nav .p { color:var(--doux); font-size:11px; } nav .meta { color:var(--doux); font-size:11px; }
+main { padding:16px 24px 80px; min-width:0; }
+.page { background:var(--surface); border:1px solid var(--bord); border-radius:10px; padding:20px 28px; margin:0 0 20px; }
+.page-tete { display:flex; justify-content:space-between; align-items:center; font-family:-apple-system, system-ui, sans-serif; font-size:12px; color:var(--doux); margin-bottom:8px; }
+.bascule-original { font:inherit; border:1px solid var(--bord); background:transparent; color:var(--doux); border-radius:6px; padding:3px 8px; cursor:pointer; }
+.page-corps { display:block; }
+.texte { max-width:44em; margin:0 auto; text-align:justify; hyphens:auto; }
+h3 { color:var(--accent); font-size:1.25em; margin:1.4em 0 .5em; text-align:left; scroll-margin-top:70px; }
+.encadre { border:1px solid var(--bord); border-left:4px solid var(--accent); background:var(--papier); padding:.6em 1em; border-radius:6px; margin:1em 0; }
+.encadre p { margin:0; }
+.ico { color:var(--accent); font-size:.8em; }
+figure { margin:1.2em 0; text-align:center; }
+figure img { max-width:100%; height:auto; border-radius:6px; cursor:zoom-in; box-shadow:0 2px 10px rgba(0,0,0,.15); }
+figcaption { font:12px -apple-system, system-ui, sans-serif; color:var(--doux); margin-top:4px; }
+/* Mode « Pages » : scan d'origine en regard du texte traduit */
+body.mode-pages .page-corps { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:24px; align-items:start; }
+body.mode-pages .original { display:block !important; position:sticky; top:64px; margin:0; }
+body.mode-pages .bascule-original { display:none; }
+body.mode-lecture .page { border:0; background:transparent; padding:0 0 8px; border-radius:0; }
+body.mode-lecture .page-tete .folio { opacity:.7; }
+.vide { color:var(--doux); font-style:italic; }
+mark { background:#f5d76e; color:#000; }
+#loupe { position:fixed; inset:0; background:rgba(0,0,0,.85); display:none; align-items:center; justify-content:center; z-index:20; cursor:zoom-out; }
+#loupe.ouvert { display:flex; } #loupe img { max-width:96vw; max-height:94vh; }
+@media (max-width: 900px) { .mise { grid-template-columns:1fr; } nav { position:static; max-height:none; border-bottom:1px solid var(--bord); } body.mode-pages .page-corps { grid-template-columns:1fr; } body.mode-pages .original { position:static; } main { padding:16px; } .page { padding:16px; } header h1 { max-width:100%; } }
+@media print { header, nav, .bascule-original, #loupe { display:none !important; } .mise { display:block; } .page { break-inside:avoid-page; border:0; } }
+</style>
+</head>
+<body class="mode-lecture">
+<header>
+  <h1>{{TITRE}}</h1>
+  <button type="button" data-mode="lecture" aria-pressed="true">Lecture continue</button>
+  <button type="button" data-mode="pages" aria-pressed="false">Page par page + original</button>
+  <input type="search" id="chercher" placeholder="Rechercher…" aria-label="Rechercher dans le texte" style="font:inherit;padding:5px 8px;border-radius:6px;border:1px solid var(--bord);background:var(--papier);color:var(--texte);width:150px">
+  <button type="button" id="moins" aria-label="Réduire le texte">A−</button>
+  <button type="button" id="plus" aria-label="Agrandir le texte">A+</button>
+  <button type="button" id="theme" aria-label="Changer de thème">◐</button>
+</header>
+<div class="mise">
+  <nav><strong>Sommaire</strong><ul>{{SOMMAIRE}}</ul><p class="meta">{{META}}</p></nav>
+  <main>{{PAGES}}</main>
+</div>
+<div id="loupe" role="dialog" aria-label="Image agrandie"><img alt=""></div>
+<script>
+(function () {
+  var racine = document.documentElement, corps = document.body;
+  function lire(k, d) { try { return localStorage.getItem(k) || d; } catch (e) { return d; } }
+  function ecrire(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function mode(m) {
+    corps.className = "mode-" + m;
+    document.querySelectorAll("[data-mode]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.mode === m)); });
+    ecrire("toledo-mode", m);
+  }
+  document.querySelectorAll("[data-mode]").forEach(function (b) { b.addEventListener("click", function () { mode(b.dataset.mode); }); });
+  mode(lire("toledo-mode", "lecture"));
+  var taille = parseFloat(lire("toledo-taille", "17"));
+  function appliquerTaille() { racine.style.setProperty("--taille", taille + "px"); ecrire("toledo-taille", String(taille)); }
+  document.getElementById("moins").onclick = function () { taille = Math.max(12, taille - 1); appliquerTaille(); };
+  document.getElementById("plus").onclick = function () { taille = Math.min(26, taille + 1); appliquerTaille(); };
+  appliquerTaille();
+  var theme = lire("toledo-theme", "");
+  if (theme) racine.dataset.theme = theme;
+  document.getElementById("theme").onclick = function () {
+    var sombre = racine.dataset.theme ? racine.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    racine.dataset.theme = sombre ? "light" : "dark"; ecrire("toledo-theme", racine.dataset.theme);
+  };
+  document.querySelectorAll(".bascule-original").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var fig = b.closest(".page").querySelector(".original"), ouvert = fig.hidden;
+      fig.hidden = !ouvert; b.setAttribute("aria-pressed", String(ouvert));
+      b.textContent = ouvert ? "Masquer le scan d'origine" : "Voir le scan d'origine";
+    });
+  });
+  var loupe = document.getElementById("loupe");
+  document.addEventListener("click", function (e) {
+    if (e.target.matches("figure img")) { loupe.querySelector("img").src = e.target.src; loupe.classList.add("ouvert"); }
+    else if (e.target.closest("#loupe")) loupe.classList.remove("ouvert");
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") loupe.classList.remove("ouvert"); });
+  // Recherche : surligne les occurrences et défile jusqu'à la première.
+  var originaux = new Map();
+  document.querySelectorAll(".texte p, .texte h3").forEach(function (el) { originaux.set(el, el.innerHTML); });
+  var minuterie;
+  document.getElementById("chercher").addEventListener("input", function (e) {
+    clearTimeout(minuterie);
+    var q = e.target.value.trim();
+    minuterie = setTimeout(function () {
+      var premier = null, re = q.length >= 2 ? new RegExp("(" + q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")(?![^<]*>)", "gi") : null;
+      originaux.forEach(function (h, el) {
+        el.innerHTML = re ? h.replace(re, "<mark>$1</mark>") : h;
+        if (re && !premier && el.querySelector("mark")) premier = el;
+      });
+      if (premier) premier.scrollIntoView({ block: "center" });
+    }, 250);
+  });
+})();
+</script>
+</body>
+</html>
+"""

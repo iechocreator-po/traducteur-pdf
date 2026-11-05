@@ -85,15 +85,12 @@ async function chargerInfoScan(chemin) {
 
 // ── Aperçu des régions détectées (géométrie seule, aucun OCR) ────────────────
 
-$("bouton-scan-apercu").addEventListener("click", async () => {
-  const chemin = $("scan-chemin").value.trim();
-  if (!chemin) { alert("Indique d'abord le chemin du PDF, ou utilise Parcourir…"); return; }
-  const page = parseInt($("scan-page-debut").value, 10) || 1;
-  const img = $("scan-apercu-image");
-  const zone = $("scan-resultat");
+// Aperçu partagé : le Laboratoire et le parcours « Nettoyer » de l'Accueil (js/parcours.js) l'appellent
+// avec leurs propres éléments d'affichage. Renvoie true si l'image est affichée.
+async function chargerApercuScan(chemin, page, doublePage, img, zone) {
   zone.innerHTML = "<em>Calcul de l'aperçu…</em>";
   try {
-    const url = `${API_BASE}/labo/scan-colonnes/apercu?chemin_pdf=${encodeURIComponent(chemin)}&page=${page}&double_page=${$("scan-double-page").value}&t=${Date.now()}`;
+    const url = `${API_BASE}/labo/scan-colonnes/apercu?chemin_pdf=${encodeURIComponent(chemin)}&page=${page}&double_page=${doublePage}&t=${Date.now()}`;
     const rep = await fetch(url);
     if (!rep.ok) {
       const data = await rep.json().catch(() => ({}));
@@ -105,10 +102,19 @@ $("bouton-scan-apercu").addEventListener("click", async () => {
     img.src = img.dataset.url;
     img.hidden = false;
     zone.innerHTML = `<span class="aide">Page ${page}.</span>`;
+    return true;
   } catch (e) {
     img.hidden = true;
     zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    return false;
   }
+}
+
+$("bouton-scan-apercu").addEventListener("click", () => {
+  const chemin = $("scan-chemin").value.trim();
+  if (!chemin) { alert("Indique d'abord le chemin du PDF, ou utilise Parcourir…"); return; }
+  chargerApercuScan(chemin, parseInt($("scan-page-debut").value, 10) || 1, $("scan-double-page").value,
+                    $("scan-apercu-image"), $("scan-resultat"));
 });
 
 // ── Lancement et suivi du job ────────────────────────────────────────────────
@@ -153,7 +159,24 @@ function rendreResultatScan(etat) {
       activerModule("import");
     });
   }
+  // Enchaînement scan → traduction (case cochée) : seulement si le scan s'est terminé SANS page en
+  // erreur. Un scan partiel n'est jamais traduit automatiquement : ce serait traduire un texte troué.
+  // `scanDejaEnchaine` évite de relancer à chaque poll ou à chaque réaffichage du même résultat.
+  if (etat.statut === "termine" && !etat.erreur && !(etat.pages_en_erreur || []).length
+      && $("scan-puis-traduire").checked && scanDejaEnchaine !== etat.chemin_sortie) {
+    scanDejaEnchaine = etat.chemin_sortie;
+    document.dispatchEvent(new CustomEvent("ajouter-au-lot-et-traduire", { detail: etat.chemin_sortie }));
+    zone.insertAdjacentHTML("beforeend", `<p class="aide">➜ Envoyé à l'Accueil : la traduction démarre dès l'analyse terminée.</p>`);
+  } else if ($("scan-puis-traduire").checked && etat.statut === "erreur") {
+    zone.insertAdjacentHTML("beforeend", `<p class="aide">La traduction automatique n'a pas été lancée : le scan contient des pages en erreur. Relancez le scan, ou envoyez le fichier à la main.</p>`);
+  }
 }
+
+let scanDejaEnchaine = null;
+try { $("scan-puis-traduire").checked = localStorage.getItem("toledo-scan-puis-traduire") === "1"; } catch { /* navigation privée */ }
+$("scan-puis-traduire").addEventListener("change", (e) => {
+  try { localStorage.setItem("toledo-scan-puis-traduire", e.target.checked ? "1" : "0"); } catch { /* navigation privée */ }
+});
 
 async function suivreScan(chemin) {
   clearTimeout(scanTimer);
@@ -172,7 +195,10 @@ async function suivreScan(chemin) {
   }
 }
 
-$("bouton-scan-lancer").addEventListener("click", async () => {
+// Point d'entrée UNIQUE du nettoyage : le bouton du Laboratoire et le parcours « Nettoyer un document »
+// de l'Accueil (js/parcours.js) passent tous deux ici, avec les mêmes champs (#scan-*). C'est ce qui
+// garantit le même fichier en sortie, quel que soit le chemin emprunté.
+async function lancerScan() {
   const chemin = $("scan-chemin").value.trim();
   if (!chemin) { alert("Indique d'abord le chemin du PDF, ou utilise Parcourir…"); return; }
   const corps = { chemin_pdf: chemin, langue_ocr: $("scan-langue").value || "eng", double_page: $("scan-double-page").value };
@@ -189,4 +215,7 @@ $("bouton-scan-lancer").addEventListener("click", async () => {
     $("bouton-scan-lancer").disabled = false;
     $("scan-resultat").innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
   }
-});
+}
+
+$("bouton-scan-lancer").addEventListener("click", lancerScan);
+

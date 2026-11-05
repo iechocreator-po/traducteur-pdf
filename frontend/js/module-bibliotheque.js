@@ -176,6 +176,8 @@
     $("barre-audio").hidden = false;
     rendreBandeauEchec();
     majBoutonExportDocument();
+    // Exports « mise en page d'origine » et signature (js/bibliotheque-exports.js).
+    document.dispatchEvent(new CustomEvent("doc-actif", { detail: doc }));
 
     try {
       const data = await apiPost("/chapitres", { chemin_md: doc.chemin_sortie });
@@ -364,8 +366,32 @@
     }
   }
 
+  // Bénéfice de chaque stratégie, dit à l'utilisateur au moment où il choisit (la logique est
+  // dans services/study_runner.py : « sections » lit le texte réel section par section,
+  // « condensation » résume d'abord un chapitre trop long puis travaille sur ce résumé).
+  const AIDE_STRATEGIE = {
+    sections:
+      "<strong>Par sections — la plus fidèle.</strong> Le chapitre est découpé en sections et " +
+      "l'IA relève les points clés de <em>chacune</em>, directement dans le texte, puis garde les " +
+      "meilleurs. Bénéfice : tout le chapitre est couvert (la fin autant que le début) et les " +
+      "détails concrets — noms, dates, chiffres — sont conservés. Le quiz est construit sur ces " +
+      "points. Durée comparable (mesurée : souvent un peu plus rapide). Recommandée par défaut.",
+    condensation:
+      "<strong>Condensation — la plus directe.</strong> Si le chapitre est long, l'IA en écrit " +
+      "d'abord un résumé, puis tire points clés et quiz de ce résumé. Bénéfice : une vue " +
+      "d'ensemble plus synthétique, rédigée à partir d'un texte déjà résumé. Limite : un " +
+      "résumé de résumé peut perdre des détails et privilégier le début. Utile pour un survol " +
+      "rapide, ou pour comparer avec « Par sections » (chaque stratégie garde sa propre fiche).",
+  };
+  function majAideStrategie() {
+    const aide = $("ia-strategie-aide");
+    if (aide) aide.innerHTML = AIDE_STRATEGIE[strategieChoisie()] || "";   // texte statique, jamais de contenu utilisateur
+  }
+  majAideStrategie();
+
   $("ia-strategie").addEventListener("change", () => {
     // Chaque stratégie a SA fiche : on recharge celle qui correspond.
+    majAideStrategie();
     ficheParChapitre = {};
     arreterPollFiche();
     $("ia-statut").textContent = "";
@@ -1179,6 +1205,12 @@
     if (e.detail === "bibliotheque") chargerDocs();
   });
   document.addEventListener("traduction-terminee", chargerDocs);
+  // Demandé par l'Accueil (js/parcours.js) : ouvrir un document précis, sans passer par la liste.
+  document.addEventListener("ouvrir-document", async (e) => {
+    await chargerDocs();
+    const cible = docs.find((d) => d.chemin_sortie === (e.detail && e.detail.chemin_sortie));
+    if (cible) selectionnerDoc(cible);
+  });
   document.addEventListener("backend-connecte", chargerDocs);
 
   /**
@@ -1197,6 +1229,7 @@
       arreterPollFiche();
       arreterPollAudio();
       docActif = null;
+      document.dispatchEvent(new CustomEvent("doc-actif", { detail: null }));
       chapActif = null;
       chapitres = [];
       chapitresCoches = new Set();

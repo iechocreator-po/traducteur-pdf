@@ -88,7 +88,14 @@ html[data-style="machine"][data-theme="dark"] {
     --accent: #ef6f63; --accent-bg: #3d1e1a; --on-accent: #1c1b18;
   }
 }
-html[data-style="machine"] body { text-shadow: 0 0 0.6px currentColor, 0.4px 0.2px 0 color-mix(in srgb, currentColor 22%, transparent); }
+/* Effet « encre » léger (l'ancienne ombre doublée épaississait tout le texte). Une machine à écrire n'a
+   pas de gras : tout est en graisse normale, la hiérarchie vient des capitales, de la couleur et des
+   soulignés. Seuls strong/b/h1 gardent un cran de plus (500). Le sélecteur `body *` bat les règles
+   à une seule classe (.lot-nom, .dropzone-titre…) sans recourir à !important. */
+html[data-style="machine"] body { text-shadow: 0 0 0.35px currentColor; }
+html[data-style="machine"] body * { font-weight: 400; }
+html[data-style="machine"] body :is(strong, b, h1) { font-weight: 500; }
+html[data-style="machine"] .ds-btn--primary { font-weight: 400; }
 html[data-style="machine"] .barre-app { border-bottom: 1px solid var(--text); }
 html[data-style="machine"] .logo { text-transform: uppercase; letter-spacing: 0.06em; font-weight: 400; }
 html[data-style="machine"] .logo-pastille { width: 11px; height: 18px; border-radius: 0; animation: curseur-clignote 1.1s steps(1) infinite; }
@@ -103,7 +110,7 @@ html[data-style="machine"] .barre-progression { border-radius: 0; background: re
 html[data-style="machine"] .barre-succes { background: repeating-linear-gradient(90deg, var(--text) 0 6px, transparent 6px 8px); }
 html[data-style="machine"] .ds-btn,
 html[data-style="machine"] .bouton-lien { background: transparent; border: 0; color: var(--text); text-transform: uppercase; letter-spacing: 0.06em; padding-inline: 0.2rem; font-weight: 400; }
-html[data-style="machine"] .ds-btn--primary { color: var(--accent); font-weight: 700; }
+html[data-style="machine"] .ds-btn--primary { color: var(--accent); }
 html[data-style="machine"] .ds-btn::before,
 html[data-style="machine"] .bouton-lien::before { content: "[ "; }
 html[data-style="machine"] .ds-btn::after,
@@ -270,6 +277,37 @@ html[data-style="calque"] .ds-btn:not(.ds-btn--primary) { border-radius: var(--r
 html[data-style="calque"] .ds-btn--primary { border-radius: var(--radius-pill); }
 html[data-style="calque"] .pill, html[data-style="calque"] .statut-badge { font-family: var(--font-titre); font-style: italic; font-weight: 500; }
 
+/* ═══ 7 · Atelier ════════════════════════════════════════════════════════════ */
+/* Papier chaud, cartes claires très arrondies, accent vert d'eau : le rendu des maquettes de l'Accueil
+   (11/10/2026), en plus doux que Classique. Les étapes et pastilles s'arrondissent pleinement. */
+html[data-style="atelier"] {
+  --bg: #f3efe6; --surface: #fffdf8; --surface-2: #ebe6da;
+  --text: #25221c; --text-2: #5c564a; --text-3: #7d776a;
+  --border: rgba(60, 50, 30, 0.16);
+  --accent: #0f766e; --accent-bg: #d3f2ea; --on-accent: #ffffff;
+  --ds-radius-sm: 10px; --ds-radius: 14px; --ds-radius-lg: 18px;
+  --radius-sm: 10px; --radius-lg: 18px;
+}
+html[data-style="atelier"][data-theme="dark"] {
+  --bg: #1e1c18; --surface: #282520; --surface-2: #34312a;
+  --text: #f0ece2; --text-2: #bdb7a8; --text-3: #8f8a7c;
+  --border: rgba(240, 236, 226, 0.16);
+  --accent: #2dd4bf; --accent-bg: #123f3a; --on-accent: #042f2e;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-style="atelier"]:not([data-theme="light"]) {
+    --bg: #1e1c18; --surface: #282520; --surface-2: #34312a;
+    --text: #f0ece2; --text-2: #bdb7a8; --text-3: #8f8a7c;
+    --border: rgba(240, 236, 226, 0.16);
+    --accent: #2dd4bf; --accent-bg: #123f3a; --on-accent: #042f2e;
+  }
+}
+html[data-style="atelier"] .ds-card { box-shadow: 0 1px 2px rgba(60, 50, 30, 0.06); }
+html[data-style="atelier"] .ds-btn, html[data-style="atelier"] button.objectif-option, html[data-style="atelier"] button.reperes-option { border-radius: 999px; }
+html[data-style="atelier"] button.objectif-option { border-radius: 14px; }
+html[data-style="atelier"] .onglet-module { border-radius: 999px; }
+html[data-style="atelier"] .ds-badge, html[data-style="atelier"] .pill { border-radius: 999px; }
+
 /* ═══ Accessibilité ═══════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
   html[data-style="machine"] .logo-pastille { animation: none; }
@@ -313,3 +351,5 @@ html[data-style="calque"] .pill, html[data-style="calque"] .statut-badge { font-
 .apercu-calque { background: #d9dee2; color: #16222e; font-family: "Iowan Old Style", Georgia, serif; }
 .apercu-calque b { font-style: italic; font-weight: 400; font-size: 18px; }
 .apercu-calque i { height: 2px; background: #1d3fd0; }
+.apercu-atelier { background: #f3efe6; color: #25221c; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.apercu-atelier i { background: #0f766e; border-radius: 999px; }
