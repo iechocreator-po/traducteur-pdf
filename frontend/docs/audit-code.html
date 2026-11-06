@@ -33,33 +33,35 @@
 <main>
 <div class="bandeau">Rapport · mis à jour le 6 novembre 2026</div>
 <h1>Audit du code de toledo : où en est-on ?</h1>
-<p class="muted">La skill commune <code>/revue-code</code> a tourné deux fois : un audit de la zone « moteur » le 26 octobre (trois sous-agents, constats corrigés), puis une revue du code ajouté depuis, le 6 novembre (cinq passes, constats ouverts). Une revue ne couvre que le code ajouté : cinq zones restent à auditer. Les sections suivant celle du 6 novembre datent du 26 octobre.</p>
+<p class="muted">La skill commune <code>/revue-code</code> a tourné deux fois : un audit de la zone « moteur » le 26 octobre (trois sous-agents, constats corrigés), puis une revue du code ajouté depuis, le 6 novembre (cinq passes, 15 constats corrigés sur 36). Une revue ne couvre que le code ajouté : cinq zones restent à auditer. Les sections suivant celle du 6 novembre datent du 26 octobre.</p>
 
 <section class="ds-card carte"><h2>Revue du 6 novembre 2026 (ff6a5de..6ff59e6)</h2>
-<p><span class="gros">36</span> constats à 80 ou plus, <strong>aucun corrigé</strong>, regroupés en 17 entrées dans bilbao (#485 à #501). Mécanique : pytest 401 passés, 0 échec ; ruff sans erreur.</p>
+<p><span class="gros">15</span> constats corrigés sur <span class="gros">36</span> à 80 ou plus ; <strong>21 restent ouverts</strong>. Ils sont regroupés en 17 entrées dans bilbao (#485 à #501). Après correctifs : pytest 417 passés, 0 échec ; ruff sans erreur. Correctifs livrés dans <code>9b90be9</code>.</p>
+<p class="muted">Priorité donnée aux notes de 95 et plus et à ce qui peut perdre du travail ou bloquer l'utilisateur. Écarté volontairement : #494 (texte sur les mauvaises pages), dont les heuristiques demandent un vrai document pour être validées.</p>
 <table>
-<tr><th class="n">Note</th><th>Constat</th><th class="n">bilbao</th></tr>
-<tr><td class="n">100</td><td>Signature : la mention peut être absente du PDF alors que l'interface affiche le succès (<code>signature.py:147</code>). Exécuté.</td><td class="n">#491</td></tr>
-<tr><td class="n">100</td><td>Parcours : écouteurs ré-ajoutés toutes les 4 s ; après 1 h, un clic sur Aperçu lance environ 900 rendus (<code>parcours.js:260-274</code>).</td><td class="n">#485</td></tr>
-<tr><td class="n">95</td><td>PDF mis en page : texte réduit à 7 pt dès qu'il dépasse la première colonne, <code>_tient</code> appelle <code>place</code> sans <code>draw</code> (<code>reconstruction.py:382-389</code>). Exécuté.</td><td class="n">#493</td></tr>
-<tr><td class="n">90</td><td>Parcours : enchaînement scan vers traduction relancé à chaque rechargement, PDF brut resté au lot, langues lues aux menus (<code>parcours.js:344</code>).</td><td class="n">#486</td></tr>
-<tr><td class="n">90</td><td>Parcours : analyse sans fin après rechargement, échec de lancement invisible, « 0 page(s) en erreur » (<code>parcours.js:83, 108, 143</code>).</td><td class="n">#487</td></tr>
-<tr><td class="n">90</td><td>Parcours : statut de fiche faux, flags <code>extraction_scan_colonnes</code> et <code>mode_avance</code> contournés (<code>parcours.js:27, 220, 320</code>).</td><td class="n">#488</td></tr>
-<tr><td class="n">90</td><td>Signature : placement faux avec rotation et CropBox, copie signée écrasée, PNG géant en erreur 500 (<code>signature.py:43, 103, 142</code>). Exécuté.</td><td class="n">#492</td></tr>
-<tr><td class="n">90</td><td>PDF mis en page : texte sur les mauvaises pages, par faux titre lointain, pages hors plage, chapitre traduit seul, <code>double_page</code> ignoré (<code>reconstruction.py:78, 199, 283, 306</code>). Exécuté en partie.</td><td class="n">#494</td></tr>
-<tr><td class="n">85</td><td>Scan : aucune récupération au démarrage, un scan orphelin bloque Arrêter et Recommencer (<code>recuperation.py:142</code>).</td><td class="n">#489</td></tr>
-<tr><td class="n">85</td><td>Scan : « Recommencer » efface le Markdown source des traductions, Reprendre répond ensuite 404 (<code>scan_colonnes.py:533</code>).</td><td class="n">#490</td></tr>
-<tr><td class="n">85</td><td>Écriture binaire non atomique, temporaire partagé entre threads : 85 erreurs sur 120 signatures simultanées (<code>signature.py:154</code>, <code>reconstruction.py:359</code>). Exécuté.</td><td class="n">#497</td></tr>
-<tr><td class="n">85</td><td>Dépendance <code>cv2</code> non déclarée, piège 18 (<code>reconstruction.py:106</code>).</td><td class="n">#498</td></tr>
-<tr><td class="n">85</td><td>HTML interactif : langue forcée à <code>fr</code>, ancres en double pour deux titres identiques (<code>routes.py:934</code>, <code>reconstruction.py:513</code>).</td><td class="n">#496</td></tr>
-<tr><td class="n">85</td><td>Interface : <code>#fff</code> en dur, couleur de signature tapée inaccessible, boutons Anticipation sans <code>.ds-btn</code> (<code>style.css:1211</code>, <code>index.html:744</code>).</td><td class="n">#499</td></tr>
-<tr><td class="n">85</td><td>Tests manquants : répartition proportionnelle, position des illustrations, nouvelles routes, annulation réelle du scan.</td><td class="n">#500</td></tr>
-<tr><td class="n">80</td><td>PDF mis en page : papier jauni pris pour une illustration, troncature silencieuse après 20 pages suite (<code>reconstruction.py:117, 450</code>). Exécuté.</td><td class="n">#495</td></tr>
-<tr><td class="n">80</td><td>Parité macOS à trancher : nouvelles fonctions absentes, repères du Laboratoire décalés (<code>LaboratoireModuleView.swift:26</code>).</td><td class="n">#501</td></tr>
-<tr><td class="n">90</td><td>Carte du produit périmée : « 6 styles » alors qu'il y en a 7 (<code>CLAUDE.md:96</code>, <code>ReglagesView.swift:127</code>). Impact faible, hors bilbao.</td><td class="n">—</td></tr>
+<tr><th class="n">Note</th><th>Constat</th><th>État</th><th class="n">bilbao</th></tr>
+<tr><td class="n">100</td><td>Signature : la mention peut être absente du PDF alors que l'interface affiche le succès (<code>signature.py:147</code>). Exécuté.</td><td>corrigé</td><td class="n">#491</td></tr>
+<tr><td class="n">100</td><td>Parcours : écouteurs ré-ajoutés toutes les 4 s ; après 1 h, un clic sur Aperçu lance environ 900 rendus (<code>parcours.js:260-274</code>).</td><td>corrigé</td><td class="n">#485</td></tr>
+<tr><td class="n">95</td><td>PDF mis en page : texte réduit à 7 pt dès qu'il dépasse la première colonne, <code>_tient</code> appelle <code>place</code> sans <code>draw</code> (<code>reconstruction.py:382-389</code>). Exécuté.</td><td>corrigé</td><td class="n">#493</td></tr>
+<tr><td class="n">90</td><td>Parcours : enchaînement scan vers traduction relancé à chaque rechargement, PDF brut resté au lot, langues lues aux menus (<code>parcours.js:344</code>).</td><td>corrigé</td><td class="n">#486</td></tr>
+<tr><td class="n">90</td><td>Parcours : analyse sans fin après rechargement, échec de lancement invisible, « 0 page(s) en erreur » (<code>parcours.js:83, 108, 143</code>).</td><td>corrigé</td><td class="n">#487</td></tr>
+<tr><td class="n">90</td><td>Parcours : statut de fiche faux, flags <code>extraction_scan_colonnes</code> et <code>mode_avance</code> contournés (<code>parcours.js:27, 220, 320</code>).</td><td>ouvert</td><td class="n">#488</td></tr>
+<tr><td class="n">90</td><td>Signature : placement faux avec rotation et CropBox, copie signée écrasée, PNG géant en erreur 500 (<code>signature.py:43, 103, 142</code>). Exécuté.</td><td>corrigé en partie : reste rotation avec CropBox</td><td class="n">#492</td></tr>
+<tr><td class="n">90</td><td>PDF mis en page : texte sur les mauvaises pages, par faux titre lointain, pages hors plage, chapitre traduit seul, <code>double_page</code> ignoré (<code>reconstruction.py:78, 199, 283, 306</code>). Exécuté en partie.</td><td>ouvert</td><td class="n">#494</td></tr>
+<tr><td class="n">85</td><td>Scan : aucune récupération au démarrage, un scan orphelin bloque Arrêter et Recommencer (<code>recuperation.py:142</code>).</td><td>corrigé</td><td class="n">#489</td></tr>
+<tr><td class="n">85</td><td>Scan : « Recommencer » efface le Markdown source des traductions, Reprendre répond ensuite 404 (<code>scan_colonnes.py:533</code>).</td><td>corrigé</td><td class="n">#490</td></tr>
+<tr><td class="n">85</td><td>Écriture binaire non atomique, temporaire partagé entre threads : 85 erreurs sur 120 signatures simultanées (<code>signature.py:154</code>, <code>reconstruction.py:359</code>). Exécuté.</td><td>corrigé</td><td class="n">#497</td></tr>
+<tr><td class="n">85</td><td>Dépendance <code>cv2</code> non déclarée, piège 18 (<code>reconstruction.py:106</code>).</td><td>corrigé</td><td class="n">#498</td></tr>
+<tr><td class="n">85</td><td>HTML interactif : langue forcée à <code>fr</code>, ancres en double pour deux titres identiques (<code>routes.py:934</code>, <code>reconstruction.py:513</code>).</td><td>ouvert</td><td class="n">#496</td></tr>
+<tr><td class="n">85</td><td>Interface : <code>#fff</code> en dur, couleur de signature tapée inaccessible, boutons Anticipation sans <code>.ds-btn</code> (<code>style.css:1211</code>, <code>index.html:744</code>).</td><td>ouvert</td><td class="n">#499</td></tr>
+<tr><td class="n">85</td><td>Tests manquants : répartition proportionnelle, position des illustrations, nouvelles routes, annulation réelle du scan.</td><td>ouvert</td><td class="n">#500</td></tr>
+<tr><td class="n">80</td><td>PDF mis en page : papier jauni pris pour une illustration, troncature silencieuse après 20 pages suite (<code>reconstruction.py:117, 450</code>). Exécuté.</td><td>ouvert</td><td class="n">#495</td></tr>
+<tr><td class="n">80</td><td>Parité macOS à trancher : nouvelles fonctions absentes, repères du Laboratoire décalés (<code>LaboratoireModuleView.swift:26</code>).</td><td>ouvert</td><td class="n">#501</td></tr>
+<tr><td class="n">90</td><td>Carte du produit périmée : « 6 styles » alors qu'il y en a 7 (<code>CLAUDE.md:96</code>, <code>ReglagesView.swift:127</code>). Impact faible, hors bilbao.</td><td>ouvert</td><td class="n">—</td></tr>
 </table>
 <p class="muted" style="margin-top:8px">Une note regroupe plusieurs constats : c'est la plus haute du groupe. Sous le seuil, à surveiller : routes POST sans garde d'origine (<code>/labo/scan-colonnes/reinitialiser</code>, 75), exports proposés sur une traduction incomplète (75), <code>x.HTML</code> contourne la restriction de <code>/telecharger</code> (70).</p>
-<p class="muted"><strong>Non vérifié :</strong> aucun essai en navigateur (constats du parcours et de l'interface issus de la lecture du code), aucun vrai scan ni Ollama (documents synthétiques), pas de build Xcode ni de <code>swiftc -typecheck</code>, rendu visuel du PDF non contrôlé, barre supérieure sur une rangée avec le 5ᵉ onglet non mesurée.</p>
+<p class="muted"><strong>Vérifié après correctifs :</strong> parcours essayé dans le navigateur avec le backend réel et un PDF synthétique (aucun écouteur ajouté en 5 rendus, pas de relance sans transition, erreurs affichées, scan orphelin débloqué, scan réel de 2 pages terminé) ; l'enchaînement jusqu'à la traduction a été simulé, sans Ollama.</p>
+<p class="muted"><strong>Non vérifié :</strong> aucun vrai document numérisé ni traduction réelle par Ollama, rendu visuel du PDF et de la signature non contrôlé à l'œil, pas de build Xcode ni de <code>swiftc -typecheck</code>, barre supérieure sur une rangée avec le 5ᵉ onglet non mesurée.</p>
 </section>
 
 <section class="ds-card carte"><h2>Ce que contient toledo (mesuré, hors tests)</h2>
