@@ -39,6 +39,7 @@ let nettoyageCible = null;      // chemin du PDF suivi
 try { nettoyageCible = localStorage.getItem(CIBLE_STORAGE_KEY); } catch { /* navigation privée */ }
 let scanEtat = null;            // GET /labo/scan-colonnes/statut de la cible (null = jamais lancé)
 let cibleInfoChargee = null;    // cible dont les langues OCR ont été lues
+let parcoursErreurLancement = null;   // échec du dernier lancement : le Laboratoire qui l'affiche est masqué ici
 let parcoursObjectif = "lire";
 
 function parcoursDocSuivi() {
@@ -80,7 +81,9 @@ function parcoursNettoyerCalculer() {
 
   const fait = {
     importer: !!nettoyageCible,
-    analyser: !!nettoyageCible && (!!scanEtat || (!!itemLot && itemLot.stage !== "analyse")),
+    // « En cours » seulement si une analyse tourne vraiment dans le lot : le lot est en mémoire et la cible
+    // survit au rechargement, une cible hors du lot n'attend donc plus rien.
+    analyser: !!nettoyageCible && (!!scanEtat || !itemLot || itemLot.stage !== "analyse"),
     scan: termine,
     verifier: envoye,
   };
@@ -107,7 +110,8 @@ function parcoursNettoyerCalculer() {
     } else if (partiel || (scanEtat && scanEtat.statut === "annule")) {
       const n = (scanEtat.pages_en_erreur || []).length;
       detail = partiel
-        ? `${n} page(s) en erreur. Relancer reprend uniquement celles-là ; les pages déjà faites sont conservées.`
+        ? (n ? `${n} page(s) en erreur. Relancer reprend uniquement celles-là ; les pages déjà faites sont conservées.`
+             : `Le nettoyage a échoué : ${scanEtat.erreur || "cause inconnue"}. Relancer reprend là où il s'est arrêté.`)
         : "Arrêté. Relancer reprend là où le scan s'est arrêté : les pages déjà faites sont conservées.";
       action = { texte: "Relancer le nettoyage", fn: parcoursLancerScan };
     } else {
@@ -115,6 +119,7 @@ function parcoursNettoyerCalculer() {
       if (itemLot) detail += " ⚠ Ne lancez pas « Lancer la traduction » sur ce PDF : il serait traduit sans nettoyage.";
       action = { texte: "Nettoyer le document", fn: parcoursLancerScan };
     }
+    if (parcoursErreurLancement && !enMarche) detail = `Le nettoyage n'a pas démarré : ${parcoursErreurLancement}`;
   } else if (cle === "verifier") {
     const rep = (scanEtat.reparations || []).length;
     if (lot.some((f) => f.chemin === sortieScan)) {
@@ -131,7 +136,7 @@ function parcoursNettoyerCalculer() {
 function parcoursEnvoyerScan() {
   // Un seul geste : ajoute le fichier nettoyé au lot ET lance sa traduction (réglages du lot), sans repasser par
   // « Lancer la traduction » ; le PDF brut quitte le lot pour ne jamais être traduit sans nettoyage.
-  document.dispatchEvent(new CustomEvent("ajouter-au-lot-et-traduire", { detail: scanEtat.chemin_sortie }));
+  document.dispatchEvent(new CustomEvent("ajouter-au-lot-et-traduire", { detail: { chemin: scanEtat.chemin_sortie, reglages: null } }));
   document.dispatchEvent(new CustomEvent("retirer-du-lot", { detail: nettoyageCible }));
 }
 
@@ -140,12 +145,12 @@ async function parcoursLancerScan() {
   $("scan-chemin").value = nettoyageCible;
   await chargerInfoScan(nettoyageCible);
   parcoursSyncOcr("vers-labo");
-  await lancerScan();
+  parcoursErreurLancement = await lancerScan();
   parcoursCharger();
 }
 
 async function parcoursRecommencer() {
-  if (!confirm("Recommencer à zéro ?\n\nLes pages déjà traitées, le fichier nettoyé et l'état du scan de ce PDF seront effacés ; le prochain scan refera tout. Le PDF d'origine n'est pas touché, et les documents déjà envoyés à la traduction restent dans « Vos traductions ».")) return;
+  if (!confirm("Recommencer à zéro ?\n\nLes pages déjà traitées, le fichier nettoyé et l'état du scan de ce PDF seront effacés ; le prochain scan refera tout. Le PDF d'origine n'est pas touché. C'est refusé si une traduction de « Vos traductions » vient de ce fichier nettoyé.")) return;
   try {
     await apiPost(`/labo/scan-colonnes/reinitialiser?chemin_pdf=${encodeURIComponent(nettoyageCible)}`, {});
   } catch (e) {
@@ -153,7 +158,6 @@ async function parcoursRecommencer() {
     return;
   }
   scanEtat = null;
-  scanDejaEnchaine = null;            // un nouveau scan terminé pourra de nouveau s'enchaîner
   document.getElementById("parcours-apercu-image").hidden = true;
   document.getElementById("parcours-apercu-legende").hidden = true;
   document.getElementById("parcours-apercu-info").textContent = "";
@@ -162,7 +166,8 @@ async function parcoursRecommencer() {
 
 async function parcoursArreterScan() {
   try {
-    await apiPost(`/labo/scan-colonnes/annuler?chemin_pdf=${encodeURIComponent(nettoyageCible)}`, {});
+    const r = await apiPost(`/labo/scan-colonnes/annuler?chemin_pdf=${encodeURIComponent(nettoyageCible)}`, {});
+    if (!r.annulation_demandee) alert("Ce nettoyage n'est plus actif : il n'y a rien à arrêter.");
   } catch (e) {
     alert(`Impossible d'arrêter : ${e.message}`);
   }
@@ -256,24 +261,7 @@ function parcoursCalculer() {
 }
 
 function parcoursRendre() {
-  // Champs OCR du parcours → Laboratoire (une seule source de réglages) ; case d'enchaînement partagée.
-$("parcours-ocr-langue").addEventListener("change", () => parcoursSyncOcr("vers-labo"));
-$("parcours-ocr-double").addEventListener("change", () => parcoursSyncOcr("vers-labo"));
-$("parcours-ocr-debut").addEventListener("change", () => parcoursSyncOcr("vers-labo"));
-$("parcours-ocr-fin").addEventListener("change", () => parcoursSyncOcr("vers-labo"));
-// Aperçu des régions détectées (colonnes, encadrés, gouttière) : même fonction et mêmes réglages que le Laboratoire.
-$("parcours-reset").addEventListener("click", parcoursRecommencer);
-$("parcours-apercu-bouton").addEventListener("click", async () => {
-  if (!nettoyageCible) return;
-  const ok = await chargerApercuScan(nettoyageCible, parseInt($("parcours-ocr-debut").value, 10) || 1,
-                                     $("parcours-ocr-double").value, $("parcours-apercu-image"), $("parcours-apercu-info"));
-  $("parcours-apercu-legende").hidden = !ok;
-});
-$("parcours-auto").checked = $("scan-puis-traduire").checked;
-$("parcours-auto").addEventListener("change", (e) => { $("scan-puis-traduire").checked = e.target.checked; $("scan-puis-traduire").dispatchEvent(new Event("change")); });
-$("scan-puis-traduire").addEventListener("change", (e) => { $("parcours-auto").checked = e.target.checked; });
-
-document.querySelectorAll(".objectif-option").forEach((b) => {
+  document.querySelectorAll(".objectif-option").forEach((b) => {
     const actif = b.dataset.objectif === parcoursObjectif;
     b.classList.toggle("is-active", actif);
     b.setAttribute("aria-checked", String(actif));
@@ -329,7 +317,7 @@ async function parcoursCharger() {
 async function parcoursChargerNettoyage() {
   const pdf = (window.__lotItems ? window.__lotItems() : []).filter((f) => f.type === "PDF").pop();
   if (pdf && pdf.chemin !== nettoyageCible) {
-    nettoyageCible = pdf.chemin; scanEtat = null; cibleInfoChargee = null;
+    nettoyageCible = pdf.chemin; scanEtat = null; cibleInfoChargee = null; parcoursErreurLancement = null;
     try { localStorage.setItem(CIBLE_STORAGE_KEY, nettoyageCible); } catch { /* navigation privée */ }
   }
   if (!nettoyageCible) return;
@@ -340,13 +328,7 @@ async function parcoursChargerNettoyage() {
     parcoursSyncOcr("vers-parcours");
   }
   try { scanEtat = await apiGet(`/labo/scan-colonnes/statut?chemin_pdf=${encodeURIComponent(nettoyageCible)}`); } catch { /* inconnu : on garde l'état précédent */ }
-  // Enchaînement automatique (même règle et même garde-fou que le Laboratoire : scan sans page en erreur).
-  if (scanEtat && scanEtat.statut === "termine" && !scanEtat.erreur && !(scanEtat.pages_en_erreur || []).length
-      && $("scan-puis-traduire").checked && scanDejaEnchaine !== scanEtat.chemin_sortie) {
-    scanDejaEnchaine = scanEtat.chemin_sortie;
-    document.dispatchEvent(new CustomEvent("ajouter-au-lot-et-traduire", { detail: scanEtat.chemin_sortie }));
-    document.dispatchEvent(new CustomEvent("retirer-du-lot", { detail: nettoyageCible }));
-  }
+  enchainerScanTermine(scanEtat);
 }
 
 function choisirObjectif(o) {
@@ -357,6 +339,22 @@ function choisirObjectif(o) {
   parcoursRendre();
   parcoursCharger();
 }
+
+// Écouteurs posés UNE fois, jamais dans parcoursRendre : elle est rappelée toutes les 4 s et les ferait s'empiler.
+// Champs OCR du parcours → Laboratoire (une seule source de réglages) ; case d'enchaînement partagée.
+["parcours-ocr-langue", "parcours-ocr-double", "parcours-ocr-debut", "parcours-ocr-fin"].forEach((id) =>
+  $(id).addEventListener("change", () => parcoursSyncOcr("vers-labo")));
+// Aperçu des régions détectées (colonnes, encadrés, gouttière) : même fonction et mêmes réglages que le Laboratoire.
+$("parcours-reset").addEventListener("click", parcoursRecommencer);
+$("parcours-apercu-bouton").addEventListener("click", async () => {
+  if (!nettoyageCible) return;
+  const ok = await chargerApercuScan(nettoyageCible, parseInt($("parcours-ocr-debut").value, 10) || 1,
+                                     $("parcours-ocr-double").value, $("parcours-apercu-image"), $("parcours-apercu-info"));
+  $("parcours-apercu-legende").hidden = !ok;
+});
+$("parcours-auto").checked = $("scan-puis-traduire").checked;
+$("parcours-auto").addEventListener("change", (e) => { $("scan-puis-traduire").checked = e.target.checked; $("scan-puis-traduire").dispatchEvent(new Event("change")); });
+$("scan-puis-traduire").addEventListener("change", (e) => { $("parcours-auto").checked = e.target.checked; });
 
 document.querySelectorAll(".objectif-option").forEach((b) => b.addEventListener("click", () => choisirObjectif(b.dataset.objectif)));
 document.addEventListener("module-affiche", (e) => { if (e.detail === "import") parcoursCharger(); });

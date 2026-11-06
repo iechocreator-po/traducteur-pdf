@@ -179,6 +179,12 @@ def demander_annulation(job_id: str) -> bool:
         return True
 
 
+def job_actif(job_id: str) -> bool:
+    """Le job est-il connu de CE process (en cours ou en file) ? Faux après un redémarrage du backend."""
+    with _lock:
+        return job_id in _jobs
+
+
 def est_annule(job_id: str) -> bool:
     with _lock:
         return _jobs.get(job_id, {}).get("cancelled", False)

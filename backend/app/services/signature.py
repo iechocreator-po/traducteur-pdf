@@ -9,18 +9,25 @@ cryptographiquement l'identité du signataire ni l'intégrité du fichier. L'int
 Règles :
   - le PDF d'origine n'est jamais modifié : la sortie est `<base>_signe.pdf`, à côté ;
   - signer un fichier déjà `_signe.pdf` ajoute la signature à ce même fichier (écriture atomique) ;
+  - signer l'original alors que `<base>_signe.pdf` existe est refusé : ce serait écraser ses signatures ;
+  - une mention demandée figure dans le PDF, ou la signature échoue : jamais de succès sans mention ;
   - les coordonnées reçues sont normalisées (0–1) sur la page TELLE QU'AFFICHÉE (rotation comprise).
 """
 
 from __future__ import annotations
 
 import io
+import math
 import os
 import re
+
+from app.services.persistance import ecrire_binaire_atomique
 
 TAILLE_MAX_SIGNATURE = 2 * 1024 * 1024   # octets du PNG reçu
 COTE_MAX_SIGNATURE = 4000                # pixels
 NB_MAX_PLACEMENTS = 50
+MENTION_LARGEUR_MIN = 220                # points
+MENTION_TAILLE_MIN = 6.0                 # points
 LARGEUR_APERCU_MAX = 1600
 
 
@@ -101,14 +108,44 @@ def _signature_png(octets: bytes) -> bytes:
         raise SignatureInvalide("Image de signature vide ou trop lourde (2 Mo au plus).")
     try:
         img = Image.open(io.BytesIO(octets))
+        # La taille se lit sans décoder : quelques Ko de PNG peuvent se décompresser en plusieurs Go.
+        if max(img.size) > COTE_MAX_SIGNATURE:
+            raise SignatureInvalide("Image de signature trop grande (4000 px au plus).")
         img.load()
+    except Image.DecompressionBombError:
+        raise SignatureInvalide("Image de signature trop grande (4000 px au plus).")
     except (UnidentifiedImageError, OSError):
         raise SignatureInvalide("L'image de signature est illisible.")
-    if max(img.size) > COTE_MAX_SIGNATURE:
-        raise SignatureInvalide("Image de signature trop grande (4000 px au plus).")
     tampon = io.BytesIO()
     img.convert("RGBA").save(tampon, format="PNG")
     return tampon.getvalue()
+
+
+def _ecrire_mention(page, visible, mention: str, taille_voulue: float) -> None:
+    """
+    Écrit `mention` sous la signature, ou au-dessus si la place manque en bas de page, en restant dans la
+    page et en réduisant la police au besoin. `insert_textbox` n'écrit RIEN quand le texte ne tient pas et
+    rend alors une valeur négative : sans ce contrôle, le PDF sort sans mention et l'interface dit « signé ».
+    """
+    import pymupdf
+
+    W, H = page.rect.width, page.rect.height
+    largeur = min(W - 4, max(visible.width, MENTION_LARGEUR_MIN))
+    x0 = max(2, min(visible.x0, W - largeur - 2))
+    taille = taille_voulue
+    while True:
+        lignes = math.ceil(pymupdf.get_text_length(mention, fontname="helv", fontsize=taille) / (largeur * 0.9))
+        hauteur = (lignes + 1) * taille * 1.5    # une ligne de marge : la césure aux mots allonge le texte
+        for y0 in (visible.y1 + 1, visible.y0 - 1 - hauteur):
+            if y0 < 0 or y0 + hauteur > H:
+                continue
+            zone = pymupdf.Rect(x0, y0, x0 + largeur, y0 + hauteur)
+            if page.insert_textbox(zone * page.derotation_matrix, mention, fontsize=taille,
+                                   color=(0.25, 0.25, 0.3), rotate=page.rotation) >= 0:
+                return
+        if taille <= MENTION_TAILLE_MIN:
+            raise SignatureInvalide("La mention ne tient pas à cet emplacement : déplacez la signature ou raccourcissez la mention.")
+        taille = max(MENTION_TAILLE_MIN, taille - 1)
 
 
 def signer(chemin_pdf: str, signature: bytes, placements: list[dict], mention: str | None = None) -> dict:
@@ -122,6 +159,10 @@ def signer(chemin_pdf: str, signature: bytes, placements: list[dict], mention: s
         raise SignatureInvalide("Aucun emplacement de signature.")
     if len(placements) > NB_MAX_PLACEMENTS:
         raise SignatureInvalide(f"Trop d'emplacements ({NB_MAX_PLACEMENTS} au plus).")
+    sortie = chemin_signe(chemin_pdf)
+    if sortie != chemin_pdf and os.path.exists(sortie):
+        raise SignatureInvalide(f"Une copie signée existe déjà ({os.path.basename(sortie)}) : signez-la pour "
+                                "ajouter une signature, ou supprimez-la pour repartir de l'original.")
     png = _signature_png(signature)
     mention = re.sub(r"\s+", " ", mention or "").strip()[:200] or None
 
@@ -143,16 +184,10 @@ def signer(chemin_pdf: str, signature: bytes, placements: list[dict], mention: s
                               overlay=True, rotate=page.rotation)
             if mention:
                 taille = max(6.0, min(10.0, visible.height * 0.16))
-                zone = pymupdf.Rect(visible.x0, visible.y1 + 1, visible.x0 + max(visible.width, 220), visible.y1 + taille * 2.6)
-                page.insert_textbox(zone * page.derotation_matrix, mention, fontsize=taille,
-                                    color=(0.25, 0.25, 0.3), rotate=page.rotation)
+                _ecrire_mention(page, visible, mention, taille)
             signees.add(n)
-        sortie = chemin_signe(chemin_pdf)
         contenu = doc.tobytes(garbage=3, deflate=True)
     finally:
         doc.close()
-    tmp = f"{sortie}.tmp-{os.getpid()}"
-    with open(tmp, "wb") as f:
-        f.write(contenu)
-    os.replace(tmp, sortie)
+    ecrire_binaire_atomique(sortie, contenu)
     return {"chemin": sortie, "nom": os.path.basename(sortie), "pages": sorted(signees)}

@@ -159,20 +159,47 @@ function rendreResultatScan(etat) {
       activerModule("import");
     });
   }
-  // Enchaînement scan → traduction (case cochée) : seulement si le scan s'est terminé SANS page en
-  // erreur. Un scan partiel n'est jamais traduit automatiquement : ce serait traduire un texte troué.
-  // `scanDejaEnchaine` évite de relancer à chaque poll ou à chaque réaffichage du même résultat.
-  if (etat.statut === "termine" && !etat.erreur && !(etat.pages_en_erreur || []).length
-      && $("scan-puis-traduire").checked && scanDejaEnchaine !== etat.chemin_sortie) {
-    scanDejaEnchaine = etat.chemin_sortie;
-    document.dispatchEvent(new CustomEvent("ajouter-au-lot-et-traduire", { detail: etat.chemin_sortie }));
+  if (enchainerScanTermine(etat)) {
     zone.insertAdjacentHTML("beforeend", `<p class="aide">➜ Envoyé à l'Accueil : la traduction démarre dès l'analyse terminée.</p>`);
   } else if ($("scan-puis-traduire").checked && etat.statut === "erreur") {
     zone.insertAdjacentHTML("beforeend", `<p class="aide">La traduction automatique n'a pas été lancée : le scan contient des pages en erreur. Relancez le scan, ou envoyez le fichier à la main.</p>`);
   }
 }
 
-let scanDejaEnchaine = null;
+
+// Enchaînement scan → traduction (case cochée). Source unique : le Laboratoire et le parcours sondent tous
+// deux le même scan, et chacun appelle cette fonction à chaque état reçu.
+//   - Il ne part que sur une TRANSITION observée (scan vu actif, puis terminé) : recharger la page ou cocher
+//     la case sur un scan déjà fini ne relance jamais une traduction, le bouton de l'Accueil reste là pour ça.
+//   - Seulement sans page en erreur : un scan partiel, ce serait traduire un texte troué.
+//   - Langues et modèle sont ceux du LANCEMENT du scan, pas des menus à la fin d'un OCR de plusieurs heures.
+//   - Le PDF brut quitte le lot, pour ne jamais être traduit sans nettoyage.
+const SCAN_REGLAGES_KEY = "toledo-scan-reglages";
+const scansVusActifs = new Set();
+
+function lireReglagesScan() {
+  try { return JSON.parse(localStorage.getItem(SCAN_REGLAGES_KEY)) || {}; } catch { return {}; }
+}
+
+function ecrireReglagesScan(reglages) {
+  try { localStorage.setItem(SCAN_REGLAGES_KEY, JSON.stringify(reglages)); } catch { /* navigation privée */ }
+}
+
+function enchainerScanTermine(etat) {
+  if (!etat) return false;
+  if (["en_attente", "en_cours"].includes(etat.statut)) { scansVusActifs.add(etat.chemin_pdf); return false; }
+  if (!scansVusActifs.delete(etat.chemin_pdf)) return false;
+  const reglages = lireReglagesScan();
+  const figes = reglages[etat.chemin_pdf] || null;
+  delete reglages[etat.chemin_pdf];
+  ecrireReglagesScan(reglages);
+  if (etat.statut !== "termine" || etat.erreur || (etat.pages_en_erreur || []).length
+      || !$("scan-puis-traduire").checked) return false;
+  document.dispatchEvent(new CustomEvent("ajouter-au-lot-et-traduire", { detail: { chemin: etat.chemin_sortie, reglages: figes } }));
+  document.dispatchEvent(new CustomEvent("retirer-du-lot", { detail: etat.chemin_pdf }));
+  return true;
+}
+
 try { $("scan-puis-traduire").checked = localStorage.getItem("toledo-scan-puis-traduire") === "1"; } catch { /* navigation privée */ }
 $("scan-puis-traduire").addEventListener("change", (e) => {
   try { localStorage.setItem("toledo-scan-puis-traduire", e.target.checked ? "1" : "0"); } catch { /* navigation privée */ }
@@ -184,6 +211,7 @@ async function suivreScan(chemin) {
     const etat = await apiGet(`/labo/scan-colonnes/statut?chemin_pdf=${encodeURIComponent(chemin)}`);
     rendreProgressionScan(etat);
     if (etat && ["en_attente", "en_cours"].includes(etat.statut)) {
+      enchainerScanTermine(etat);       // note que ce scan est actif
       scanTimer = setTimeout(() => suivreScan(chemin), 3000);
       return;
     }
@@ -197,10 +225,11 @@ async function suivreScan(chemin) {
 
 // Point d'entrée UNIQUE du nettoyage : le bouton du Laboratoire et le parcours « Nettoyer un document »
 // de l'Accueil (js/parcours.js) passent tous deux ici, avec les mêmes champs (#scan-*). C'est ce qui
-// garantit le même fichier en sortie, quel que soit le chemin emprunté.
+// garantit le même fichier en sortie, quel que soit le chemin emprunté. Rend le message d'erreur, ou null :
+// lancé depuis l'Accueil, le Laboratoire est masqué et l'appelant doit pouvoir l'afficher.
 async function lancerScan() {
   const chemin = $("scan-chemin").value.trim();
-  if (!chemin) { alert("Indique d'abord le chemin du PDF, ou utilise Parcourir…"); return; }
+  if (!chemin) { alert("Indique d'abord le chemin du PDF, ou utilise Parcourir…"); return null; }
   const corps = { chemin_pdf: chemin, langue_ocr: $("scan-langue").value || "eng", double_page: $("scan-double-page").value };
   const debut = parseInt($("scan-page-debut").value, 10);
   const fin = parseInt($("scan-page-fin").value, 10);
@@ -210,10 +239,16 @@ async function lancerScan() {
   $("bouton-scan-lancer").disabled = true;
   try {
     await apiPost("/labo/scan-colonnes", corps, API_TIMEOUT_LONG_MS);
+    scansVusActifs.add(chemin);
+    ecrireReglagesScan({ ...lireReglagesScan(), [chemin]: {
+      langue_source: $("langue-source").value, langue_cible: $("langue-cible").value, modele: $("modele").value,
+    } });
     suivreScan(chemin);
+    return null;
   } catch (e) {
     $("bouton-scan-lancer").disabled = false;
     $("scan-resultat").innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    return e.message;
   }
 }
 

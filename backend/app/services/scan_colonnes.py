@@ -46,6 +46,7 @@ import uuid
 
 from app.services.job_manager import (
     enregistrer_job,
+    job_actif,
     est_annule,
     soumettre_travail,
     supprimer_job_registre,
@@ -522,13 +523,19 @@ def reinitialiser(chemin_pdf: str) -> list[str]:
     """
     Efface les résultats du nettoyage de CE PDF (pages en cache, Markdown produit, état) pour repartir de
     zéro : sans cela, relancer reprend les pages déjà traitées. Le PDF d'origine n'est jamais touché ; seuls
-    les trois chemins dérivés de `chemins_sortie` sont supprimés. Refuse si un nettoyage est en cours.
-    Retourne la liste des éléments réellement supprimés.
+    les trois chemins dérivés de `chemins_sortie` sont supprimés. Refuse si un nettoyage est en cours, ou si
+    une traduction du registre a ce Markdown pour source : la reprendre, y ajouter des chapitres ou refaire
+    sa mise en page deviendrait impossible. Retourne la liste des éléments réellement supprimés.
     """
+    from app.services.bibliotheque import lister_documents
+
     etat = lire_etat(chemin_pdf)
     if etat and etat.get("statut") in ("en_attente", "en_cours"):
         raise ScanColonnesEchec("Un nettoyage est en cours pour ce PDF : arrêtez-le d'abord.")
     sorties = chemins_sortie(chemin_pdf)
+    if any(d.get("chemin_source") == sorties["markdown"] for d in lister_documents()):
+        raise ScanColonnesEchec("Une traduction de « Vos traductions » vient de ce fichier nettoyé : l'effacer "
+                                "empêcherait de la reprendre. Retirez-la d'abord de la liste.")
     supprimes = []
     for cle in ("markdown", "etat"):
         if os.path.isfile(sorties[cle]):
@@ -545,8 +552,20 @@ def _chemin_page(dossier: str, numero: int) -> str:
 
 
 def lire_etat(chemin_pdf: str) -> dict | None:
-    etat = lire_json_tolerant(chemins_sortie(chemin_pdf)["etat"])
-    return etat if isinstance(etat, dict) else None
+    """
+    État du nettoyage de ce PDF. Un état « actif » dont le job n'existe plus dans ce process vient d'un arrêt du
+    backend : il devient `annule`, donc reprenable, sinon Arrêter et Recommencer restent bloqués pour toujours.
+    C'est fait à la lecture et non dans `recuperation.recuperer_tout` : un PDF nettoyé mais pas encore traduit
+    n'est pas au registre, le balayage du démarrage ne le trouverait pas.
+    """
+    chemin_etat = chemins_sortie(chemin_pdf)["etat"]
+    etat = lire_json_tolerant(chemin_etat)
+    if not isinstance(etat, dict):
+        return None
+    if etat.get("statut") in ("en_attente", "en_cours") and not job_actif(etat.get("job_id")):
+        etat["statut"] = "annule"
+        ecrire_json_atomique(chemin_etat, etat)
+    return etat
 
 
 def _sauvegarder_etat(etat: dict) -> None:
@@ -684,7 +703,7 @@ def demarrer_scan(chemin_pdf: str, page_debut: int | None = None, page_fin: int 
         "temps_ecoule_secondes": 0.0,
         "demarre_a": time.time(),
     }
+    enregistrer_job(etat["job_id"])     # avant l'état : un sondage ne doit jamais voir un état actif sans job
     _sauvegarder_etat(etat)
-    enregistrer_job(etat["job_id"])
     soumettre_travail(etat["job_id"], lambda: _executer(etat))
     return etat

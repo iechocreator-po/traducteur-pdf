@@ -30,7 +30,7 @@ import re
 import time
 
 from app.services import scan_colonnes
-from app.services.persistance import ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
+from app.services.persistance import ecrire_binaire_atomique, ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
 
 SUFFIXE_SCAN = "_scan_colonnes"
 VERSION_CACHE = 2            # à incrémenter quand la détection change (invalide le cache)
@@ -356,12 +356,6 @@ def _blocs_html(blocs: list[tuple[str, str]], ancre_chap=None) -> str:
     return "\n".join(sortie)
 
 
-def _ecrire_binaire_atomique(chemin: str, contenu: bytes) -> None:
-    tmp = f"{chemin}.tmp-{os.getpid()}"
-    with open(tmp, "wb") as f:
-        f.write(contenu)
-    os.replace(tmp, chemin)
-
 
 # ── 1. PDF mis en page ───────────────────────────────────────────────────────
 
@@ -384,6 +378,9 @@ def _tient(html: str, taille: float, cadres) -> bool:
     story = pymupdf.Story(html=html, user_css=_css_pdf(taille))
     for cadre in cadres:
         plus, _ = story.place(cadre)
+        # Sans draw, le Story n'avance pas : chaque place remesure le début du texte, seul le premier
+        # cadre compte et toute page qui dépasse une colonne tombe à la taille minimale. None = sans sortie.
+        story.draw(None)
         if not plus:
             return True
     return False
@@ -470,7 +467,7 @@ def generer_pdf(chemin_traduit: str) -> dict:
 
     sortie.set_metadata({"title": os.path.basename(os.path.splitext(chemin_traduit)[0]),
                          "creator": "Traducteur PDF (toledo) — mise en page reconstruite"})
-    _ecrire_binaire_atomique(loc["sortie_pdf"], sortie.tobytes(garbage=3, deflate=True))
+    ecrire_binaire_atomique(loc["sortie_pdf"], sortie.tobytes(garbage=3, deflate=True))
     sortie.close()
     return {"chemin": loc["sortie_pdf"], "pages": len(loc["pages"]), "illustrations": nb_illus,
             "pages_suite": pages_suite, "tailles": tailles}

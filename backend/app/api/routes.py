@@ -860,7 +860,7 @@ def annuler_scan_colonnes(chemin_pdf: str) -> dict:
 def reinitialiser_scan_colonnes(chemin_pdf: str) -> dict:
     """
     Repart de zéro pour ce PDF : efface les pages en cache, le Markdown produit et l'état du nettoyage.
-    Le PDF d'origine et les documents déjà envoyés à la traduction ne sont pas touchés.
+    Le PDF d'origine n'est pas touché. 409 si un nettoyage tourne ou si une traduction a ce Markdown pour source.
     """
     chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF scanné")
     from app.services.scan_colonnes import ScanColonnesEchec, reinitialiser

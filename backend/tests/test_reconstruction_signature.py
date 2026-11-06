@@ -190,3 +190,82 @@ def test_route_signature(tmp_path):
     autre.write_text("<p>x</p>")
     assert client.get("/api/telecharger", params={"chemin": str(autre)}).status_code == 422
     assert client.get("/api/signature/apercu", params={"chemin_pdf": chemin, "page": 1}).headers["content-type"] == "image/png"
+
+
+# ── Correctifs de la revue du 06/11/2026 ────────────────────────────────────────────────────────
+
+MENTION_TYPE = "Signé électroniquement par Jean-Pierre Parra le 6 novembre 2026 à 10 h 30"
+
+
+def _texte_compact(page) -> str:
+    return " ".join(page.get_text().split())
+
+
+@pytest.mark.parametrize("x,y,larg,haut", [
+    (0.1, 0.1, 0.286, 0.095),   # largeur et ratio posés par le clic dans l'interface
+    (0.1, 0.1, 0.286, 0.3),     # signature haute : la police visée est la plus grande
+    (0.1, 0.9, 0.286, 0.095),   # bas de page : la mention passe au-dessus
+    (0.8, 0.5, 0.15, 0.05),     # bord droit : la mention revient dans la page
+])
+@pytest.mark.parametrize("rotation", [0, 90])
+def test_mention_toujours_presente_et_complete(tmp_path, x, y, larg, haut, rotation):
+    chemin = _pdf(tmp_path, rotation)
+    r = signature.signer(chemin, _png(), [{"page": 1, "x": x, "y": y, "largeur": larg, "hauteur": haut}], mention=MENTION_TYPE)
+    doc = pymupdf.open(r["chemin"])
+    try:
+        assert MENTION_TYPE in _texte_compact(doc[0])
+    finally:
+        doc.close()
+
+
+def test_mention_impossible_echoue_sans_ecrire(tmp_path):
+    chemin = _pdf(tmp_path)
+    doc = pymupdf.open()
+    doc.new_page(width=60, height=30)        # page minuscule : même à 6 pt, 200 caractères ne tiennent pas
+    petit = str(tmp_path / "petit.pdf")
+    doc.save(petit)
+    doc.close()
+    with pytest.raises(signature.SignatureInvalide):
+        signature.signer(petit, _png(), [{"page": 1, "x": 0, "y": 0, "largeur": 0.5, "hauteur": 0.3}], mention="m" * 200)
+    assert not os.path.exists(str(tmp_path / "petit_signe.pdf"))
+    assert os.path.exists(chemin)
+
+
+def test_signer_l_original_ne_detruit_pas_une_copie_signee(tmp_path):
+    chemin = _pdf(tmp_path)
+    pl = {"page": 1, "x": 0.1, "y": 0.1, "largeur": 0.2, "hauteur": 0.1}
+    r = signature.signer(chemin, _png(), [pl])
+    avant = open(r["chemin"], "rb").read()
+    with pytest.raises(signature.SignatureInvalide):
+        signature.signer(chemin, _png(), [{**pl, "page": 2}])
+    assert open(r["chemin"], "rb").read() == avant
+
+
+def test_png_geant_refuse_sans_decompression(tmp_path):
+    img = Image.new("1", (20000, 20000))
+    t = io.BytesIO()
+    img.save(t, format="PNG")
+    with pytest.raises(signature.SignatureInvalide):
+        signature.signer(_pdf(tmp_path), t.getvalue(), [{"page": 1, "x": 0, "y": 0, "largeur": 0.2, "hauteur": 0.1}])
+
+
+def test_signatures_simultanees_sans_erreur_de_temporaire(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    chemin = _pdf(tmp_path)
+    pl = [{"page": 1, "x": 0.1, "y": 0.1, "largeur": 0.2, "hauteur": 0.1}]
+    copie = signature.signer(chemin, _png(), pl)["chemin"]
+    png = _png()
+    with ThreadPoolExecutor(4) as pool:
+        for f in [pool.submit(signature.signer, copie, png, pl) for _ in range(40)]:
+            f.result()
+    assert pymupdf.open(copie).page_count == 2
+    assert [n for n in os.listdir(tmp_path) if n.endswith(".tmp")] == []
+
+
+def test_tient_compte_tous_les_cadres():
+    from app.services import reconstruction
+    cadres = [pymupdf.Rect(40 + i * 180, 40, 210 + i * 180, 800) for i in range(3)]
+    html = "<p>" + " ".join(["mot"] * 1200) + "</p>"
+    une_colonne = cadres[:1]
+    assert not reconstruction._tient(html, 10.0, une_colonne)    # dépasse la première colonne…
+    assert reconstruction._tient(html, 10.0, cadres)             # …mais tient dans les trois, sans réduire

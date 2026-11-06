@@ -13,12 +13,12 @@
   // ── Ajout au lot ────────────────────────────────────────────────────────────
 
 
-  function ajouterAuLot(chemin, lancerAuto = false) {
+  function ajouterAuLot(chemin, lancerAuto = false, reglagesFiges = null) {
     chemin = (chemin || "").trim();
     if (!chemin) { alert("Indique le chemin absolu d'un fichier .pdf ou .md."); return; }
     const existant = lot.find(f => f.chemin === chemin);
     if (existant) {   // déjà présent — silencieux (multi-ajout) ; mais on honore une demande d'enchaînement
-      if (lancerAuto) { existant.lancerAuto = true; if (itemLancable(existant)) lancerLot([existant.id]); }
+      if (lancerAuto) { existant.lancerAuto = true; existant.reglagesFiges = reglagesFiges; if (itemLancable(existant)) lancerLot([existant.id]); }
       return;
     }
 
@@ -32,6 +32,7 @@
       listeChapitres: null, chapitresCoches: null, chapitresDejaTraduits: null,
       chapitresOuverts: false, chapitresChargement: false,
       lancerAuto,   // enchaînement scan → traduction : lancer ce fichier dès qu'il est prêt
+      reglagesFiges,   // { langue_source, langue_cible, modele } du lancement du scan ; null = menus du lot
     };
     lot.push(item);
     rendreLot();
@@ -176,9 +177,9 @@
     for (const item of prets) {
       try {
         const data = await apiPost("/translate", corpsSource(item.chemin, {
-          langue_source: $("langue-source").value,
-          langue_cible: $("langue-cible").value,
-          modele_ollama: $("modele").value,
+          langue_source: item.reglagesFiges?.langue_source || $("langue-source").value,
+          langue_cible: item.reglagesFiges?.langue_cible || $("langue-cible").value,
+          modele_ollama: item.reglagesFiges?.modele || $("modele").value,
           extracteur_pdf: $("extracteur-pdf").value,
           estimation_temps_total: item.eta ?? null,
           // La qualité observée à l'analyse suit le document dans le registre :
@@ -501,7 +502,7 @@
   window.__lotItems = () => lot.map(({ id, chemin, type, stage }) => ({ id, chemin, type, stage }));
   document.addEventListener("retirer-du-lot", (e) => { lot = lot.filter(f => f.chemin !== e.detail); rendreLot(); });
   // Scan multi-colonnes → traduction enchaînée : même ajout au lot, avec lancement dès que l'analyse est prête.
-  document.addEventListener("ajouter-au-lot-et-traduire", (e) => { ajouterAuLot(e.detail, true); activerModule("import"); });
+  document.addEventListener("ajouter-au-lot-et-traduire", (e) => { ajouterAuLot(e.detail.chemin, true, e.detail.reglages); activerModule("import"); });
 
   // Parcourir : ouvre le sélecteur natif puis uploade.
   $("bouton-parcourir").addEventListener("click", () => $("import-fichier").click());

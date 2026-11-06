@@ -53,11 +53,18 @@ def reinitialiser_corruptions() -> None:
 
 
 def ecrire_texte_atomique(chemin: str, contenu: str) -> None:
+    """Écrit du texte UTF-8 dans `chemin` sans jamais laisser le fichier à moitié écrit."""
+    ecrire_binaire_atomique(chemin, contenu.encode("utf-8"))
+
+
+def ecrire_binaire_atomique(chemin: str, contenu: bytes) -> None:
     """
     Écrit `contenu` dans `chemin` sans jamais laisser le fichier à moitié écrit.
 
     Le fichier temporaire est créé dans le répertoire de destination (et non dans
     /tmp) : `os.replace` n'est atomique qu'au sein d'un même système de fichiers.
+    Son nom est unique par appel (mkstemp) : deux threads du même process qui écrivent
+    le même fichier ne partagent jamais leur temporaire.
     """
     repertoire = os.path.dirname(os.path.abspath(chemin)) or "."
     os.makedirs(repertoire, exist_ok=True)
@@ -66,7 +73,7 @@ def ecrire_texte_atomique(chemin: str, contenu: str) -> None:
         dir=repertoire, prefix=f".{os.path.basename(chemin)}.", suffix=".tmp"
     )
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "wb") as f:
             f.write(contenu)
             f.flush()
             # Le contenu doit être sur le disque AVANT le replace : sans ce fsync,

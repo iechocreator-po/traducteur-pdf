@@ -6,6 +6,7 @@ titres), un test bout en bout sur un vrai PDF fabriqué avec Tesseract (ignoré 
 est absent), et les routes.
 """
 
+import json
 import os
 import shutil
 
@@ -355,9 +356,49 @@ def test_reinitialiser_refuse_pendant_un_nettoyage(tmp_path):
     _pdf_trois_colonnes(pdf)
     sorties = S.chemins_sortie(str(pdf))
     S._sauvegarder_etat({"job_id": "r2", "statut": "en_cours", "chemin_etat": sorties["etat"]})
-    r = client.post("/api/labo/scan-colonnes/reinitialiser", params={"chemin_pdf": str(pdf)})
+    S.enregistrer_job("r2")
+    try:
+        r = client.post("/api/labo/scan-colonnes/reinitialiser", params={"chemin_pdf": str(pdf)})
+    finally:
+        S.supprimer_job_registre("r2")
     assert r.status_code == 409
     assert os.path.exists(sorties["etat"])
+
+
+def test_scan_orphelin_apres_redemarrage_devient_annule_et_debloque(tmp_path):
+    pdf = tmp_path / "x.pdf"
+    _pdf_trois_colonnes(pdf)
+    sorties = S.chemins_sortie(str(pdf))
+    S._sauvegarder_etat({"job_id": "disparu", "statut": "en_cours", "pages_faites": 3, "chemin_etat": sorties["etat"]})
+    etat = S.lire_etat(str(pdf))
+    assert etat["statut"] == "annule" and etat["pages_faites"] == 3
+    assert json.loads(open(sorties["etat"], encoding="utf-8").read())["statut"] == "annule"   # persisté
+    r = client.post("/api/labo/scan-colonnes/reinitialiser", params={"chemin_pdf": str(pdf)})
+    assert r.status_code == 200
+
+
+def test_scan_actif_reste_actif_a_la_lecture(tmp_path):
+    pdf = tmp_path / "x.pdf"
+    _pdf_trois_colonnes(pdf)
+    sorties = S.chemins_sortie(str(pdf))
+    S._sauvegarder_etat({"job_id": "vivant", "statut": "en_cours", "chemin_etat": sorties["etat"]})
+    S.enregistrer_job("vivant")
+    try:
+        assert S.lire_etat(str(pdf))["statut"] == "en_cours"
+    finally:
+        S.supprimer_job_registre("vivant")
+
+
+def test_reinitialiser_refuse_si_une_traduction_vient_de_ce_fichier(tmp_path, monkeypatch):
+    from app.services import bibliotheque
+    pdf = tmp_path / "x.pdf"
+    _pdf_trois_colonnes(pdf)
+    sorties = S.chemins_sortie(str(pdf))
+    (tmp_path / "x_scan_colonnes.md").write_text("# t")
+    monkeypatch.setattr(bibliotheque, "lister_documents", lambda: [{"chemin_source": sorties["markdown"]}])
+    r = client.post("/api/labo/scan-colonnes/reinitialiser", params={"chemin_pdf": str(pdf)})
+    assert r.status_code == 409
+    assert os.path.exists(sorties["markdown"])
 
 
 def test_route_apercu_renvoie_un_png(tmp_path):

@@ -11,6 +11,8 @@ pytest>=8.3.0
 pytest-cov>=5.0.0
 reportlab>=4.2.0
 pymupdf4llm>=1.28,<2  # la 2.0 (19/10/2026) est une roue vide sans module
+pymupdf>=1.26,<2
+opencv-python-headless>=4.11,<5  # services/reconstruction.py : détection des illustrations
 marker-pdf
 
 # Text-to-Speech local (moteurs optionnels — détectés dynamiquement)
