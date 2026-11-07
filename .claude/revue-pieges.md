@@ -4,6 +4,8 @@ Fichier propre à ce produit. La méthode (passes, notes, rapport) est dans la s
 `2000_DigitalProducts/skills/revue-code/`. Chaque piège ci-dessous est une erreur **réellement arrivée** ici
 ou relevée par l'audit de la zone 1 (26/10/2026) ; les détails sont dans `CLAUDE.md` (chercher avec `grep`).
 
+**Registre commun** : les pièges qui valent aussi pour d'autres produits sont dans `2000_DigitalProducts/skills/revue-code/pieges-communs.md` (PC-01…), lu par la même passe A. Ici : seulement ce qui est propre à ce produit, plus le détail local des pièges promus (renvoi `PC-nn`).
+
 ## Commandes mécaniques
 
 Dossier de travail : `traducteur-pdf/backend/`. Un échec est un constat à 100.
