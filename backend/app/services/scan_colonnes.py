@@ -51,7 +51,7 @@ from app.services.job_manager import (
     soumettre_travail,
     supprimer_job_registre,
 )
-from app.services.persistance import ecrire_json_atomique, lire_json_tolerant
+from app.services.persistance import ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
 
 DPI_RENDU = 200
 ECHELLE_OCR = 3            # agrandissement avant Tesseract (mesuré : ×3 suffit, ×4/×5 sans gain)
@@ -572,6 +572,22 @@ def _sauvegarder_etat(etat: dict) -> None:
     ecrire_json_atomique(etat["chemin_etat"], etat)
 
 
+def reglages_du_markdown(etat: dict | None) -> dict | None:
+    """
+    Plage et `double_page` du scan qui a ÉCRIT le Markdown nettoyé, à ne pas confondre avec ceux du dernier scan
+    LANCÉ : l'état est écrasé dès le lancement, le Markdown seulement à la fin, et jamais si le scan est arrêté.
+    Un état écrit avant ce champ n'est fiable que s'il est `termine`. None : inconnu.
+    """
+    if not isinstance(etat, dict):
+        return None
+    if isinstance(etat.get("markdown_ecrit"), dict):
+        return etat["markdown_ecrit"]
+    if etat.get("statut") == "termine":
+        return {"page_debut": etat.get("page_debut"), "page_fin": etat.get("page_fin"),
+                "double_page": etat.get("double_page")}
+    return None
+
+
 def assembler_markdown(dossier_pages: str, pages: list[int]) -> tuple[str, list[str]]:
     """
     Concatène les pages DANS L'ORDRE, puis répare titres et numérotation sur
@@ -652,8 +668,15 @@ def _executer(etat: dict) -> None:
                 return
 
         markdown, journal = assembler_markdown(etat["dossier_pages"], pages)
-        with open(etat["chemin_sortie"], "w", encoding="utf-8") as f:
-            f.write(markdown)
+        # Contenu identique : on ne réécrit pas, la date du fichier dit si une traduction est périmée (reconstruction).
+        existant = None
+        if os.path.isfile(etat["chemin_sortie"]):
+            with open(etat["chemin_sortie"], encoding="utf-8") as f:
+                existant = f.read()
+        if existant != markdown:
+            ecrire_texte_atomique(etat["chemin_sortie"], markdown)
+        etat["markdown_ecrit"] = {"page_debut": etat["page_debut"], "page_fin": etat["page_fin"],
+                                  "double_page": etat.get("double_page")}
         etat["reparations"] = journal
         etat["titres"] = len(re.findall(r"^## ", markdown, re.M))
         # une page en erreur ne rend pas le résultat « terminé » : même règle que la traduction
@@ -703,6 +726,9 @@ def demarrer_scan(chemin_pdf: str, page_debut: int | None = None, page_fin: int 
         "temps_ecoule_secondes": 0.0,
         "demarre_a": time.time(),
     }
+    precedent = reglages_du_markdown(lire_json_tolerant(sorties["etat"]))
+    if precedent:       # ce scan peut s'arrêter avant d'écrire : le Markdown en place reste celui du précédent
+        etat["markdown_ecrit"] = precedent
     enregistrer_job(etat["job_id"])     # avant l'état : un sondage ne doit jamais voir un état actif sans job
     _sauvegarder_etat(etat)
     soumettre_travail(etat["job_id"], lambda: _executer(etat))

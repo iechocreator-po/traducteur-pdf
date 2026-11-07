@@ -175,11 +175,14 @@
 
     const lances = [];
     for (const item of prets) {
+      // Réglages figés : pour l'enchaînement automatique seulement. Un clic sur « Lancer » suit les menus affichés,
+      // comme « Planifier », y compris après un enchaînement raté (Ollama arrêté à la fin du scan).
+      const figes = ids ? item.reglagesFiges : null;
       try {
         const data = await apiPost("/translate", corpsSource(item.chemin, {
-          langue_source: item.reglagesFiges?.langue_source || $("langue-source").value,
-          langue_cible: item.reglagesFiges?.langue_cible || $("langue-cible").value,
-          modele_ollama: item.reglagesFiges?.modele || $("modele").value,
+          langue_source: figes?.langue_source || $("langue-source").value,
+          langue_cible: figes?.langue_cible || $("langue-cible").value,
+          modele_ollama: figes?.modele || $("modele").value,
           extracteur_pdf: $("extracteur-pdf").value,
           estimation_temps_total: item.eta ?? null,
           // La qualité observée à l'analyse suit le document dans le registre :

@@ -249,6 +249,55 @@ def test_png_geant_refuse_sans_decompression(tmp_path):
         signature.signer(_pdf(tmp_path), t.getvalue(), [{"page": 1, "x": 0, "y": 0, "largeur": 0.2, "hauteur": 0.1}])
 
 
+def test_png_au_dela_de_la_limite_refuse_avant_decodage(tmp_path, monkeypatch):
+    # 5000 px : trop petit pour le garde-fou de Pillow, c'est bien la limite de 4000 px qui doit refuser.
+    img = Image.new("1", (5000, 5000))
+    t = io.BytesIO()
+    img.save(t, format="PNG")
+    monkeypatch.setattr(Image.Image, "load", lambda *_: pytest.fail("image décodée malgré sa taille"))
+    with pytest.raises(signature.SignatureInvalide, match="4000 px"):
+        signature._signature_png(t.getvalue())
+
+
+def test_mention_qui_deborde_d_abord_est_reduite_et_complete(tmp_path):
+    # Mesuré : insert_textbox rend -5.4 puis 18.7. Ignorer ce retour sortirait le PDF sans mention.
+    chemin = tmp_path / "etroit.pdf"
+    doc = pymupdf.open()
+    doc.new_page(width=120, height=800)
+    doc.save(chemin)
+    doc.close()
+    mention = ("WWWW " * 20)[:100].strip()
+    r = signature.signer(str(chemin), _png(), [{"page": 1, "x": 0.1, "y": 0.1, "largeur": 0.2, "hauteur": 0.1}], mention=mention)
+    doc = pymupdf.open(r["chemin"])
+    try:
+        assert "".join(doc[0].get_text().split()) == mention.replace(" ", "")
+    finally:
+        doc.close()
+
+
+@pytest.mark.parametrize("saisie, attendu", [
+    ("Jean-François Cœur l’été — 2026 €", "Jean-François Coeur l'été - 2026 EUR"),
+    ("Núñez Müller Çelik Ørsted Straße ÿ", "Núñez Müller Çelik Ørsted Straße ÿ"),
+])
+def test_mention_ecrite_sans_lettre_remplacee(tmp_path, saisie, attendu):
+    pl = [{"page": 1, "x": 0.1, "y": 0.1, "largeur": 0.3, "hauteur": 0.1}]
+    r = signature.signer(_pdf(tmp_path), _png(), pl, mention=saisie)
+    doc = pymupdf.open(r["chemin"])
+    try:
+        assert attendu in _texte_compact(doc[0])
+    finally:
+        doc.close()
+
+
+@pytest.mark.parametrize("saisie", ["Подпись Иванов", "署名 田中", "Signé par Kowalczyk Łukasz"])
+def test_mention_hors_police_refusee_sans_ecrire(tmp_path, saisie):
+    chemin = _pdf(tmp_path)
+    pl = [{"page": 1, "x": 0.1, "y": 0.1, "largeur": 0.3, "hauteur": 0.1}]
+    with pytest.raises(signature.SignatureInvalide, match="alphabet latin"):
+        signature.signer(chemin, _png(), pl, mention=saisie)
+    assert not os.path.exists(signature.chemin_signe(chemin))
+
+
 def test_signatures_simultanees_sans_erreur_de_temporaire(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
     chemin = _pdf(tmp_path)
@@ -358,6 +407,110 @@ def test_reglage_double_page_du_scan_transmis_et_dans_le_cache(scan_traduit, mon
     assert vus == [False, False]
     reconstruction.generer_pdf(scan_traduit)     # inchangé : cache
     assert vus == [False, False]
+
+
+def test_un_scan_arrete_ne_retire_aucune_page(scan_traduit):
+    # Scan 1-2 écrit le Markdown, puis scan 2-2 lancé et arrêté : la traduction couvre toujours les deux pages.
+    pdf = scan_traduit.replace("_scan_colonnes_traduit_m.md", ".pdf")
+    _etat_scan(pdf, statut="annule", page_debut=2, page_fin=2, double_page=True,
+               markdown_ecrit={"page_debut": 1, "page_fin": 2, "double_page": False})
+    loc = reconstruction.localiser(scan_traduit)
+    assert loc["pages"] == [1, 2] and loc["double_page"] is False
+
+
+def test_etat_ancien_d_un_scan_arrete_ne_filtre_rien(scan_traduit):
+    pdf = scan_traduit.replace("_scan_colonnes_traduit_m.md", ".pdf")
+    _etat_scan(pdf, statut="annule", page_debut=2, page_fin=2, double_page=True)
+    loc = reconstruction.localiser(scan_traduit)
+    assert loc["pages"] == [1, 2] and loc["double_page"] is None
+
+
+@pytest.mark.parametrize("generer", [reconstruction.generer_pdf, reconstruction.generer_html])
+def test_markdown_regenere_apres_la_traduction_refuse(scan_traduit, generer):
+    source = scan_traduit.replace("_traduit_m.md", ".md")
+    date = os.path.getmtime(scan_traduit)
+    os.utime(source, (date + 60, date + 60))
+    with pytest.raises(reconstruction.ReconstructionImpossible, match="relancez sa traduction"):
+        generer(scan_traduit)
+
+
+# ── Bornes des chapitres, de bout en bout (source à plusieurs chapitres) ─────
+
+SOURCE_3_CHAPITRES = "## 1 The Ship\n\nFirst.\n\n## 2 The Sea\n\nWaves.\n\n## 3 Home\n\nBack.\n"
+
+
+def _traduction_partielle(scan_traduit, corps):
+    source = scan_traduit.replace("_traduit_m.md", ".md")
+    with open(source, "w", encoding="utf-8") as f:
+        f.write(SOURCE_3_CHAPITRES)
+    with open(scan_traduit, "w", encoding="utf-8") as f:
+        f.write(corps)
+    os.utime(source, (os.path.getmtime(scan_traduit) - 60,) * 2)
+
+
+def test_titres_source_rend_tous_les_chapitres_et_leur_niveau(scan_traduit):
+    _traduction_partielle(scan_traduit, "x")
+    titres = reconstruction.titres_source(scan_traduit.replace("_traduit_m.md", ".md"))
+    assert [t["titre"] for t in titres] == ["1 The Ship", "2 The Sea", "3 Home"]
+    assert {t["niveau"] for t in titres} == {2}
+
+
+# Trois paragraphes : sans la borne de la source, le dernier partirait sur la page 2 (milieu à 5/6 du livre).
+CHAPITRE_0_SEUL = ("<!-- === chapitre 0 : 1 The Ship === -->\n\n## 1 Le Navire\n\n"
+                   + "\n\n".join(f"{m} " + "mot " * 30 for m in ("Premier", "Deuxieme", "Troisieme")) + "\n")
+
+
+def test_pdf_chapitre_traduit_seul_reste_dans_ses_pages(scan_traduit):
+    _traduction_partielle(scan_traduit, CHAPITRE_0_SEUL)
+    doc = pymupdf.open(reconstruction.generer_pdf(scan_traduit)["chemin"])
+    try:
+        assert "Troisieme" in doc[0].get_text() and "Troisieme" not in doc[1].get_text()
+    finally:
+        doc.close()
+
+
+def test_html_chapitre_traduit_seul_reste_dans_ses_pages(scan_traduit):
+    _traduction_partielle(scan_traduit, CHAPITRE_0_SEUL)
+    contenu = open(reconstruction.generer_html(scan_traduit)["chemin"], encoding="utf-8").read()
+    page_1, page_2 = contenu.split('id="page-2"')
+    assert "Troisieme" in page_1 and "Troisieme" not in page_2
+
+
+def test_chapitre_du_milieu_traduit_seul_sur_sa_page(tmp_path):
+    for n, titre in enumerate(("Un", "Deux", "Trois"), start=1):
+        _page_json(tmp_path, n, [["titre", titre], ["para", "Texte"]])
+    md = "<!-- === chapitre 1 : Deux === -->\n\n## Dos\n\nTexto\n"
+    source = [{"titre": t, "niveau": 2} for t in ("Un", "Deux", "Trois")]
+    par_page = reconstruction.repartir_par_page(str(tmp_path), [1, 2, 3], md, source)
+    assert par_page == {1: [], 2: [("titre", "Dos"), ("para", "Texto")], 3: []}
+
+
+def test_titre_du_scan_en_trop_avant_le_chapitre_est_saute():
+    assert reconstruction._aligner_titres(["Chapter one"], ["Preface", "Chapter one"]) == [1]
+
+
+def test_titre_introuvable_reste_a_la_suite_du_chapitre_precedent(tmp_path):
+    _page_json(tmp_path, 1, [["titre", "Alpha"], ["para", "a" * 10]])
+    _page_json(tmp_path, 2, [["para", "b" * 90]])       # le milieu du chapitre tombe en page 2
+    _page_json(tmp_path, 3, [["titre", "Gamma"], ["para", "c" * 50]])
+    md = ("<!-- === chapitre 0 : Alpha === -->\n\n## Alpha\n\nA\n\n"
+          "<!-- === chapitre 1 : Zzzzzz === -->\n\n## Zzzzzz\n\nB\n\n"
+          "<!-- === chapitre 2 : Gamma === -->\n\n## Gamma\n\nC\n")
+    par_page = reconstruction.repartir_par_page(str(tmp_path), [1, 2, 3], md)
+    # Sans ancre, le titre suit son corps au lieu d'être posé sur la page du chapitre précédent.
+    assert ("para", "C") in par_page[3] and ("titre", "Gamma") in par_page[3]
+    assert ("para", "B") in par_page[2] and ("titre", "Zzzzzz") in par_page[2]
+
+
+def test_titre_introuvable_part_de_l_ancre_precedente_pas_du_debut(tmp_path):
+    _page_json(tmp_path, 1, [["titre", "Alpha"], ["para", "a" * 100]])     # repartir du début tomberait ici
+    _page_json(tmp_path, 2, [["titre", "Beta"], ["para", "b"], ["para", "b"]])
+    _page_json(tmp_path, 3, [["para", "c"]])
+    md = ("<!-- === chapitre 0 : Alpha === -->\n\n## Alpha\n\nA\n\n"
+          "<!-- === chapitre 1 : Beta === -->\n\n## Beta\n\nB\n\n"
+          "<!-- === chapitre 2 : Zzzzzz === -->\n\n## Zzzzzz\n\nZ\n")
+    par_page = reconstruction.repartir_par_page(str(tmp_path), [1, 2, 3], md)
+    assert ("para", "Z") not in par_page[1]
 
 
 # ── Illustrations ────────────────────────────────────────────────────────────

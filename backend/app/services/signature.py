@@ -10,7 +10,8 @@ Règles :
   - le PDF d'origine n'est jamais modifié : la sortie est `<base>_signe.pdf`, à côté ;
   - signer un fichier déjà `_signe.pdf` ajoute la signature à ce même fichier (écriture atomique) ;
   - signer l'original alors que `<base>_signe.pdf` existe est refusé : ce serait écraser ses signatures ;
-  - une mention demandée figure dans le PDF, ou la signature échoue : jamais de succès sans mention ;
+  - une mention demandée figure telle quelle dans le PDF, ou la signature échoue : jamais de succès sans mention,
+    ni de mention dont des lettres seraient remplacées par « ? » (la police du PDF s'arrête au Latin-1) ;
   - les coordonnées reçues sont normalisées (0–1) sur la page TELLE QU'AFFICHÉE (rotation et CropBox comprises).
 """
 
@@ -29,6 +30,11 @@ NB_MAX_PLACEMENTS = 50
 MENTION_LARGEUR_MIN = 220                # points
 MENTION_TAILLE_MIN = 6.0                 # points
 LARGEUR_APERCU_MAX = 1600
+# Typographie courante absente du Latin-1 : son équivalent garde le sens ; le reste est refusé, jamais déformé.
+EQUIVALENTS_MENTION = str.maketrans({
+    "‘": "'", "’": "'", "‚": "'", "“": '"', "”": '"', "„": '"', "–": "-", "—": "-", "―": "-", "−": "-",
+    "…": "...", "œ": "oe", "Œ": "OE", "€": "EUR",
+})
 
 
 class SignatureInvalide(Exception):
@@ -121,6 +127,16 @@ def _signature_png(octets: bytes) -> bytes:
     return tampon.getvalue()
 
 
+def _preparer_mention(mention: str | None) -> str | None:
+    """Mention sur une ligne, 200 caractères au plus, écrivable par la police du PDF ; sinon `SignatureInvalide`."""
+    texte = re.sub(r"\s+", " ", mention or "").strip().translate(EQUIVALENTS_MENTION)[:200]
+    hors_police = sorted({c for c in texte if ord(c) > 0xFF})
+    if hors_police:
+        raise SignatureInvalide("La mention contient des caractères que le PDF ne peut pas écrire "
+                                f"({' '.join(hors_police[:10])}) : écrivez-la en alphabet latin.")
+    return texte or None
+
+
 def _ecrire_mention(page, visible, mention: str, taille_voulue: float, W: float, H: float, derotation, rotation: int) -> None:
     """
     Écrit `mention` sous la signature, ou au-dessus si la place manque en bas de page, en restant dans la
@@ -164,7 +180,7 @@ def signer(chemin_pdf: str, signature: bytes, placements: list[dict], mention: s
         raise SignatureInvalide(f"Une copie signée existe déjà ({os.path.basename(sortie)}) : signez-la pour "
                                 "ajouter une signature, ou supprimez-la pour repartir de l'original.")
     png = _signature_png(signature)
-    mention = re.sub(r"\s+", " ", mention or "").strip()[:200] or None
+    mention = _preparer_mention(mention)
 
     doc = _ouvrir(chemin_pdf)
     try:

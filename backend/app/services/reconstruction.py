@@ -80,18 +80,19 @@ def localiser(chemin_traduit: str) -> dict:
         raise ReconstructionImpossible("Les pages du scan ont été effacées : relancez le Scan multi-colonnes.")
     pages = sorted(int(m.group(1)) for f in os.listdir(sorties["pages"])
                    if (m := re.match(r"page-(\d{4})\.json$", f)))
-    # Le dossier garde les pages des passages précédents (reprise) : seule la plage du DERNIER scan a produit
-    # le Markdown traduit. Scan 1-10 puis 5-7 : les pages 1-4 et 8-10 n'ont rien à recevoir.
-    etat_scan = scan_colonnes.lire_etat(pdf) or {}
-    if isinstance(etat_scan.get("page_debut"), int) and isinstance(etat_scan.get("page_fin"), int):
-        pages = [n for n in pages if etat_scan["page_debut"] <= n <= etat_scan["page_fin"]]
+    # Le dossier garde les pages des passages précédents (reprise) : seule la plage du scan qui a ÉCRIT le Markdown
+    # compte. Scan 1-10 puis 5-7 terminé : les pages 1-4 et 8-10 n'ont rien à recevoir. Scan 5-7 arrêté : le Markdown
+    # couvre toujours 1-10, et les 10 pages restent.
+    reglages = scan_colonnes.reglages_du_markdown(scan_colonnes.lire_etat(pdf)) or {}
+    if isinstance(reglages.get("page_debut"), int) and isinstance(reglages.get("page_fin"), int):
+        pages = [n for n in pages if reglages["page_debut"] <= n <= reglages["page_fin"]]
     if not pages:
         raise ReconstructionImpossible("Aucune page scannée trouvée : relancez le Scan multi-colonnes.")
     base = os.path.splitext(chemin_traduit)[0]
     return {
         "pdf": pdf,
         "source_md": source,
-        "double_page": etat_scan.get("double_page"),
+        "double_page": reglages.get("double_page"),
         "langue_html": LANGUES_HTML.get(etat.get("langue_cible") if isinstance(etat, dict) else None, "und"),
         "dossier_pages": sorties["pages"],
         "dossier_illus": f"{os.path.splitext(pdf)[0]}{SUFFIXE_SCAN}_illustrations",
@@ -443,6 +444,15 @@ def _cadres_suite(largeur: float, hauteur: float):
     return [pymupdf.Rect(m + i * (col + g), hauteur * 0.07, m + i * (col + g) + col, hauteur * 0.92) for i in range(4)]
 
 
+def _exiger_traduction_a_jour(loc: dict, chemin_traduit: str) -> None:
+    """Un Markdown réécrit après la traduction ne décrit plus son texte : les pages seraient fausses, sans erreur."""
+    source = loc["source_md"]
+    if os.path.isfile(source) and os.path.getmtime(source) > os.path.getmtime(chemin_traduit):
+        raise ReconstructionImpossible(
+            "Le fichier nettoyé a été régénéré après cette traduction (nouveau scan) : "
+            "relancez sa traduction pour reconstruire la mise en page.")
+
+
 def generer_pdf(chemin_traduit: str) -> dict:
     """
     Écrit `<traduction>_mise_en_page.pdf`. Retourne {chemin, pages, illustrations, pages_suite,
@@ -451,6 +461,7 @@ def generer_pdf(chemin_traduit: str) -> dict:
     import pymupdf
 
     loc = localiser(chemin_traduit)
+    _exiger_traduction_a_jour(loc, chemin_traduit)
     manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"], loc["double_page"])
     with open(chemin_traduit, encoding="utf-8") as f:
         par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read(), titres_source(loc["source_md"]))
@@ -554,6 +565,7 @@ def _position_illustration(info: dict, ill: dict) -> float:
 def generer_html(chemin_traduit: str, titre: str | None = None) -> dict:
     """Écrit `<traduction>_interactif.html` (autonome : images en data-URI). Retourne {chemin, pages, illustrations, octets}."""
     loc = localiser(chemin_traduit)
+    _exiger_traduction_a_jour(loc, chemin_traduit)
     manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"], loc["double_page"])
     with open(chemin_traduit, encoding="utf-8") as f:
         par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read(), titres_source(loc["source_md"]))

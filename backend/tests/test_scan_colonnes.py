@@ -470,6 +470,59 @@ def test_annulation_reelle_arrete_entre_deux_pages_et_garde_le_fait(tmp_path, mo
     assert not S.job_actif("annul-reel")                # le job ne reste pas enregistré
 
 
+def test_le_markdown_garde_les_reglages_du_scan_qui_l_a_ecrit(tmp_path, monkeypatch):
+    from app.services.job_manager import demander_annulation
+
+    pdf = tmp_path / "doc.pdf"
+    _pdf_trois_colonnes(pdf)
+    sorties = S.chemins_sortie(str(pdf))
+    etat = {"job_id": "ecrit", "chemin_pdf": str(pdf), "chemin_sortie": sorties["markdown"],
+            "dossier_pages": sorties["pages"], "chemin_etat": sorties["etat"], "langue_ocr": "eng",
+            "double_page": False, "travailleurs": 1, "page_debut": 1, "page_fin": 1, "pages_total": 1, "pages_faites": 0,
+            "pages_en_erreur": [], "statut": "en_attente", "temps_ecoule_secondes": 0.0, "demarre_a": 0}
+    S.enregistrer_job("ecrit")
+    S._executer(etat)
+    ecrit = {"page_debut": 1, "page_fin": 1, "double_page": False}
+    assert S.lire_etat(str(pdf))["markdown_ecrit"] == ecrit
+
+    # Un nouveau scan arrêté avant la fin : le Markdown reste celui du premier, et ses réglages aussi.
+    monkeypatch.setattr(S, "tesseract_disponible", lambda: True)
+    monkeypatch.setattr(S, "langues_tesseract", lambda: ["eng"])
+    monkeypatch.setattr(S, "soumettre_travail", lambda *_: None)
+    monkeypatch.setattr(S, "_traiter_et_ecrire_page", lambda *_: demander_annulation(relance["job_id"]) or {"blocs": []})
+    relance = S.demarrer_scan(str(pdf), page_debut=1, page_fin=1, double_page=True)
+    assert S.reglages_du_markdown(S.lire_etat(str(pdf))) == ecrit      # pendant : pas encore écrit
+    date_md = os.path.getmtime(sorties["markdown"])
+    S._executer(relance)
+    final = S.lire_etat(str(pdf))
+    assert final["statut"] == "annule" and final["double_page"] is True
+    assert S.reglages_du_markdown(final) == ecrit
+    assert os.path.getmtime(sorties["markdown"]) == date_md
+
+
+def test_markdown_identique_non_reecrit(tmp_path, monkeypatch):
+    pdf = tmp_path / "doc.pdf"
+    _pdf_trois_colonnes(pdf)
+    sorties = S.chemins_sortie(str(pdf))
+    etat = {"job_id": "a", "chemin_pdf": str(pdf), "chemin_sortie": sorties["markdown"],
+            "dossier_pages": sorties["pages"], "chemin_etat": sorties["etat"], "langue_ocr": "eng",
+            "double_page": False, "travailleurs": 1, "page_debut": 1, "page_fin": 1, "pages_total": 1, "pages_faites": 0,
+            "pages_en_erreur": [], "statut": "en_attente", "temps_ecoule_secondes": 0.0, "demarre_a": 0}
+    S.enregistrer_job("a")
+    S._executer(etat)
+    date_md = os.path.getmtime(sorties["markdown"])
+    S.enregistrer_job("b")
+    S._executer({**etat, "job_id": "b", "pages_faites": 0, "statut": "en_attente"})
+    assert os.path.getmtime(sorties["markdown"]) == date_md
+
+
+def test_etat_ancien_sans_champ_fiable_seulement_si_termine():
+    assert S.reglages_du_markdown(None) is None
+    assert S.reglages_du_markdown({"statut": "annule", "page_debut": 5, "page_fin": 7}) is None
+    assert S.reglages_du_markdown({"statut": "termine", "page_debut": 5, "page_fin": 7}) == {
+        "page_debut": 5, "page_fin": 7, "double_page": None}
+
+
 def test_route_lancer_refusee_si_le_flag_est_coupe(tmp_path, monkeypatch):
     from app.api import routes
 

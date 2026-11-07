@@ -271,9 +271,13 @@
       o.textContent = "Aucun PDF pour ce document (générez d'abord le « PDF mis en page »)";
       sel.appendChild(o);
     }
-    // de préférence la traduction mise en page : c'est elle qu'on signe le plus souvent
-    const prefere = pdfs.find((p) => /_mise_en_page\.pdf$/.test(p.chemin));
-    if (prefere) sel.value = prefere.chemin;
+    // de préférence la traduction mise en page : c'est elle qu'on signe le plus souvent. Si sa copie signée existe,
+    // c'est elle qu'on présélectionne : le backend refuse de signer l'original tant qu'elle existe.
+    const base = pdfs.find((p) => /_mise_en_page(_signe)?\.pdf$/.test(p.chemin)) || pdfs[0];
+    if (base) {
+      const copieSignee = pdfs.find((p) => p.chemin === base.chemin.replace(/\.pdf$/i, "_signe.pdf"));
+      sel.value = (copieSignee || base).chemin;
+    }
     await changerPdf();
   }
 

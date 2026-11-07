@@ -220,7 +220,8 @@ def test_une_traduction_reelle_laisse_ses_jetons_dans_l_historique(tmp_path, mon
         if etat and etat.statut == StatutJob.TERMINE:
             runs = stats.lister_runs()          # la ligne s'écrit juste APRÈS l'état final
         time.sleep(0.05)
-    assert len(runs) == 1, "aucune ligne d'historique après une traduction terminée"
+    # Échec intermittent vu une fois sur 21 suites complètes (07/11/2026), cause non trouvée : ce message doit la dire.
+    assert len(runs) == 1, f"une ligne d'historique attendue, statut {etat.statut if etat else None} : {runs}"
     r = runs[0]
     assert (r["type"], r["nom"], r["modele"], r["statut"]) == ("traduction", "livre.md", "llama3.1", "termine")
     assert r["appels"] == 3 and r["morceaux_traduits"] == 3 and r["morceaux_cache"] == 0
