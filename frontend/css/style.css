@@ -1208,10 +1208,10 @@ details.reglages-lot > summary .aide { margin: 0; }
 .sig-etape { font-weight: 700; font-size: 0.82rem; margin-top: 0.4rem; }
 .sig-onglets { display: flex; gap: 4px; }
 .sig-onglet { flex: 1; padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-2); font: inherit; font-size: 0.8rem; cursor: pointer; }
-.sig-onglet[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sig-onglet[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .sig-panneau { display: flex; flex-direction: column; gap: 0.4rem; }
 .sig-canvas { width: 100%; height: auto; aspect-ratio: 14 / 5; border: 1px dashed var(--border); border-radius: var(--radius-sm); background: #fff; touch-action: none; cursor: crosshair; }
-.sig-outils { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.sig-outils { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .sig-case { display: flex; gap: 6px; align-items: center; font-size: 0.8rem; }
 .sig-pages-nav { display: flex; align-items: center; gap: 8px; }
 .sig-apercu { position: relative; align-self: flex-start; max-width: 100%; border: 1px solid var(--border); background: var(--surface-2); cursor: copy; user-select: none; }

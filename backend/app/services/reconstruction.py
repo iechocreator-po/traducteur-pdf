@@ -33,7 +33,7 @@ from app.services import scan_colonnes
 from app.services.persistance import ecrire_binaire_atomique, ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
 
 SUFFIXE_SCAN = "_scan_colonnes"
-VERSION_CACHE = 2            # à incrémenter quand la détection change (invalide le cache)
+VERSION_CACHE = 3            # à incrémenter quand la détection change (invalide le cache)
 DPI_APERCU = 90              # scan d'origine embarqué dans le HTML (mode « Pages »)
 QUALITE_ILLUS = 85
 QUALITE_APERCU = 65
@@ -47,6 +47,9 @@ PAS_TAILLE_PT = 0.5
 AIRE_MIN_ILLUS = 0.02        # fraction de la page en dessous de laquelle une zone n'est pas une illustration
 COTE_MIN_ILLUS = 0.08        # idem pour chaque côté (écarte l'ombre de reliure, haute mais étroite)
 MARGE_HAUT, MARGE_BAS = 0.03, 0.93   # le texte n'est jamais coulé dans le titre courant / folio
+NB_MAX_SUITES = 200          # par page source ; au-delà, échec explicite plutôt qu'un texte coupé
+SEUIL_TITRE = 0.6            # ressemblance minimale pour rattacher un chapitre à un titre du scan
+LANGUES_HTML = {"français": "fr", "anglais": "en", "espagnol": "es"}
 
 
 class ReconstructionImpossible(Exception):
@@ -77,11 +80,19 @@ def localiser(chemin_traduit: str) -> dict:
         raise ReconstructionImpossible("Les pages du scan ont été effacées : relancez le Scan multi-colonnes.")
     pages = sorted(int(m.group(1)) for f in os.listdir(sorties["pages"])
                    if (m := re.match(r"page-(\d{4})\.json$", f)))
+    # Le dossier garde les pages des passages précédents (reprise) : seule la plage du DERNIER scan a produit
+    # le Markdown traduit. Scan 1-10 puis 5-7 : les pages 1-4 et 8-10 n'ont rien à recevoir.
+    etat_scan = scan_colonnes.lire_etat(pdf) or {}
+    if isinstance(etat_scan.get("page_debut"), int) and isinstance(etat_scan.get("page_fin"), int):
+        pages = [n for n in pages if etat_scan["page_debut"] <= n <= etat_scan["page_fin"]]
     if not pages:
         raise ReconstructionImpossible("Aucune page scannée trouvée : relancez le Scan multi-colonnes.")
     base = os.path.splitext(chemin_traduit)[0]
     return {
         "pdf": pdf,
+        "source_md": source,
+        "double_page": etat_scan.get("double_page"),
+        "langue_html": LANGUES_HTML.get(etat.get("langue_cible") if isinstance(etat, dict) else None, "und"),
         "dossier_pages": sorties["pages"],
         "dossier_illus": f"{os.path.splitext(pdf)[0]}{SUFFIXE_SCAN}_illustrations",
         "pages": pages,
@@ -102,6 +113,8 @@ def detecter_illustrations(image) -> list[tuple[int, int, int, int]]:
     lignes de texte isolées), seuil sur le gris OU la saturation, puis composantes connexes.
     Mesuré sur le Cycle I : le navire (p. 1) et la salle (p. 3) sont isolés, la p. 2 (texte seul)
     n'en a aucune ; sans le filtre de côté, l'ombre de reliure était prise pour une illustration.
+    La saturation se compare à celle du PAPIER : un papier jauni (235, 215, 170) sature déjà à 70 et une
+    limite absolue prenait la page entière pour une illustration, texte imprimé par-dessus.
     """
     import cv2
     import numpy as np
@@ -111,10 +124,11 @@ def detecter_illustrations(image) -> list[tuple[int, int, int, int]]:
     gris = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
     sat = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)[..., 1]
     fond = float(np.percentile(gris, 85))
+    sat_papier = float(np.median(sat[gris >= fond]))
     k = 8
     g = cv2.medianBlur(cv2.resize(gris, (w // k, h // k), interpolation=cv2.INTER_AREA), 9)
     s = cv2.medianBlur(cv2.resize(sat, (w // k, h // k), interpolation=cv2.INTER_AREA), 9)
-    masque = ((g < fond - 35) | (s > 60)).astype(np.uint8)
+    masque = ((g < fond - 35) | (s > sat_papier + 60)).astype(np.uint8)
     masque = cv2.morphologyEx(masque, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
     masque = cv2.morphologyEx(masque, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
     nb, _, stats, _ = cv2.connectedComponentsWithStats(masque)
@@ -178,13 +192,14 @@ def _couleur_papier(image) -> list[int]:
     return [int(v) for v in np.median(clair, axis=0)]
 
 
-def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int]) -> dict:
+def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_page: bool | None = None) -> dict:
     """
-    Géométrie + images de chaque page, en cache (une page déjà faite n'est jamais refaite tant
-    que le PDF et VERSION_CACHE n'ont pas changé). Retourne le manifeste {page: {...}}.
+    Géométrie + images de chaque page, en cache (une page déjà faite n'est jamais refaite tant que le PDF,
+    VERSION_CACHE et le réglage `double_page` du scan n'ont pas changé). Retourne le manifeste {page: {...}}.
     """
     manifeste_chemin = os.path.join(dossier, "manifeste.json")
-    signature = {"version": VERSION_CACHE, "mtime": os.path.getmtime(chemin_pdf), "dpi": scan_colonnes.DPI_RENDU}
+    signature = {"version": VERSION_CACHE, "mtime": os.path.getmtime(chemin_pdf), "dpi": scan_colonnes.DPI_RENDU,
+                 "double_page": double_page}
     manifeste = lire_json_tolerant(manifeste_chemin)
     if not isinstance(manifeste, dict) or manifeste.get("signature") != signature:
         manifeste = {"signature": signature, "pages": {}}
@@ -196,7 +211,7 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int]) -> dict:
             for n in a_faire:
                 image = scan_colonnes.rendre_page(doc, n)
                 illus = detecter_illustrations(image)
-                mise = scan_colonnes.analyser_mise_en_page(image)
+                mise = scan_colonnes.analyser_mise_en_page(image, double_page)
                 fichiers = []
                 for i, (x0, y0, x1, y1) in enumerate(illus):
                     nom = f"page-{n:04d}-illus-{i + 1}.jpg"
@@ -256,11 +271,51 @@ def _norm(t: str) -> str:
     return re.sub(r"\W+", " ", t.lower()).strip()
 
 
-def repartir_par_page(dossier_pages: str, pages: list[int], md_traduit: str) -> dict[int, list[tuple[str, str]]]:
+def _aligner_titres(cibles: list[str], titres_scan: list[str]) -> list[int | None]:
+    """
+    Pour chaque titre de `cibles`, la position du titre du scan qui lui correspond (None si aucun), en respectant
+    l'ordre des deux listes. L'alignement maximise la ressemblance TOTALE : prendre à chaque chapitre son meilleur
+    titre, sans regarder la suite, laissait un faux titre lointain faire sauter tous les chapitres suivants.
+    À total égal, le titre le plus proche gagne.
+    """
+    n, m = len(cibles), len(titres_scan)
+    normes = [_norm(t) for t in titres_scan]
+    scores = [[difflib.SequenceMatcher(None, _norm(c), t).ratio() for t in normes] for c in cibles]
+    gain = [[0.0] * (m + 1) for _ in range(n + 1)]     # gain[i][j] : meilleur total pour cibles[i:] et titres[j:]
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            pris = scores[i][j] + gain[i + 1][j + 1] if scores[i][j] >= SEUIL_TITRE else -1.0
+            gain[i][j] = max(pris, gain[i + 1][j], gain[i][j + 1])
+    resultat: list[int | None] = [None] * n
+    i = j = 0
+    while i < n and j < m:
+        if scores[i][j] >= SEUIL_TITRE and scores[i][j] + gain[i + 1][j + 1] >= gain[i][j] - 1e-9:
+            resultat[i] = j
+            i, j = i + 1, j + 1
+        elif gain[i][j + 1] >= gain[i][j] - 1e-9:
+            j += 1
+        else:
+            i += 1
+    return resultat
+
+
+def titres_source(source_md: str) -> list[dict] | None:
+    """Tous les chapitres du Markdown nettoyé, traduits ou non : [{titre, niveau}], dans l'ordre. None si illisible."""
+    from app.services.pdf_extractor import identifier_chapitres
+    try:
+        return [{"titre": c["titre"], "niveau": c.get("niveau", 0)} for c in identifier_chapitres(source_md)]
+    except (OSError, ValueError):
+        return None
+
+
+def repartir_par_page(dossier_pages: str, pages: list[int], md_traduit: str,
+                      source: list[dict] | None = None) -> dict[int, list[tuple[str, str]]]:
     """
     Paragraphes traduits → page source. Les titres de chapitre (marqueurs de la traduction) sont
     retrouvés parmi les titres du scan, dans l'ordre (rapprochement approximatif : le scan stocke
-    les titres AVANT réparation, ex. « 1 Garden » pour « 11 Garden »). Dans un chapitre :
+    les titres AVANT réparation, ex. « 1 Garden » pour « 11 Garden »).
+    `source` (titres_source) donne aussi les chapitres NON traduits : sans eux, un chapitre traduit seul
+    n'a pas de borne et son texte s'étale jusqu'à la fin du livre. Dans un chapitre :
       - même nombre de paragraphes qu'à la source (cas mesuré le plus fréquent, 15 chapitres sur 20
         du Cycle I) → correspondance 1 pour 1, la page est exacte ;
       - sinon (paragraphes fusionnés par l'OCR ou le modèle) → position proportionnelle aux caractères.
@@ -275,34 +330,29 @@ def repartir_par_page(dossier_pages: str, pages: list[int], md_traduit: str) -> 
     titres = [i for i, (_, k, _) in enumerate(plat) if k == "titre"]
     chapitres = chapitres_traduits(md_traduit)
 
-    # 1. ancre de chaque chapitre dans `plat`
-    ancres, curseur = [], 0
-    for chap in chapitres:
-        cible = _norm(chap["titre_source"] or "")
-        meilleur, score = None, 0.0
-        for i in titres:
-            if i < curseur:
-                continue
-            r = difflib.SequenceMatcher(None, cible, _norm(plat[i][2])).ratio()
-            if r > score:
-                meilleur, score = i, r
-            if r > 0.95:
-                break
-        if chap["titre_source"] is None:
-            meilleur, score = 0, 1.0
-        if meilleur is not None and score >= 0.6:
-            ancres.append(meilleur)
-            curseur = meilleur + 1
-        else:
-            ancres.append(None)
+    # 1. ancre de chaque chapitre dans `plat`. La liste de la source ne sert que si elle correspond bien aux
+    #    marqueurs (Markdown nettoyé régénéré depuis ?) ; sinon on se limite aux chapitres traduits.
+    if source and all(c["titre_source"] is not None and c["index"] < len(source)
+                      and _norm(source[c["index"]]["titre"]) == _norm(c["titre_source"]) for c in chapitres):
+        liste, rangs = source, [c["index"] for c in chapitres]
+    else:
+        liste = [{"titre": c["titre_source"] or "", "niveau": 0} for c in chapitres]
+        rangs = list(range(len(chapitres)))
+    if len(chapitres) == 1 and chapitres[0]["titre_source"] is None:   # chapitre implicite : tout le document
+        ancres: list[int | None] = [0]
+    else:
+        ancres = [None if p is None else titres[p]
+                  for p in _aligner_titres([e["titre"] for e in liste], [plat[i][2] for i in titres])]
 
     par_page: dict[int, list[tuple[str, str]]] = {n: [] for n in pages}
-    connues = [a for a in ancres if a is not None]
     for c, chap in enumerate(chapitres):
-        debut = ancres[c]
+        rang = rangs[c]
+        debut = ancres[rang]
         if debut is None:   # titre introuvable : on le rattache à la fin du chapitre précédent
-            debut = max([a for a in ancres[:c] if a is not None], default=0)
-        suivants = [a for a in ancres[c + 1:] if a is not None and a > debut]
+            debut = max([a for a in ancres[:rang] if a is not None], default=0)
+        # Fin : prochain chapitre de même niveau ou plus haut (un chapitre traduit contient ses sous-chapitres).
+        suivants = [a for e, a in zip(liste[rang + 1:], ancres[rang + 1:])
+                    if a is not None and a > debut and e["niveau"] <= liste[rang]["niveau"]]
         fin = suivants[0] if suivants else len(plat)
         source = [b for b in plat[debut:fin] if b[1] != "titre"] or [plat[debut]]
         traduits = chap["blocs"]
@@ -321,7 +371,7 @@ def repartir_par_page(dossier_pages: str, pages: list[int], md_traduit: str) -> 
                 vu += len(b[1])
                 j = next((j for j, v in enumerate(cumul) if v >= milieu), len(source) - 1)
                 pages_corps.append(source[j][0])
-        page_titre = plat[debut][0] if debut in connues or c == 0 else (pages_corps[0] if pages_corps else plat[debut][0])
+        page_titre = plat[debut][0] if ancres[rang] is not None or not pages_corps else pages_corps[0]
         j = 0
         for k, t in traduits:
             if k == "titre":
@@ -401,9 +451,9 @@ def generer_pdf(chemin_traduit: str) -> dict:
     import pymupdf
 
     loc = localiser(chemin_traduit)
-    manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"])
+    manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"], loc["double_page"])
     with open(chemin_traduit, encoding="utf-8") as f:
-        par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read())
+        par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read(), titres_source(loc["source_md"]))
 
     ech = 72 / scan_colonnes.DPI_RENDU * ECHELLE_SORTIE
     sortie = pymupdf.open()
@@ -444,7 +494,7 @@ def generer_pdf(chemin_traduit: str) -> dict:
                 break
         ecrivain.end_page()
         nb_suites = 0
-        while plus and nb_suites < 20:   # le reste n'est jamais tronqué : il continue sur une page « suite »
+        while plus and nb_suites < NB_MAX_SUITES:   # le reste continue sur une page « suite »
             dev = ecrivain.begin_page(pymupdf.Rect(0, 0, W, H))
             for cadre in _cadres_suite(W, H):
                 plus, _ = story.place(cadre)
@@ -453,6 +503,9 @@ def generer_pdf(chemin_traduit: str) -> dict:
                     break
             ecrivain.end_page()
             nb_suites += 1
+        if plus:   # jamais de texte coupé sans le dire
+            raise ReconstructionImpossible(f"Le texte de la page {n} ne tient pas en {NB_MAX_SUITES} pages de suite : "
+                                           "le PDF n'a pas été généré.")
         ecrivain.close()
         calque = pymupdf.open("pdf", tampon.getvalue())
         page.show_pdf_page(page.rect, calque, 0)
@@ -498,25 +551,24 @@ def _position_illustration(info: dict, ill: dict) -> float:
     return avant / total if total else 0.0
 
 
-def generer_html(chemin_traduit: str, titre: str | None = None, langue_cible: str = "fr") -> dict:
+def generer_html(chemin_traduit: str, titre: str | None = None) -> dict:
     """Écrit `<traduction>_interactif.html` (autonome : images en data-URI). Retourne {chemin, pages, illustrations, octets}."""
     loc = localiser(chemin_traduit)
-    manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"])
+    manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"], loc["double_page"])
     with open(chemin_traduit, encoding="utf-8") as f:
-        par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read())
-
-    ancres: dict[str, str] = {}
-
-    def ancre(t: str) -> str:
-        return ancres.setdefault(t, f"chap-{len(ancres) + 1}")
+        par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read(), titres_source(loc["source_md"]))
 
     pages_html, sommaire, nb_illus = [], [], 0
+    n = 0
+
+    def ancre(t: str) -> str:
+        """Une ancre par OCCURRENCE : deux « Introduction » sont deux entrées du sommaire."""
+        sommaire.append((f"chap-{len(sommaire) + 1}", t, n))
+        return sommaire[-1][0]
+
     for n in loc["pages"]:
         info = manifeste["pages"][str(n)]
         blocs = par_page.get(n) or []
-        for k, t in blocs:
-            if k == "titre":
-                sommaire.append((ancre(t), t, n))
         # illustrations insérées dans le flux à leur position estimée
         inserts = sorted(((_position_illustration(info, ill), ill) for ill in info["illustrations"]),
                          key=lambda x: x[0])
@@ -542,7 +594,7 @@ def generer_html(chemin_traduit: str, titre: str | None = None, langue_cible: st
     titre = titre or os.path.basename(os.path.splitext(chemin_traduit)[0])
     toc = "".join(f'<li><a href="#{a}">{inline_html(t)}</a> <span class="p">p. {p}</span></li>' for a, t, p in sommaire)
     page = _GABARIT_HTML.replace("{{TITRE}}", html_mod.escape(titre)) \
-        .replace("{{LANG}}", html_mod.escape(langue_cible)) \
+        .replace("{{LANG}}", loc["langue_html"]) \
         .replace("{{SOMMAIRE}}", toc) \
         .replace("{{PAGES}}", "\n".join(pages_html)) \
         .replace("{{META}}", html_mod.escape(f"{len(loc['pages'])} page(s) · {nb_illus} illustration(s) · généré le "

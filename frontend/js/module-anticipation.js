@@ -80,7 +80,7 @@ const AnticipationRendu = (() => {
     return `<article class="ds-card carte antic-carte${estEpinglee ? " is-pinned" : ""}" data-antic-id="${esc(c?.id)}">
       <div class="antic-tete">
         <h2>${esc(c?.titre)} <span class="ds-badge ${cls}">${libelle}</span></h2>
-        <button type="button" class="antic-epingle${estEpinglee ? " is-on" : ""}" aria-pressed="${estEpinglee}" data-antic-epingle="${esc(c?.id)}"
+        <button type="button" class="ds-btn ds-btn--sm antic-epingle${estEpinglee ? " is-on" : ""}" aria-pressed="${estEpinglee}" data-antic-epingle="${esc(c?.id)}"
           title="${estEpinglee ? "Désépingler : la carte retourne dans la liste" : "Épingler : la carte reste en haut de l'onglet"}">📌 ${estEpinglee ? "Épinglée" : "Épingler"}</button>
       </div>
       <p class="aide">${esc(c?.date)}${Number.isInteger(c?.featureId) ? ` · feature #${c.featureId}` : ""}${c?.onglet ? ` · onglet ${esc(c.onglet)}` : ""}</p>
@@ -107,7 +107,7 @@ const AnticipationRendu = (() => {
     const puces = ["toutes", ...presents].map((k) => {
       const n = k === "toutes" ? listees.length : listees.filter((c) => c.statut === k).length;
       const on = filtre === k;
-      return `<button type="button" class="antic-puce${on ? " is-on" : ""}" aria-pressed="${on}" data-antic-filtre="${esc(k)}">${k === "toutes" ? "Toutes" : STATUTS[k][0]} (${n})</button>`;
+      return `<button type="button" class="ds-btn ds-btn--sm antic-puce${on ? " is-on" : ""}" aria-pressed="${on}" data-antic-filtre="${esc(k)}">${k === "toutes" ? "Toutes" : STATUTS[k][0]} (${n})</button>`;
     }).join("");
     const visibles = listees.filter((c) => filtre === "toutes" || c.statut === filtre).sort(tri);
     return `${hautes.map((c) => carteHTML(c, true)).join("")}

@@ -13,7 +13,8 @@
 //   Nettoyer  = la source du document est une sortie « scan multi-colonnes » ; « sautée » (tiret) si le
 //               document a été traduit tel quel, sans nettoyage
 //   Traduire  = statut du registre « termine »
-//   Résumé    = GET /etude/statut renvoie une fiche « termine »
+//   Résumé    = GET /etude/statut renvoie une fiche « termine » pour cette traduction (la fiche se range à côté
+//               de chemin_sortie, pas de la source), quels que soient son modèle et sa stratégie
 //   Écouter   = GET /tts/statut renvoie un audio « termine »
 //   Lire      = jamais cochée : lire ne laisse aucune trace, c'est l'étape d'arrivée
 
@@ -41,6 +42,14 @@ let scanEtat = null;            // GET /labo/scan-colonnes/statut de la cible (n
 let cibleInfoChargee = null;    // cible dont les langues OCR ont été lues
 let parcoursErreurLancement = null;   // échec du dernier lancement : le Laboratoire qui l'affiche est masqué ici
 let parcoursObjectif = "lire";
+
+// Un objectif dont la fonction est coupée par un flag (bilbao) n'est pas proposé : off, l'onglet du Laboratoire
+// disparaît et la route refuse (extraction_scan_colonnes) ; off, Résumé et quiz reste masqué (mode_avance).
+function parcoursObjectifDispo(o) {
+  if (o === "nettoyer") return featureFlags.extraction_scan_colonnes !== false;
+  if (o === "etudier") return featureFlags.mode_avance !== false;
+  return true;
+}
 
 function parcoursDocSuivi() {
   const enMarche = parcoursDocs.find((d) => d.statut === "en_cours" || d.statut === "en_attente");
@@ -220,9 +229,11 @@ function parcoursCalculer() {
     activerModule("bibliotheque");
     if (doc) document.dispatchEvent(new CustomEvent("ouvrir-document", { detail: { chemin_sortie: doc.chemin_sortie } }));
   };
-  const exigeAvance = (texte, fn) => modeAvance
-    ? { texte, fn }
-    : { texte: "Activer le mode avancé", fn: () => { appliquerModeAvance(true); parcoursRendre(); } };
+  const exigeAvance = (texte, fn) => {
+    if (modeAvance) return { texte, fn };
+    if (featureFlags.mode_avance === false) return null;   // jamais d'activation malgré le flag
+    return { texte: "Activer le mode avancé", fn: () => { appliquerModeAvance(true); parcoursRendre(); } };
+  };
 
   if (cle === "importer") {
     detail = "Glissez un fichier .pdf ou .md dans la zone ci-dessous.";
@@ -305,7 +316,7 @@ async function parcoursCharger() {
   if (parcoursObjectif === "nettoyer") await parcoursChargerNettoyage();
   if (doc && doc.statut === "termine") {
     if (parcoursObjectif === "etudier") {
-      try { parcoursSignaux.etude = ((await apiGet(`/etude/statut?chemin_source=${encodeURIComponent(doc.chemin_source)}`)) || {}).statut || null; } catch { /* inconnu */ }
+      try { parcoursSignaux.etude = ((await apiGet(`/etude/statut?chemin_source=${encodeURIComponent(doc.chemin_sortie)}`)) || {}).statut || null; } catch { /* inconnu */ }
     } else if (parcoursObjectif === "ecouter") {
       try { parcoursSignaux.audio = ((await apiGet(`/tts/statut?chemin_md=${encodeURIComponent(doc.chemin_sortie)}`)) || {}).statut || null; } catch { /* inconnu */ }
     }
@@ -332,7 +343,7 @@ async function parcoursChargerNettoyage() {
 }
 
 function choisirObjectif(o) {
-  if (!PARCOURS_OBJECTIFS[o]) o = "lire";
+  if (!PARCOURS_OBJECTIFS[o] || !parcoursObjectifDispo(o)) o = "lire";
   parcoursObjectif = o;
   document.documentElement.dataset.objectif = o;
   try { localStorage.setItem(OBJECTIF_STORAGE_KEY, o); } catch { /* navigation privée */ }
@@ -357,6 +368,10 @@ $("parcours-auto").addEventListener("change", (e) => { $("scan-puis-traduire").c
 $("scan-puis-traduire").addEventListener("change", (e) => { $("parcours-auto").checked = e.target.checked; });
 
 document.querySelectorAll(".objectif-option").forEach((b) => b.addEventListener("click", () => choisirObjectif(b.dataset.objectif)));
+document.addEventListener("flags-charges", () => {
+  document.querySelectorAll(".objectif-option").forEach((b) => { b.hidden = !parcoursObjectifDispo(b.dataset.objectif); });
+  if (!parcoursObjectifDispo(parcoursObjectif)) choisirObjectif("lire");
+});
 document.addEventListener("module-affiche", (e) => { if (e.detail === "import") parcoursCharger(); });
 document.addEventListener("traduction-terminee", parcoursCharger);
 document.addEventListener("backend-connecte", parcoursCharger);

@@ -124,7 +124,7 @@ struct ReglagesView: View {
         )
     }
 
-    // MARK: - Style de l'interface (même 6 styles que la version web)
+    // MARK: - Style de l'interface (mêmes 7 styles que la version web)
 
     private var carteStyle: some View {
         GroupBox("Style de l'interface") {

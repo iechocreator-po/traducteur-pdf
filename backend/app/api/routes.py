@@ -819,7 +819,9 @@ def lancer_scan_colonnes(req: ScanColonnesRequest) -> dict:
     région (colonnes, encadrés, titres numérotés) au lieu de reprendre la couche
     texte du scan. Écrit `<nom>_scan_colonnes.md` à côté du PDF ; les pages déjà
     traitées d'un passage précédent sont reprises, pas refaites. SANS LLM.
+    Flag désactivé : on ne LANCE plus rien ; statut et annulation restent ouverts pour un scan déjà parti.
     """
+    _exiger_flag("extraction_scan_colonnes")
     chemin = valider_chemin_source(req.chemin_pdf, extensions=(".pdf",), label="PDF scanné")
     from app.services.scan_colonnes import ScanColonnesEchec, demarrer_scan
 

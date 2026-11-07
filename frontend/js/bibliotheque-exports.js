@@ -102,6 +102,7 @@
     mode = m;
     document.querySelectorAll(".sig-onglet").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.sigMode === m)));
     document.querySelectorAll(".sig-panneau").forEach((p) => { p.hidden = p.dataset.sigPanneau !== m; });
+    $("sig-couleur-zone").hidden = m === "importer";   // une image importée garde ses couleurs
     majSignature();
   }
   document.querySelectorAll(".sig-onglet").forEach((b) => b.addEventListener("click", () => choisirMode(b.dataset.sigMode)));

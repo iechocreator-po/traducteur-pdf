@@ -269,3 +269,253 @@ def test_tient_compte_tous_les_cadres():
     une_colonne = cadres[:1]
     assert not reconstruction._tient(html, 10.0, une_colonne)    # dépasse la première colonne…
     assert reconstruction._tient(html, 10.0, cadres)             # …mais tient dans les trois, sans réduire
+
+
+# ── Répartition par page : ancres, bornes, plage ─────────────────────────────
+
+def _page_json(dossier, n, blocs):
+    (dossier / f"page-{n:04d}.json").write_text(json.dumps({"page": n, "blocs": blocs}))
+
+
+def test_un_faux_titre_lointain_ne_fait_pas_sauter_les_chapitres():
+    # « Chapter one » existe à l'identique très loin : le prendre ferait perdre les trois chapitres suivants.
+    cibles = ["Chapter one", "Chapter two", "Chapter three", "Chapter four"]
+    scan = ["Chapter on", "Chapter tw", "Chapter thre", "Chapter fou", "Annexe", "Chapter one"]
+    assert reconstruction._aligner_titres(cibles, scan) == [0, 1, 2, 3]
+
+
+def test_alignement_respecte_l_ordre_et_signale_l_absent():
+    assert reconstruction._aligner_titres(["Alpha", "Sans rapport", "Gamma"], ["Alpha", "Gamma"]) == [0, None, 1]
+    assert reconstruction._aligner_titres(["Gamma", "Alpha"], ["Alpha", "Gamma"]) in ([1, None], [None, 0])
+
+
+def test_a_total_egal_le_titre_le_plus_proche_gagne():
+    assert reconstruction._aligner_titres(["Introduction"], ["Introduction", "Introduction"]) == [0]
+
+
+def test_chapitre_traduit_seul_ne_s_etale_pas_jusqu_a_la_fin(tmp_path):
+    for n, titre in enumerate(("Un", "Deux", "Trois"), start=1):
+        _page_json(tmp_path, n, [["titre", titre], ["para", "Texte source " * 20], ["para", "Encore " * 20]])
+    # Un seul paragraphe traduit pour deux à la source : passe par la répartition proportionnelle.
+    md = "<!-- === chapitre 0 : Un === -->\n\n## Uno\n\n" + "Texto traducido " * 50 + "\n"
+    source = [{"titre": t, "niveau": 2} for t in ("Un", "Deux", "Trois")]
+    par_page = reconstruction.repartir_par_page(str(tmp_path), [1, 2, 3], md, source)
+    assert par_page[2] == [] and par_page[3] == []
+    assert [k for k, _ in par_page[1]] == ["titre", "para"]
+
+
+def test_chapitre_parent_garde_ses_sous_chapitres(tmp_path):
+    _page_json(tmp_path, 1, [["titre", "Partie"], ["para", "A" * 100]])
+    _page_json(tmp_path, 2, [["titre", "Section"], ["para", "B" * 100]])
+    _page_json(tmp_path, 3, [["titre", "Autre partie"], ["para", "C" * 100]])
+    md = "<!-- === chapitre 0 : Partie === -->\n\n## Partie\n\n" + "a" * 100 + "\n\n" + "b" * 100 + "\n"
+    source = [{"titre": "Partie", "niveau": 1}, {"titre": "Section", "niveau": 2}, {"titre": "Autre partie", "niveau": 1}]
+    par_page = reconstruction.repartir_par_page(str(tmp_path), [1, 2, 3], md, source)
+    assert ("para", "b" * 100) in par_page[2] and par_page[3] == []
+
+
+def test_source_regeneree_ignoree_si_elle_ne_correspond_plus(tmp_path):
+    _page_json(tmp_path, 1, [["titre", "Un"], ["para", "x"]])
+    _page_json(tmp_path, 2, [["titre", "Deux"], ["para", "y"]])
+    md = "<!-- === chapitre 0 : Un === -->\n\n## Uno\n\nX\n\n<!-- === chapitre 1 : Deux === -->\n\n## Dos\n\nY\n"
+    par_page = reconstruction.repartir_par_page(str(tmp_path), [1, 2], md, [{"titre": "Autre chose", "niveau": 2}])
+    assert ("para", "Y") in par_page[2]
+
+
+def test_repartition_proportionnelle_aux_caracteres(tmp_path):
+    _page_json(tmp_path, 1, [["titre", "Un"], ["para", "s" * 100], ["para", "s" * 100]])
+    _page_json(tmp_path, 2, [["para", "s" * 200]])
+    # 2 paragraphes traduits pour 3 à la source : le 1er (court) en page 1, le 2e (milieu à 62 %) en page 2.
+    md = "<!-- === chapitre 0 : Un === -->\n\n## Uno\n\n" + "c" * 100 + "\n\n" + "l" * 100 + "\n\n"
+    par_page = reconstruction.repartir_par_page(str(tmp_path), [1, 2], md)
+    assert ("para", "c" * 100) in par_page[1] and ("para", "l" * 100) in par_page[2]
+
+
+def _etat_scan(pdf, **champs):
+    from app.services import scan_colonnes
+    sorties = scan_colonnes.chemins_sortie(pdf)
+    with open(sorties["etat"], "w", encoding="utf-8") as f:
+        json.dump({"statut": "termine", "job_id": "fini", **champs}, f)
+
+
+def test_seules_les_pages_du_dernier_scan_comptent(scan_traduit):
+    pdf = scan_traduit.replace("_scan_colonnes_traduit_m.md", ".pdf")
+    assert reconstruction.localiser(scan_traduit)["pages"] == [1, 2]
+    _etat_scan(pdf, page_debut=2, page_fin=2)
+    assert reconstruction.localiser(scan_traduit)["pages"] == [2]
+
+
+def test_reglage_double_page_du_scan_transmis_et_dans_le_cache(scan_traduit, monkeypatch):
+    from app.services import scan_colonnes
+    pdf = scan_traduit.replace("_scan_colonnes_traduit_m.md", ".pdf")
+    reconstruction.generer_pdf(scan_traduit)
+
+    vus = []
+    origine = scan_colonnes.analyser_mise_en_page
+    monkeypatch.setattr(scan_colonnes, "analyser_mise_en_page", lambda image, dp=None: vus.append(dp) or origine(image, dp))
+    _etat_scan(pdf, double_page=False)
+    reconstruction.generer_pdf(scan_traduit)     # le réglage a changé : le cache ne doit pas resservir
+    assert vus == [False, False]
+    reconstruction.generer_pdf(scan_traduit)     # inchangé : cache
+    assert vus == [False, False]
+
+
+# ── Illustrations ────────────────────────────────────────────────────────────
+
+def _page_jaunie(illustration=False):
+    img = _page_scannee(illustration=illustration)
+    px = img.load()
+    for y in range(img.height):
+        for x in range(img.width):
+            if px[x, y] == (232, 228, 220):
+                px[x, y] = (235, 215, 170)
+    return img
+
+
+def test_papier_jauni_n_est_pas_une_illustration():
+    assert reconstruction.detecter_illustrations(_page_jaunie()) == []
+
+
+def test_illustration_toujours_trouvee_sur_papier_jauni():
+    rects = reconstruction.detecter_illustrations(_page_jaunie(illustration=True))
+    assert len(rects) == 1 and rects[0][0] < 40 and rects[0][2] > 760
+
+
+def test_illustration_replacee_a_sa_position_dans_le_pdf(scan_traduit):
+    from app.services import scan_colonnes
+    r = reconstruction.generer_pdf(scan_traduit)
+    ech = 72 / scan_colonnes.DPI_RENDU * reconstruction.ECHELLE_SORTIE
+    doc = pymupdf.open(r["chemin"])
+    try:
+        rects = doc[0].get_image_rects(doc[0].get_images()[0][0])
+        assert len(rects) == 1
+        # dessinée dans _page_scannee sur (0, 0, 800, 520) pixels ; la détection travaille par tuiles de 8 px,
+        # fermeture morphologique comprise : quatre tuiles de tolérance
+        tol = 32 * ech
+        assert rects[0].x0 == pytest.approx(0, abs=tol) and rects[0].y0 == pytest.approx(0, abs=tol)
+        assert rects[0].x1 == pytest.approx(800 * ech, abs=tol) and rects[0].y1 == pytest.approx(520 * ech, abs=tol)
+    finally:
+        doc.close()
+
+
+def test_position_d_une_illustration_dans_le_flux():
+    info = {"largeur": 1600, "cadres": [[0, 0, 400, 400], [0, 600, 400, 1000], [800, 0, 1200, 1000]]}
+    gauche = reconstruction._position_illustration(info, {"rect": [0, 420, 400, 580]})
+    droite = reconstruction._position_illustration(info, {"rect": [800, 0, 1200, 300]})
+    assert gauche == pytest.approx(160000 / 720000)     # seul le cadre au-dessus la précède
+    assert droite == pytest.approx(320000 / 720000)     # toute la demi-page gauche la précède
+    assert reconstruction._position_illustration({"largeur": 100, "cadres": []}, {"rect": [0, 0, 1, 1]}) == 0.0
+
+
+# ── Sorties : texte jamais coupé, HTML ───────────────────────────────────────
+
+def test_texte_trop_long_echoue_au_lieu_d_etre_coupe(scan_traduit, monkeypatch):
+    with open(scan_traduit, "a", encoding="utf-8") as f:
+        f.write("\n\n" + "\n\n".join(["Enfin à la maison, encore et encore. " * 40] * 60) + "\n")
+    monkeypatch.setattr(reconstruction, "NB_MAX_SUITES", 0)
+    with pytest.raises(reconstruction.ReconstructionImpossible, match="ne tient pas"):
+        reconstruction.generer_pdf(scan_traduit)
+    assert not os.path.exists(reconstruction.localiser(scan_traduit)["sortie_pdf"])
+
+
+@pytest.mark.parametrize("langue, attendu", [("espagnol", "es"), ("anglais", "en"), ("français", "fr"), (None, "und")])
+def test_html_prend_la_langue_du_document(scan_traduit, langue, attendu):
+    chemin_etat = os.path.splitext(scan_traduit)[0] + ".state.json"
+    etat = json.load(open(chemin_etat, encoding="utf-8"))
+    etat["langue_cible"] = langue
+    json.dump(etat, open(chemin_etat, "w", encoding="utf-8"))
+    contenu = open(reconstruction.generer_html(scan_traduit)["chemin"], encoding="utf-8").read()
+    assert f'<html lang="{attendu}">' in contenu
+
+
+def test_html_une_ancre_par_titre_meme_identique(scan_traduit):
+    with open(scan_traduit, "w", encoding="utf-8") as f:
+        f.write("<!-- === chapitre 0 : 1 The Ship === -->\n\n## Introduction\n\nUn.\n\n"
+                "<!-- === chapitre 1 : 2 The Sea === -->\n\n## Introduction\n\nDeux.\n")
+    contenu = open(reconstruction.generer_html(scan_traduit)["chemin"], encoding="utf-8").read()
+    assert contenu.count('id="chap-1"') == 1 and contenu.count('id="chap-2"') == 1
+    assert 'href="#chap-1"' in contenu and 'href="#chap-2"' in contenu
+
+
+# ── Signature : rotation et CropBox ──────────────────────────────────────────
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_signature_placee_au_bon_endroit_avec_cropbox(tmp_path, rotation):
+    import numpy as np
+
+    chemin = tmp_path / "recadre.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page(width=600, height=800)
+    page.set_cropbox(pymupdf.Rect(50, 100, 450, 700))
+    page.set_rotation(rotation)
+    W, H = page.rect.width, page.rect.height
+    doc.save(chemin)
+    doc.close()
+    tampon = io.BytesIO()
+    Image.new("RGB", (300, 300), (255, 0, 0)).save(tampon, format="PNG")
+    cote = 120
+    x, y = 0.1, 0.2
+    r = signature.signer(str(chemin), tampon.getvalue(),
+                         [{"page": 1, "x": x, "y": y, "largeur": cote / W, "hauteur": cote / H}], "Signé par JP")
+
+    doc = pymupdf.open(r["chemin"])
+    try:
+        page = doc[0]
+        assert page.rotation == rotation       # rotation d'origine restaurée
+        pix = page.get_pixmap(alpha=False)
+        px = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
+        ys, xs = ((px[..., 0] > 200) & (px[..., 1] < 80) & (px[..., 2] < 80)).nonzero()
+        assert len(xs), "signature absente de la zone visible"
+        assert xs.min() == pytest.approx(x * W, abs=2) and xs.max() + 1 == pytest.approx(x * W + cote, abs=2)
+        assert ys.min() == pytest.approx(y * H, abs=2) and ys.max() + 1 == pytest.approx(y * H + cote, abs=2)
+        assert "Signé par JP" in _texte_compact(page)
+    finally:
+        doc.close()
+
+
+# ── Routes : flags, validation ───────────────────────────────────────────────
+
+def _flags_off(monkeypatch, *noms):
+    from app.api import routes
+    origine = routes.charger_flags
+    monkeypatch.setattr(routes, "charger_flags", lambda: {**origine(), **{n: False for n in noms}})
+
+
+def _client():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    return TestClient(app)
+
+
+def test_routes_reconstruction(scan_traduit, tmp_path, monkeypatch):
+    client = _client()
+    assert client.get("/api/reconstruction/info", params={"chemin_sortie": scan_traduit}).json()["disponible"] is True
+    assert client.post("/api/reconstruction/docx", params={"chemin_sortie": scan_traduit}).status_code == 404
+    r = client.post("/api/reconstruction/pdf", params={"chemin_sortie": scan_traduit})
+    assert r.status_code == 200 and r.json()["chemin"].endswith("_mise_en_page.pdf")
+
+    autre = tmp_path / "autre_traduit_m.md"
+    autre.write_text("texte")
+    r = client.post("/api/reconstruction/html", params={"chemin_sortie": str(autre)})
+    assert r.status_code == 409 and "Scan multi-colonnes" in r.json()["detail"]
+
+    _flags_off(monkeypatch, "reconstruction_scan")
+    assert client.post("/api/reconstruction/pdf", params={"chemin_sortie": scan_traduit}).status_code == 403
+
+
+def test_routes_signature_refusent_flag_off_et_entrees_invalides(tmp_path, monkeypatch):
+    client = _client()
+    pdf = _pdf(tmp_path)
+    corps = {"chemin_pdf": pdf, "signature_png_base64": base64.b64encode(_png()).decode(),
+             "placements": [{"page": 1, "x": 0.1, "y": 0.1, "largeur": 0.2, "hauteur": 0.1}]}
+    assert client.post("/api/signature", json={**corps, "signature_png_base64": "%%%"}).status_code == 422
+    assert client.post("/api/signature", json={**corps, "placements": []}).status_code == 422
+    assert client.post("/api/signature", json={**corps, "placements": [{**corps["placements"][0], "page": 9}]}).status_code == 422
+    assert client.get("/api/signature/apercu", params={"chemin_pdf": pdf, "page": 9}).status_code == 422
+    assert client.get("/api/signature/info", params={"chemin_pdf": pdf}).json()["pages"] == 2
+
+    _flags_off(monkeypatch, "signature_pdf")
+    assert client.post("/api/signature", json=corps).status_code == 403
+    assert client.get("/api/signature/info", params={"chemin_pdf": pdf}).status_code == 403
+    assert client.get("/api/signature/apercu", params={"chemin_pdf": pdf}).status_code == 403
+    assert client.get("/api/signature/pdfs", params={"chemin_sortie": str(tmp_path / "x.md")}).status_code == 403

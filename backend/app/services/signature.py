@@ -11,7 +11,7 @@ Règles :
   - signer un fichier déjà `_signe.pdf` ajoute la signature à ce même fichier (écriture atomique) ;
   - signer l'original alors que `<base>_signe.pdf` existe est refusé : ce serait écraser ses signatures ;
   - une mention demandée figure dans le PDF, ou la signature échoue : jamais de succès sans mention ;
-  - les coordonnées reçues sont normalisées (0–1) sur la page TELLE QU'AFFICHÉE (rotation comprise).
+  - les coordonnées reçues sont normalisées (0–1) sur la page TELLE QU'AFFICHÉE (rotation et CropBox comprises).
 """
 
 from __future__ import annotations
@@ -121,15 +121,15 @@ def _signature_png(octets: bytes) -> bytes:
     return tampon.getvalue()
 
 
-def _ecrire_mention(page, visible, mention: str, taille_voulue: float) -> None:
+def _ecrire_mention(page, visible, mention: str, taille_voulue: float, W: float, H: float, derotation, rotation: int) -> None:
     """
     Écrit `mention` sous la signature, ou au-dessus si la place manque en bas de page, en restant dans la
     page et en réduisant la police au besoin. `insert_textbox` n'écrit RIEN quand le texte ne tient pas et
     rend alors une valeur négative : sans ce contrôle, le PDF sort sans mention et l'interface dit « signé ».
+    `visible`, W et H sont en coordonnées affichées ; `page` est à rotation 0 (voir `signer`).
     """
     import pymupdf
 
-    W, H = page.rect.width, page.rect.height
     largeur = min(W - 4, max(visible.width, MENTION_LARGEUR_MIN))
     x0 = max(2, min(visible.x0, W - largeur - 2))
     taille = taille_voulue
@@ -140,8 +140,8 @@ def _ecrire_mention(page, visible, mention: str, taille_voulue: float) -> None:
             if y0 < 0 or y0 + hauteur > H:
                 continue
             zone = pymupdf.Rect(x0, y0, x0 + largeur, y0 + hauteur)
-            if page.insert_textbox(zone * page.derotation_matrix, mention, fontsize=taille,
-                                   color=(0.25, 0.25, 0.3), rotate=page.rotation) >= 0:
+            if page.insert_textbox(zone * derotation, mention, fontsize=taille,
+                                   color=(0.25, 0.25, 0.3), rotate=rotation) >= 0:
                 return
         if taille <= MENTION_TAILLE_MIN:
             raise SignatureInvalide("La mention ne tient pas à cet emplacement : déplacez la signature ou raccourcissez la mention.")
@@ -179,12 +179,16 @@ def signer(chemin_pdf: str, signature: bytes, placements: list[dict], mention: s
             page = doc[n - 1]
             W, H = page.rect.width, page.rect.height
             visible = pymupdf.Rect(x * W, y * H, min(1, x + larg) * W, min(1, y + haut) * H)
-            # page.rect est la page AFFICHÉE ; insert_image attend les coordonnées non tournées
-            page.insert_image(visible * page.derotation_matrix, stream=png, keep_proportion=True,
-                              overlay=True, rotate=page.rotation)
+            # page.rect est la page AFFICHÉE ; insert_image attend les coordonnées non tournées. Sur une page
+            # tournée dont la CropBox diffère de la MediaBox, pymupdf les décale (mesuré : l'image part ailleurs et
+            # se fait rogner) ; à rotation 0, elles sont justes. On insère donc à 0, puis on remet la rotation.
+            rotation, derotation = page.rotation, page.derotation_matrix
+            page.set_rotation(0)
+            page.insert_image(visible * derotation, stream=png, keep_proportion=True, overlay=True, rotate=rotation)
             if mention:
                 taille = max(6.0, min(10.0, visible.height * 0.16))
-                _ecrire_mention(page, visible, mention, taille)
+                _ecrire_mention(page, visible, mention, taille, W, H, derotation, rotation)
+            page.set_rotation(rotation)
             signees.add(n)
         contenu = doc.tobytes(garbage=3, deflate=True)
     finally:

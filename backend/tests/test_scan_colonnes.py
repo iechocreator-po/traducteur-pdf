@@ -441,3 +441,43 @@ def test_route_info(tmp_path):
 def test_le_flag_existe_et_est_actif_par_defaut():
     from app.config.feature_flags import FLAGS_PAR_DEFAUT
     assert FLAGS_PAR_DEFAUT["extraction_scan_colonnes"] is True
+
+
+def test_annulation_reelle_arrete_entre_deux_pages_et_garde_le_fait(tmp_path, monkeypatch):
+    from app.services.job_manager import demander_annulation
+
+    pdf = tmp_path / "long.pdf"
+    _pdf_trois_colonnes(pdf)
+    sorties = S.chemins_sortie(str(pdf))
+    traitees = []
+
+    def faux_traitement(_chemin, numero, *_):
+        traitees.append(numero)
+        if numero == 1:
+            demander_annulation("annul-reel")
+        return {"blocs": []}
+
+    monkeypatch.setattr(S, "_traiter_et_ecrire_page", faux_traitement)
+    etat = {"job_id": "annul-reel", "chemin_pdf": str(pdf), "chemin_sortie": sorties["markdown"],
+            "dossier_pages": sorties["pages"], "chemin_etat": sorties["etat"], "langue_ocr": "eng",
+            "double_page": False, "travailleurs": 1, "page_debut": 1, "page_fin": 5, "pages_total": 5, "pages_faites": 0,
+            "pages_en_erreur": [], "statut": "en_attente", "temps_ecoule_secondes": 0.0, "demarre_a": 0}
+    S.enregistrer_job("annul-reel")
+    S._executer(etat)
+    assert traitees == [1]
+    assert S.lire_etat(str(pdf))["statut"] == "annule" and etat["pages_faites"] == 1
+    assert not os.path.exists(sorties["markdown"])      # pas de résultat partiel présenté comme un résultat
+    assert not S.job_actif("annul-reel")                # le job ne reste pas enregistré
+
+
+def test_route_lancer_refusee_si_le_flag_est_coupe(tmp_path, monkeypatch):
+    from app.api import routes
+
+    pdf = tmp_path / "x.pdf"
+    _pdf_trois_colonnes(pdf)
+    monkeypatch.setattr(routes, "charger_flags", lambda: {"extraction_scan_colonnes": False})
+    r = client.post("/api/labo/scan-colonnes", json={"chemin_pdf": str(pdf)})
+    assert r.status_code == 403
+    assert S.lire_etat(str(pdf)) is None                # rien n'a démarré
+    # statut reste lisible : un scan déjà parti doit pouvoir être suivi et arrêté
+    assert client.get("/api/labo/scan-colonnes/statut", params={"chemin_pdf": str(pdf)}).status_code == 200

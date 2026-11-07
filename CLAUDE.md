@@ -93,7 +93,7 @@ masqués (`⟦IMGk⟧`) avant Ollama et restaurés ; affichage via `GET /api/ima
   ⚙ Réglages › Personnalisation, gated par le flag `mode_avance`.
 - **Feature flags** (`backend/app/config/feature_flags.py`, `GET /api/feature-flags`) : priorité `FLAGS_PAR_DEFAUT` →
   `bilbao.features.json` (artefact de bilbao, à committer) → `feature_flags.json` local → variables `FEATURE_<NOM>`.
-- **Styles visuels** (⚙ Réglages → « Style de l'interface », 6 styles) : web `<html data-style>` + `css/styles-visuels.css`
+- **Styles visuels** (⚙ Réglages → « Style de l'interface », 7 styles) : web `<html data-style>` + `css/styles-visuels.css`
   (chargé après `theme-toledo.css`), grille `js/reglages-styles.js` ; macOS `StylesVisuels.swift`. Ajouter un style = tokens ×3,
   `.apercu-<id>`, id dans `STYLES_IDS` et `STYLES_VISUELS`, `case` Swift. Polices système seulement (jamais de CDN).
 - **Repères d'interface** : lettre par module, lettre+numéro par carte, dérivés du DOM, OFF par défaut ; sur macOS le numéro
