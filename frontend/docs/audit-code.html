@@ -23,7 +23,7 @@
   td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
   .gros { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .barre { height: 12px; border-radius: 6px; background: var(--surface-2, var(--border)); overflow: hidden; margin: 6px 0; }
-  .barre > i { display: block; height: 100%; background: var(--accent); width: 18%; }
+  .barre > i { display: block; height: 100%; background: var(--accent); width: 16%; }
   ol { margin: 0; padding-left: 20px; }
   li { margin-bottom: 6px; }
   code { font-size: 12px; }
@@ -33,11 +33,30 @@
 <main>
 <div class="bandeau">Rapport · mis à jour le 7 novembre 2026</div>
 <h1>Audit du code de toledo : où en est-on ?</h1>
-<p class="muted">La skill commune <code>/revue-code</code> a tourné deux fois : un audit de la zone « moteur » le 26 octobre (trois sous-agents, constats corrigés), puis une revue du code ajouté depuis, le 6 novembre (cinq passes, 36 constats, tous corrigés ; la parité macOS est un écart volontaire). Une revue ne couvre que le code ajouté : cinq zones restent à auditer. Les sections suivant celle du 6 novembre datent du 26 octobre.</p>
+<p class="muted">La skill commune <code>/revue-code</code> a tourné trois fois : un audit de la zone « moteur » le 26 octobre (trois sous-agents, constats corrigés), une revue du code ajouté depuis, le 6 novembre (cinq passes, 36 constats, tous corrigés ; la parité macOS est un écart volontaire), puis une revue de ces correctifs le 7 novembre (9 constats, 7 corrigés, 2 ouverts). Une revue ne couvre que le code ajouté : cinq zones restent à auditer. Les sections « sous le seuil » et « ce qui reste à faire » datent du 26 octobre.</p>
+
+<section class="ds-card carte"><h2>Revue du 7 novembre 2026 (6ff59e6..f15b451)</h2>
+<p><span class="gros">9</span> constats à 80 ou plus sur les deux lots de correctifs du 6 novembre, jamais revus jusque-là : <strong>7 corrigés dans <code>c808565</code>, 2 ouverts</strong>. Après correctifs : pytest 465 passés en local, CI GitHub au vert sur <code>c808565</code> (460 passés, 5 sautés), ruff sans erreur. Ces constats ne sont pas encore reliés à des entrées bilbao.</p>
+<table>
+<tr><th class="n">Note</th><th>Constat</th><th>État</th></tr>
+<tr><td class="n">100</td><td>Test intermittent <code>test_stats.py::test_une_traduction_reelle_laisse_ses_jetons_dans_l_historique</code> : un échec sur 21 suites complètes le 7 novembre, dont 18 sous charge. Message perdu, cause non trouvée ; l'assertion affiche maintenant le statut et les lignes reçues.</td><td>ouvert</td></tr>
+<tr><td class="n">85</td><td>PDF mis en page : plage et <code>double_page</code> lus sur le dernier scan lancé. Un scan arrêté faisait disparaître des pages, sans erreur (<code>reconstruction.py:85</code>). Exécuté. Régression de <code>ddbf8a4</code>.</td><td>corrigé</td></tr>
+<tr><td class="n">85</td><td>Signature : lettres hors Latin-1 remplacées par « ? » dans la mention, avec succès renvoyé (<code>signature.py:143</code>). Exécuté.</td><td>corrigé</td></tr>
+<tr><td class="n">85</td><td>Tests : le contrôle du retour de <code>insert_textbox</code> (mention garantie) n'était pas exercé.</td><td>corrigé</td></tr>
+<tr><td class="n">85</td><td>Tests : bornes de chapitres par la source jamais exercées de bout en bout (fixture à un seul chapitre).</td><td>corrigé</td></tr>
+<tr><td class="n">85</td><td>Tests : aucune vérification automatique de l'enchaînement scan vers traduction ni des promesses du parcours (<code>labo-scan-colonnes.js:188</code>, <code>parcours.js</code>).</td><td>ouvert</td></tr>
+<tr><td class="n">82</td><td>Tests : le test du PNG géant était arrêté par le garde-fou de Pillow, pas par la limite de 4000 px.</td><td>corrigé</td></tr>
+<tr><td class="n">80</td><td>Lot : réglages figés conservés après un enchaînement raté, « Lancer » partait avec une autre langue que les menus (<code>module-import.js:180</code>).</td><td>corrigé</td></tr>
+<tr><td class="n">80</td><td>Signature : présélection du PDF que le backend refuse dès la deuxième signature (<code>bibliotheque-exports.js:275</code>).</td><td>corrigé</td></tr>
+</table>
+<p class="muted" style="margin-top:8px">Sous le seuil, à surveiller : <code>lire_etat</code> peut écraser un <code>termine</code> par <code>annule</code>, course reproduite en boucle serrée, très rare au rythme réel (75) ; PNG piégé répondant 500 au lieu de 422 (75) ; double scan sur un même PDF (72) ; réglages figés perdus si le chemin saisi passe par un lien symbolique (65) ; sorties PDF en droits 0600 (60).</p>
+<p class="muted"><strong>Vérifié après correctifs :</strong> 18 mutations du code corrigé, toutes détectées par les tests ; réglages figés et présélection essayés dans la vraie page, requêtes simulées ; refus de la mention contrôlé sur le backend réel avec un PDF jetable.</p>
+<p class="muted"><strong>Non vérifié :</strong> aucun livre scanné réel ni traduction Ollama, aucun rendu contrôlé à l'œil, message d'erreur de la mention non vu à l'écran. Le filtre de plage d'un ancien état se fie au statut <code>termine</code>.</p>
+</section>
 
 <section class="ds-card carte"><h2>Revue du 6 novembre 2026 (ff6a5de..6ff59e6)</h2>
 <p><span class="gros">36</span> constats à 80 ou plus, regroupés en 17 entrées dans bilbao (#485 à #501) : <strong>aucune ne reste ouverte</strong>. #501 (parité macOS) est fermée comme écart volontaire, par décision de JP du 7 novembre. Après correctifs : pytest 444 passés ; ruff sans erreur sur <code>app</code> et <code>tests</code>, comme la CI. Premier lot livré dans <code>9b90be9</code> ; second lot dans <code>ddbf8a4</code>.</p>
-<p class="muted">Un test intermittent : <code>test_stats.py::test_une_traduction_reelle_laisse_ses_jetons_dans_l_historique</code> a échoué une fois sur quatre suites complètes, sans changement entre-temps. Cause non cherchée.</p>
+<p class="muted">Un test intermittent : <code>test_stats.py::test_une_traduction_reelle_laisse_ses_jetons_dans_l_historique</code> a échoué une fois sur quatre suites complètes, sans changement entre-temps. Voir la revue du 7 novembre.</p>
 <table>
 <tr><th class="n">Note</th><th>Constat</th><th>État</th><th class="n">bilbao</th></tr>
 <tr><td class="n">100</td><td>Signature : la mention peut être absente du PDF alors que l'interface affiche le succès (<code>signature.py:147</code>). Exécuté.</td><td>corrigé</td><td class="n">#491</td></tr>
@@ -67,27 +86,28 @@
 <section class="ds-card carte"><h2>Ce que contient toledo (mesuré, hors tests)</h2>
 <table>
 <tr><th>Bloc</th><th class="n">Fichiers</th><th class="n">Lignes</th></tr>
-<tr><td>Backend : services</td><td class="n">29</td><td class="n">7 020</td></tr>
-<tr><td>Backend : API, config, modèles, agents, main</td><td class="n">14</td><td class="n">1 875</td></tr>
+<tr><td>Backend : services</td><td class="n">31</td><td class="n">8 082</td></tr>
+<tr><td>Backend : API, config, modèles, agents, main</td><td class="n">14</td><td class="n">2 014</td></tr>
 <tr><td>Backend : scripts de migration</td><td class="n">2</td><td class="n">297</td></tr>
-<tr><td>Interface web (frontend/js)</td><td class="n">12</td><td class="n">4 499</td></tr>
+<tr><td>Interface web (frontend/js)</td><td class="n">14</td><td class="n">5 202</td></tr>
 <tr><td>App macOS (Swift)</td><td class="n">18</td><td class="n">3 821</td></tr>
-<tr><td><b>Total</b></td><td class="n"><b>75</b></td><td class="n"><b>~17 500</b></td></tr>
-<tr><td>Tests (pytest)</td><td class="n">31</td><td class="n">6 150</td></tr>
+<tr><td><b>Total</b></td><td class="n"><b>79</b></td><td class="n"><b>~19 400</b></td></tr>
+<tr><td>Tests (pytest)</td><td class="n">33</td><td class="n">7 116</td></tr>
 </table>
-<p class="muted" style="margin-top:8px">CSS et HTML non comptés. Au 26/10/2026, la suite pytest passe : 389 tests, 0 échec.</p></section>
+<p class="muted" style="margin-top:8px">Mesuré le 7/11/2026 ; CSS et HTML non comptés. La suite pytest passe : 465 tests en local (389 au 26/10/2026), avec un test intermittent.</p></section>
 
 <section class="ds-card carte"><h2>Couverture des audits</h2>
-<div class="gros">≈ 17 %</div><div class="barre"><i></i></div>
-<p class="muted">≈ 3 000 lignes sur ≈ 17 500 (la zone « moteur » : 10 services et le registre de la Bibliothèque).</p>
+<div class="gros">≈ 16 % <span class="muted" style="font-weight:400">en audit complet · ≈ 28 % en comptant les revues</span></div><div class="barre"><i></i></div>
+<p class="muted">Audit complet : ≈ 3 000 lignes lues sur ≈ 19 400 aujourd'hui (la zone « moteur » : 10 services et le registre de la Bibliothèque). C'était ≈ 17 % de 17 500 au 26/10 : le chiffre a baissé parce que le code a grandi, aucune zone n'a été ajoutée. En comptant les ≈ 2 400 lignes ajoutées et relues par les revues : ≈ 5 400 lignes. Une revue ne lit que le diff, pas toute une zone : elle ne vaut pas un audit.</p>
 <table>
 <tr><th>Zone</th><th>État</th><th>Ce qui a été trouvé</th></tr>
 <tr><td><b>moteur</b> (translation_runner, translator, store, persistance, job_manager, cache, récupération, planificateur, soumission, énergie, bibliothèque)</td><td><span class="ds-badge ds-badge--success">fait</span></td>
 <td>Trois défauts à 80 ou plus, corrigés et testés (commit <code>9a69822</code>) : un document retiré du registre réapparaissait quand le registre devenait vide (le store n'était pas nettoyé) ; l'ancien nom de sortie à deux lettres faisait reprendre le travail d'un autre modèle de la même famille ; les langues n'étaient pas validées à la planification, donc un job invalide épuisait ses tentatives la nuit. Le noyau (écriture atomique, transaction chapitre + état, règle de lecture du store, bornes de l'annexe des liens) est sain.</td></tr>
-<tr><td>extraction (pdf_extractor, scan_colonnes, segmentation, uploads, ≈ 1 900 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
-<tr><td>etude-tts (étude, TTS, clonage vocal, stats, ≈ 2 300 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
-<tr><td>api (routes, config, modèles, scripts, ≈ 2 000 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
-<tr><td>frontend (≈ 4 500 lignes, 2 sous-agents)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
+<tr><td>revue ff6a5de..6ff59e6 et revue de ses correctifs : reconstruction, signature, parcours, exports, Anticipation (≈ 2 400 lignes ajoutées), 6 et 7/11</td><td><span class="ds-badge ds-badge--accent">revue</span></td><td>36 puis 9 constats, voir plus haut. <code>reconstruction.py</code> et <code>signature.py</code> (≈ 970 lignes) n'appartiennent encore à aucune zone d'audit.</td></tr>
+<tr><td>extraction (pdf_extractor, scan_colonnes, segmentation, uploads, ≈ 2 050 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
+<tr><td>etude-tts (étude, TTS, clonage vocal, stats, ≈ 2 050 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
+<tr><td>api (routes, config, modèles, scripts, ≈ 2 100 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
+<tr><td>frontend (≈ 5 200 lignes de JS, 2 sous-agents)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
 <tr><td>macos (≈ 3 800 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
 </table></section>
 

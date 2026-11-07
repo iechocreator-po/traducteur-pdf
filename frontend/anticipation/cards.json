@@ -4,26 +4,67 @@
   {
    "id": "audit-code",
    "featureId": null,
-   "titre": "Audit du code : où en est la revue",
-   "description": "Taille de toledo, zones auditées avec les défauts trouvés, constats encore ouverts et ce qui reste à faire par priorité (skill commune /revue-code).",
+   "titre": "Audit du code : ≈ 16 % du code actuel audité, ≈ 28 % relu en comptant les revues, cinq zones à auditer",
+   "description": "Taille de toledo, zones auditées avec les défauts trouvés, constats encore ouverts et ce qui reste à faire par priorité (skill commune /revue-code). Une revue ne lit que le code ajouté : elle ne vaut pas un audit.",
    "onglet": "Tous",
    "statut": "rapport",
-   "date": "2026-11-06",
+   "date": "2026-11-07",
    "page": "docs/audit-code.html",
    "libelleBouton": "Ouvrir le rapport",
    "epingle": true,
    "derniereRevue": {
-    "date": "2026-11-06",
-    "statut": "corrigee",
-    "portee": "Revue /revue-code de tout le code ajouté depuis l'audit (ff6a5de..6ff59e6) : reconstruction, signature, parcours, Anticipation",
-    "resultat": "Tous les constats sont corrigés ; la parité macOS (#501) est fermée comme écart volontaire. 444 tests et ruff au vert, interface essayée dans le navigateur. Essai réel limité à un échantillon de 3 pages ; ni livre complet, ni Ollama.",
+    "date": "2026-11-07",
+    "statut": "constats_ouverts",
+    "portee": "Revue /revue-code des correctifs du 6/11 (6ff59e6..f15b451)",
+    "resultat": "9 constats à 80 ou plus : 7 corrigés, 2 ouverts (test intermittent, tests de l'enchaînement). 465 tests en local, CI au vert. Ni livre scanné réel, ni Ollama. La revue précédente (ff6a5de..6ff59e6, 36 constats) est entièrement fermée.",
     "commits": [
-     "6ff59e6",
-     "9b90be9",
-     "ddbf8a4"
+     "f15b451",
+     "c808565"
     ]
    },
    "elements": [
+    {
+     "titre": "Test intermittent de l'historique (test_stats)",
+     "statut": "planifiee",
+     "description": "Un échec sur 21 suites complètes, cause non trouvée. L'assertion affiche maintenant le statut et les lignes reçues : le prochain échec dira quoi regarder."
+    },
+    {
+     "titre": "Tests de l'enchaînement scan vers traduction et du parcours",
+     "statut": "planifiee",
+     "description": "Aucune vérification automatique : pas de relance sans transition, pas de traduction d'un scan avec des pages en erreur, flags respectés. À écrire avec node, sur le patron de test_anticipation_frontend.py."
+    },
+    {
+     "titre": "PDF mis en page : pages perdues après un scan arrêté",
+     "statut": "livree",
+     "description": "Plage et double_page lus sur le scan qui a écrit le Markdown ; refus si le Markdown est plus récent que la traduction.",
+     "commits": [
+      "c808565"
+     ]
+    },
+    {
+     "titre": "Signature : lettres remplacées par « ? » dans la mention",
+     "statut": "livree",
+     "description": "Équivalents typographiques (’ — œ €), refus explicite hors Latin-1.",
+     "commits": [
+      "c808565"
+     ]
+    },
+    {
+     "titre": "Lot et signature : réglages figés, PDF présélectionné",
+     "statut": "livree",
+     "description": "« Lancer » suit les menus, les réglages figés ne servent qu'à l'enchaînement automatique ; la copie signée est présélectionnée quand elle existe.",
+     "commits": [
+      "c808565"
+     ]
+    },
+    {
+     "titre": "Tests : mention garantie, PNG, bornes de chapitres",
+     "statut": "livree",
+     "description": "21 tests ajoutés ; 18 mutations du code corrigé, toutes détectées.",
+     "commits": [
+      "c808565"
+     ]
+    },
     {
      "titre": "Parcours : statut de fiche faux, flags contournés",
      "statut": "livree",
