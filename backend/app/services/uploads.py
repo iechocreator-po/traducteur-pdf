@@ -194,10 +194,11 @@ def enregistrer_flux(lire_morceau, nom_client: str | None) -> dict:
 
 
 def _dossier_a_du_travail(dossier: str) -> bool:
-    """Vrai si le dossier contient une traduction/conversion (donc à conserver)."""
+    """Vrai si le dossier contient une traduction/conversion/découpe (donc à conserver)."""
     for nom in os.listdir(dossier):
         if re.search(r"_traduit.*\.md$", nom) or nom.endswith(".state.json") \
-                or re.search(r"_converti.*\.md$", nom):
+                or re.search(r"_converti.*\.md$", nom) \
+                or re.search(r"_section_\d+_p\d+-\d+\.pdf$", nom):
             return True
     return False
 

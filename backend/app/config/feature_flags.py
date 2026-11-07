@@ -58,6 +58,9 @@ FLAGS_PAR_DEFAUT = {
     # Bibliothèque : « ✍ Signer un PDF » — signature visuelle apposée sur une copie `_signe.pdf`
     # (services/signature.py). Le PDF d'origine n'est jamais modifié.
     "signature_pdf": True,
+    # Laboratoire › « Découper un PDF » : sections de N pages écrites à côté de la source
+    # (services/decoupe.py). La source n'est jamais modifiée → « on » par défaut.
+    "decoupe_pdf": True,
 }
 
 EXTRACTEURS_PDF = [

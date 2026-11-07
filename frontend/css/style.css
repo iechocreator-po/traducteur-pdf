@@ -734,6 +734,9 @@ html.avance .biblio-lecture {
 .bouton-launcher.launcher-stop { background: var(--red); }
 
 .outil-resultat { margin-top: 0.6rem; }
+.decoupe-pages { max-width: 10rem; }
+.decoupe-liste { max-height: 22rem; overflow: auto; }
+.decoupe-actions { white-space: nowrap; }
 #section-erreurs { margin-top: 0.8rem; }
 #contenu-erreurs {
   font-size: 0.82rem;

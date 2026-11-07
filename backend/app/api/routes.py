@@ -910,6 +910,41 @@ def _exiger_flag(nom: str) -> None:
         raise HTTPException(status_code=403, detail=f"Fonctionnalité désactivée (flag {nom}).")
 
 
+# ── Découpe d'un PDF en sections (Laboratoire) ───────────────────────────────
+
+class DecoupeRequest(BaseModel):
+    chemin_pdf: str
+    # strict : « 12 » ou true ne passent pas pour un nombre de pages ; 12.5 non plus.
+    pages_par_section: int = Field(ge=1, le=100_000, strict=True)
+    remplacer: bool = False
+
+
+@router.get("/labo/decoupe/plan")
+def planifier_decoupe(chemin_pdf: str, pages_par_section: int) -> dict:
+    """Aperçu : sections prévues, fichiers déjà présents. N'écrit rien."""
+    _exiger_flag("decoupe_pdf")
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF")
+    from app.services.decoupe import DecoupeInvalide, planifier
+    try:
+        return planifier(chemin, pages_par_section)
+    except DecoupeInvalide as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.post("/labo/decoupe")
+def lancer_decoupe(req: DecoupeRequest) -> dict:
+    """Écrit `<base>_section_NN_pXXX-YYY.pdf` à côté du PDF, qui n'est jamais modifié. 409 si la même découpe existe."""
+    _exiger_flag("decoupe_pdf")
+    chemin = valider_chemin_source(req.chemin_pdf, extensions=(".pdf",), label="PDF")
+    from app.services.decoupe import DecoupeInvalide, SectionsExistantes, decouper
+    try:
+        return decouper(chemin, req.pages_par_section, req.remplacer)
+    except SectionsExistantes as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except DecoupeInvalide as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 @router.get("/reconstruction/info")
 def info_reconstruction(chemin_sortie: str) -> dict:
     """Le document vient-il du Scan multi-colonnes (donc reconstructible) ? Lecture seule, rapide."""
