@@ -14,7 +14,7 @@ import pytest
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 CARDS = json.loads((FRONTEND / "anticipation" / "cards.json").read_text(encoding="utf-8"))
-STATUTS = {"rapport", "maquette", "planifiee", "en_construction", "livree", "rejetee"}
+STATUTS = {"idee", "maquette", "planifiee", "en_construction", "livree", "rejetee"}
 
 
 def test_cards_json_coherent():
@@ -49,7 +49,7 @@ const ctx = { console }; vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(process.argv[1], "utf8").split("\n(() => {\n  const CLE_EPINGLES")[0] + "\nglobalThis.R = AnticipationRendu;", ctx);
 const R = ctx.R;
 const cards = [
-  { id: "audit", titre: "Audit", description: "d", statut: "rapport", date: "2026-10-26", epingle: true,
+  { id: "audit", titre: "Audit", description: "d", statut: "planifiee", libelleBouton: "Ouvrir le rapport", date: "2026-10-26", epingle: true,
     page: "docs/audit-code.html", dernierAudit: { date: "2026-10-26", commits: ["9a69822", "<b>"] } },
   { id: "a", titre: "<img src=x onerror=alert(1)>", description: "\"><i>", statut: "maquette", date: "2026-10-11",
     page: "../../etc/passwd.html", liens: [{ titre: "ko", url: "javascript:alert(1)" }, { titre: "ok", url: "https://ex.com" }] },
@@ -57,7 +57,9 @@ const cards = [
 ];
 const tout = R.listeHTML(cards, { filtre: "toutes", tri: "date", epingles: {} });
 const filtre = R.listeHTML(cards, { filtre: "livree", tri: "date", epingles: { audit: false } });
-process.stdout.write(JSON.stringify({ tout, filtre }));
+const ouverte = R.listeHTML(cards, { filtre: "toutes", tri: "date", epingles: {}, ouverte: "audit" });
+const refusee = R.listeHTML(cards, { filtre: "toutes", tri: "date", epingles: {}, ouverte: "a" });
+process.stdout.write(JSON.stringify({ tout, filtre, ouverte, refusee }));
 """
 
 
@@ -70,14 +72,22 @@ def test_rendu_echappe_epingle_et_filtre():
     r = json.loads(sortie.stdout)
     tout, filtre = r["tout"], r["filtre"]
     # Carte épinglée par défaut au-dessus de la barre ; compteurs sans elle.
-    assert tout.index('data-antic-id="audit"') < tout.index("antic-barre")
+    assert tout.index('data-antic-id="audit"') < tout.index("antic-toolbar")
     assert "Toutes (2)" in tout
     assert tout.index('data-antic-id="b"') < tout.index('data-antic-id="a"'), "plus récente d'abord"
     # Échappement, chemin hors docs/ refusé, lien non http(s) écarté, commit non hexadécimal écarté.
     assert "<img" not in tout and "<i>" not in tout and "<b>" not in tout
     assert "etc/passwd" not in tout and "javascript:" not in tout
     assert 'href="https://ex.com"' in tout
-    assert "<code>9a69822</code>" in tout and "Livré dans <code>abc1234</code>" in tout
+    assert "<code>9a69822</code>" in tout and "Livré dans le commit <code>abc1234</code>" in tout
     # Désépinglée par le navigateur : la carte revient dans la liste ; le filtre Livrée ne garde que B.
-    assert "Rapport (1)" in filtre
+    assert "Planifiée (1)" in filtre
     assert 'data-antic-id="b"' in filtre and 'data-antic-id="a"' not in filtre and 'data-antic-id="audit"' not in filtre
+    # Page affichée dans la carte seulement si elle est ouverte, isolée de l'application ; chemin refusé : aucun cadre.
+    assert "<iframe" not in tout and "Ouvrir le rapport" in tout
+    r_ouverte = r["ouverte"]
+    assert 'sandbox="allow-scripts" data-antic-cadre="docs/audit-code.html"' in r_ouverte and "allow-same-origin" not in r_ouverte
+    assert "Fermer le rapport" in r_ouverte and "Maquette non fonctionnelle" not in r_ouverte
+    assert "<iframe" not in r["refusee"] and "etc/passwd" not in r["refusee"]
+    # La date dit ce qu'elle est : livraison, mise à jour d'un suivi, proposition.
+    assert "Livrée le" in tout and "Mise à jour le" in tout and "Proposée le" in tout

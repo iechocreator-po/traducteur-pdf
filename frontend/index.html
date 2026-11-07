@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/components.css?v=1">
   <link rel="stylesheet" href="css/theme-toledo.css?v=1">
-  <link rel="stylesheet" href="css/style.css?v=33">
+  <link rel="stylesheet" href="css/style.css?v=34">
   <link rel="stylesheet" href="css/styles-visuels.css?v=4">
   <link rel="stylesheet" href="css/commutateurs.css?v=2">
   <script>
@@ -431,12 +431,19 @@
   <main id="module-anticipation" class="module module-centre" hidden>
     <div class="labo-entete">
       <h1>Anticipation</h1>
-      <p class="aide">Ce qui est envisagé et pas encore construit. Ces maquettes ne font rien : elles servent à juger l'idée avant d'écrire le code. Une carte épinglée (📌) reste en haut ; l'épingle est gardée dans ce navigateur.</p>
     </div>
 
-    <!-- Cartes rendues par js/module-anticipation.js depuis anticipation/cards.json (épingles, filtre, tri,
-         dernière revue et dernier audit) ; créées dynamiquement, elles n'ont pas de repère d'interface. -->
-    <div id="anticipation-liste" class="antic-liste"><p class="aide">Chargement…</p></div>
+    <details class="ds-card antic-intro">
+      <summary class="antic-section-titre">À propos de cet onglet</summary>
+      <p class="aide">Ce que toledo pourrait devenir, et ce qui en est déjà sorti. Une <strong>maquette</strong> ne fait rien : rien n'y est branché, elle sert à juger l'idée avant d'écrire le code. Une carte épinglée (📌) reste en haut ; l'épingle est gardée dans ce navigateur.</p>
+    </details>
+
+    <!-- Cartes rendues par js/module-anticipation.js depuis anticipation/cards.json, à l'image de l'onglet local de
+         castellana ; créées dynamiquement, elles n'ont pas de repère d'interface. -->
+    <div class="ds-card">
+      <div class="antic-section-titre">Maquettes à venir</div>
+      <div id="anticipation-liste"><p class="aide">Chargement…</p></div>
+    </div>
   </main>
 
   <!-- ══ Module D : Chronique ══════════════════════════════════════════════
@@ -799,7 +806,7 @@
   <script src="js/bibliotheque-exports.js?v=3"></script>
   <script src="js/module-laboratoire.js?v=11"></script>
   <script src="js/module-chronique.js?v=1"></script>
-  <script src="js/module-anticipation.js?v=2"></script>
+  <script src="js/module-anticipation.js?v=3"></script>
   <script src="js/labo-scan-colonnes.js?v=9"></script>
   <script src="js/ui-ids.js?v=2"></script>
   <script src="js/reglages.js?v=4"></script>

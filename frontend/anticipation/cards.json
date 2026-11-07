@@ -1,13 +1,13 @@
 {
- "_note": "Cartes de l'onglet Anticipation de toledo (format repris de castellana et de bilbao, sans votes). `statut` : maquette | planifiee | en_construction | livree | rejetee | rapport. `page` = page autonome du frontend à ouvrir dans un nouvel onglet (chemin sous docs/, sans ..). Champs facultatifs : `epingle` (true = épinglée par défaut, en haut), `derniereRevue` et `dernierAudit` ({date, statut (revue seulement : corrigee | constats_ouverts | en_cours), portee, resultat, commits}, mis à jour à la main après chaque /revue-code, jamais inventés), `elements` (sous-entrées {titre, statut, featureId, description, commits}), `commits` (affichés si livree), `liens` ({titre, url http(s), note}).",
+ "_note": "Cartes de l'onglet Anticipation de toledo (format de castellana, sans votes). Source de vérité des features : bilbao ; ce fichier en est la vue publiée, mise à jour à la main. `featureId` = identifiant bilbao. `statut` : idee | maquette | planifiee | en_construction | livree | rejetee. `date` : livraison pour une carte livree, proposition sinon, dernière mise à jour pour une carte de suivi. `page` = page autonome du frontend affichée dans la carte (chemin sous docs/, sans ..), `libelleBouton` son bouton. Champs facultatifs : `epingle` (true = épinglée par défaut, en haut), `derniereRevue` et `dernierAudit` ({date, statut (revue seulement : corrigee | constats_ouverts | en_cours), portee, resultat, commits}, mis à jour à la main après chaque /revue-code, jamais inventés), `elements` (sous-entrées {titre, statut, featureId, description, commits}), `commits` (affichés si livree), `liens` ({titre, url http(s), note}).",
  "cards": [
   {
    "id": "audit-code",
    "featureId": null,
    "titre": "Audit du code : ≈ 16 % du code actuel audité, ≈ 28 % relu en comptant les revues, cinq zones à auditer",
-   "description": "Taille de toledo, zones auditées avec les défauts trouvés, constats encore ouverts et ce qui reste à faire par priorité (skill commune /revue-code). Une revue ne lit que le code ajouté : elle ne vaut pas un audit.",
+   "description": "Taille de toledo, zones auditées avec les défauts trouvés, constats de chaque revue et ce qui reste à faire par priorité (skill commune /revue-code). Une revue ne lit que le code ajouté : elle ne vaut pas un audit.",
    "onglet": "Tous",
-   "statut": "rapport",
+   "statut": "planifiee",
    "date": "2026-11-07",
    "page": "docs/audit-code.html",
    "libelleBouton": "Ouvrir le rapport",
@@ -22,204 +22,9 @@
      "c808565"
     ]
    },
-   "elements": [
-    {
-     "titre": "Test intermittent de l'historique (test_stats)",
-     "statut": "planifiee",
-     "description": "Un échec sur 21 suites complètes, cause non trouvée. L'assertion affiche maintenant le statut et les lignes reçues : le prochain échec dira quoi regarder."
-    },
-    {
-     "titre": "Tests de l'enchaînement scan vers traduction et du parcours",
-     "statut": "planifiee",
-     "description": "Aucune vérification automatique : pas de relance sans transition, pas de traduction d'un scan avec des pages en erreur, flags respectés. À écrire avec node, sur le patron de test_anticipation_frontend.py."
-    },
-    {
-     "titre": "PDF mis en page : pages perdues après un scan arrêté",
-     "statut": "livree",
-     "description": "Plage et double_page lus sur le scan qui a écrit le Markdown ; refus si le Markdown est plus récent que la traduction.",
-     "commits": [
-      "c808565"
-     ]
-    },
-    {
-     "titre": "Signature : lettres remplacées par « ? » dans la mention",
-     "statut": "livree",
-     "description": "Équivalents typographiques (’ — œ €), refus explicite hors Latin-1.",
-     "commits": [
-      "c808565"
-     ]
-    },
-    {
-     "titre": "Lot et signature : réglages figés, PDF présélectionné",
-     "statut": "livree",
-     "description": "« Lancer » suit les menus, les réglages figés ne servent qu'à l'enchaînement automatique ; la copie signée est présélectionnée quand elle existe.",
-     "commits": [
-      "c808565"
-     ]
-    },
-    {
-     "titre": "Tests : mention garantie, PNG, bornes de chapitres",
-     "statut": "livree",
-     "description": "21 tests ajoutés ; 18 mutations du code corrigé, toutes détectées.",
-     "commits": [
-      "c808565"
-     ]
-    },
-    {
-     "titre": "Parcours : statut de fiche faux, flags contournés",
-     "statut": "livree",
-     "featureId": 488,
-     "description": "/etude/statut lit chemin_sortie ; objectifs Nettoyer et Étudier masqués si leur flag est coupé, jamais d'activation du mode avancé malgré le flag, lancement du scan refusé en 403.",
-     "commits": [
-      "ddbf8a4"
-     ]
-    },
-    {
-     "titre": "Signature : rotation et CropBox, copie écrasée, PNG géant",
-     "statut": "livree",
-     "featureId": 492,
-     "description": "Insertion à rotation 0 puis rotation restaurée : position mesurée au pixel sur les 4 rotations avec CropBox, rendu contrôlé à l'œil. Copie signée protégée et PNG géant refusé dans 9b90be9.",
-     "commits": [
-      "9b90be9",
-      "ddbf8a4"
-     ]
-    },
-    {
-     "titre": "PDF mis en page : texte sur les mauvaises pages",
-     "statut": "livree",
-     "featureId": 494,
-     "description": "Alignement global des titres dans l'ordre, chapitre borné par la liste complète de la source, pages limitées à la plage du dernier scan, double_page transmis et dans la clé du cache. Sur l'échantillon réel de 3 pages : même répartition qu'avant. Non validé sur un livre complet.",
-     "commits": [
-      "ddbf8a4"
-     ]
-    },
-    {
-     "titre": "HTML interactif : langue forcée, ancres en double",
-     "statut": "livree",
-     "featureId": 496,
-     "description": "Langue lue sur le document (état de la traduction), « und » si inconnue ; une ancre par occurrence de titre.",
-     "commits": [
-      "ddbf8a4"
-     ]
-    },
-    {
-     "titre": "Interface : hex en dur, couleur de signature, boutons",
-     "statut": "livree",
-     "featureId": 499,
-     "description": "--on-accent, couleur hors des panneaux (Dessiner et Taper, masquée pour Importer), boutons Anticipation en .ds-btn.",
-     "commits": [
-      "ddbf8a4"
-     ]
-    },
-    {
-     "titre": "PDF mis en page : papier jauni, troncature silencieuse",
-     "statut": "livree",
-     "featureId": 495,
-     "description": "Saturation comparée à celle du papier ; au-delà de 200 pages de suite, échec explicite au lieu d'un texte coupé.",
-     "commits": [
-      "ddbf8a4"
-     ]
-    },
-    {
-     "titre": "Tests manquants : reconstruction, signature, routes",
-     "statut": "livree",
-     "featureId": 500,
-     "description": "27 tests ajoutés : répartition proportionnelle, position des illustrations, routes avec 403 et 422, annulation réelle du scan, un cas par correctif. Lancés aussi contre l'ancien code : 18 échouent.",
-     "commits": [
-      "ddbf8a4"
-     ]
-    },
-    {
-     "titre": "Signature : mention absente du PDF malgré le succès affiché",
-     "statut": "livree",
-     "featureId": 491,
-     "description": "Mention placée dans la page (dessous ou dessus), police réduite au besoin ; sinon SignatureInvalide, plus de succès sans mention.",
-     "commits": [
-      "9b90be9"
-     ]
-    },
-    {
-     "titre": "Parcours : écouteurs ré-ajoutés toutes les 4 s",
-     "statut": "livree",
-     "featureId": 485,
-     "description": "Écouteurs posés une seule fois, au niveau du module.",
-     "commits": [
-      "9b90be9"
-     ]
-    },
-    {
-     "titre": "PDF mis en page : texte réduit à 7 pt",
-     "statut": "livree",
-     "featureId": 493,
-     "description": "_tient avance le Story avec draw(None).",
-     "commits": [
-      "9b90be9"
-     ]
-    },
-    {
-     "titre": "Parcours : enchaînement scan vers traduction",
-     "statut": "livree",
-     "featureId": 486,
-     "description": "Fonction unique enchainerScanTermine : part seulement sur une transition actif vers terminé, retire le PDF du lot, langues et modèle figés au lancement du scan.",
-     "commits": [
-      "9b90be9"
-     ]
-    },
-    {
-     "titre": "Parcours : états bloqués et erreurs invisibles",
-     "statut": "livree",
-     "featureId": 487,
-     "description": "Analyse sans attente fantôme, échec de lancement affiché dans l'Accueil, vraie cause de l'erreur affichée.",
-     "commits": [
-      "9b90be9"
-     ]
-    },
-    {
-     "titre": "Scan : pas de récupération au démarrage",
-     "statut": "livree",
-     "featureId": 489,
-     "description": "Un état actif sans job dans le process devient annule à la lecture (lire_etat), Arrêter signale le cas.",
-     "commits": [
-      "9b90be9"
-     ]
-    },
-    {
-     "titre": "Scan : « Recommencer » efface le Markdown source",
-     "statut": "livree",
-     "featureId": 490,
-     "description": "Réinitialiser répond 409 si une traduction du registre a ce Markdown pour source.",
-     "commits": [
-      "9b90be9"
-     ]
-    },
-    {
-     "titre": "Écriture binaire non atomique",
-     "statut": "livree",
-     "featureId": 497,
-     "description": "persistance.ecrire_binaire_atomique (mkstemp, fsync, nettoyage) utilisée par signature et reconstruction.",
-     "commits": [
-      "9b90be9"
-     ]
-    },
-    {
-     "titre": "Dépendance cv2 non déclarée",
-     "statut": "livree",
-     "featureId": 498,
-     "description": "opencv-python-headless et pymupdf déclarés avec bornes. numpy et Pillow restent transitifs.",
-     "commits": [
-      "9b90be9"
-     ]
-    },
-    {
-     "titre": "Parité macOS : écart volontaire",
-     "statut": "rejetee",
-     "featureId": 501,
-     "description": "Décision de JP du 07/11/2026 : ces fonctions restent propres au web, le repère C1 du Laboratoire macOS reste tel quel."
-    }
-   ],
    "dernierAudit": {
     "date": "2026-10-26",
-    "portee": "Audit /revue-code de la zone « moteur » (traduction et persistance, ≈ 3 000 lignes sur ≈ 17 500) ; cinq zones restent à auditer",
+    "portee": "Audit /revue-code de la zone « moteur » (traduction et persistance, ≈ 3 000 lignes) ; cinq zones restent à auditer",
     "resultat": "Constats retenus relus dans le code et corrigés.",
     "commits": [
      "9a69822"
@@ -227,14 +32,93 @@
    }
   },
   {
-   "id": "objectif-etapes",
+   "id": "titres-traduits",
+   "featureId": 348,
+   "titre": "Traduire les titres de la table des matières",
+   "description": "La barre latérale de lecture, l'export HTML et la fiche d'étude affichent toujours le titre source des chapitres, jamais sa traduction : le marqueur écrit par le moteur porte le titre de la source pour garder l'alignement avec Nouveau document et la relecture comparative.",
+   "onglet": "Bibliothèque",
+   "statut": "idee",
+   "date": "2026-09-02"
+  },
+  {
+   "id": "artefacts-openvoice",
+   "featureId": 77,
+   "titre": "Nettoyer les artefacts VAD d'OpenVoice",
+   "description": "Le clonage vocal écrit ses segments dans backend/processed/ et ne les nettoie pas : ils s'accumulent à chaque voix clonée. L'extraction écrirait dans un dossier temporaire supprimé ensuite.",
+   "onglet": "Laboratoire",
+   "statut": "idee",
+   "date": "2026-07-14"
+  },
+  {
+   "id": "plan-et-fiche",
    "featureId": null,
-   "titre": "Objectif et étapes",
-   "description": "Le parcours d'une traduction présenté par objectif, découpé en étapes.",
+   "titre": "Plan recommandé et fiche document",
+   "description": "Une autre présentation du parcours : l'analyse d'un document propose un plan, et chaque document a sa fiche avec ses onglets.",
    "onglet": "Accueil",
    "statut": "maquette",
    "date": "2026-10-11",
-   "page": "docs/maquettes-flux/maquette-2-objectif-et-etapes.html"
+   "page": "docs/maquettes-flux/maquette-1-plan-et-fiche.html"
+  },
+  {
+   "id": "objectif-etapes",
+   "featureId": 483,
+   "titre": "Accueil : démarrer par l'objectif, avec une barre d'étapes (livré)",
+   "description": "On choisit ce qu'on veut faire ; la barre d'étapes montre où l'on en est et le bouton propose la suite. Chaque étape ne s'allume que sur un signal réel.",
+   "onglet": "Accueil",
+   "statut": "livree",
+   "date": "2026-11-04",
+   "page": "docs/maquettes-flux/maquette-2-objectif-et-etapes.html",
+   "commits": [
+    "40dbc2e"
+   ]
+  },
+  {
+   "id": "reconstruction-scan",
+   "featureId": 481,
+   "titre": "Document scanné traduit recréé avec ses illustrations (livré)",
+   "description": "PDF mis en page au format d'origine, illustrations replacées et texte coulé dans les colonnes ; HTML autonome avec le scan d'origine en regard, sommaire, recherche et thème.",
+   "onglet": "Bibliothèque",
+   "statut": "livree",
+   "date": "2026-11-04",
+   "commits": [
+    "40dbc2e"
+   ]
+  },
+  {
+   "id": "signature-pdf",
+   "featureId": 482,
+   "titre": "Signature visuelle d'un PDF (livré)",
+   "description": "Signature dessinée, tapée ou importée, placée à la souris, avec une mention facultative, dans une copie _signe.pdf. Ce n'est pas une signature numérique certifiée.",
+   "onglet": "Bibliothèque",
+   "statut": "livree",
+   "date": "2026-11-04",
+   "commits": [
+    "40dbc2e"
+   ]
+  },
+  {
+   "id": "strategies-fiche",
+   "featureId": 484,
+   "titre": "Fiches d'étude : bénéfice de chaque stratégie expliqué (livré)",
+   "description": "Sections ou condensation : un tableau comparatif dit ce que chaque stratégie apporte.",
+   "onglet": "Bibliothèque",
+   "statut": "livree",
+   "date": "2026-11-04",
+   "commits": [
+    "40dbc2e"
+   ]
+  },
+  {
+   "id": "onglet-anticipation",
+   "featureId": 480,
+   "titre": "Onglet Anticipation (livré)",
+   "description": "Cet onglet : cartes lues dans frontend/anticipation/cards.json, rapport d'audit épinglé, épingles, filtre par statut, tri par date.",
+   "onglet": "Anticipation",
+   "statut": "livree",
+   "date": "2026-11-03",
+   "commits": [
+    "fa43c6e"
+   ]
   }
  ]
 }
