@@ -32,6 +32,24 @@
    }
   },
   {
+   "id": "test-intermittent",
+   "featureId": 508,
+   "titre": "Test intermittent de l'historique (test_stats)",
+   "description": "Un échec sur 21 suites complètes le 7/11, déjà vu une fois sur quatre le 6/11, cause non trouvée. Le test affiche maintenant le statut et les lignes reçues : le prochain échec dira quoi regarder.",
+   "onglet": "Tous",
+   "statut": "idee",
+   "date": "2026-11-07"
+  },
+  {
+   "id": "tests-enchainement",
+   "featureId": 509,
+   "titre": "Tests de l'enchaînement scan vers traduction et du parcours",
+   "description": "Aucune vérification automatique : pas de relance sans transition, pas de traduction d'un scan avec des pages en erreur, flags respectés. À écrire avec node, sur le patron de test_anticipation_frontend.py.",
+   "onglet": "Accueil",
+   "statut": "idee",
+   "date": "2026-11-07"
+  },
+  {
    "id": "titres-traduits",
    "featureId": 348,
    "titre": "Traduire les titres de la table des matières",
@@ -110,14 +128,15 @@
   },
   {
    "id": "onglet-anticipation",
-   "featureId": 480,
-   "titre": "Onglet Anticipation (livré)",
-   "description": "Cet onglet : cartes lues dans frontend/anticipation/cards.json, rapport d'audit épinglé, épingles, filtre par statut, tri par date.",
+   "featureId": 510,
+   "titre": "Onglet Anticipation à l'image de castellana (livré)",
+   "description": "Cet onglet, créé le 3/11 (#480) et refait le 7/11 sur le modèle de la version locale de castellana : maquettes et rapport affichés dans la carte, cartes tirées de bilbao, sans votes ni propositions.",
    "onglet": "Anticipation",
    "statut": "livree",
-   "date": "2026-11-03",
+   "date": "2026-11-07",
    "commits": [
-    "fa43c6e"
+    "fa43c6e",
+    "1f6dbfd"
    ]
   }
  ]
