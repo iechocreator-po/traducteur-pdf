@@ -455,6 +455,9 @@
     };
 
     for (const ligne of lignes) {
+      // Ligne de commentaire HTML (marques « <!-- conserver --> » d'un texte non traduit, marqueurs de
+      // chapitre) : invisible, comme dans un vrai rendu Markdown. Elle ne coupe pas le paragraphe.
+      if (/^\s*<!--.*-->\s*$/.test(ligne)) continue;
       const image = imagesActives ? ligne.trim().match(/^!\[([^\]]*)\]\(([^)]+)\)$/) : null;
       const titre = ligne.match(/^(#{1,6})\s+(.*)/);
       if (image) {
@@ -1031,6 +1034,7 @@
 
     for (const ligne of lignes) {
       const t = ligne.trim();
+      if (/^<!--.*-->$/.test(t)) continue;      // commentaire HTML : invisible (voir rendreContenu)
       const image = t.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
       const titre = ligne.match(/^(#{1,6})\s+(.*)/);
       const puce = ligne.match(/^\s*[-*+]\s+(.*)/);

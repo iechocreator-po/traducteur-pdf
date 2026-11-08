@@ -875,7 +875,7 @@ def reinitialiser_scan_colonnes(chemin_pdf: str) -> dict:
 
 
 @router.get("/labo/scan-colonnes/apercu")
-def apercu_scan_colonnes(chemin_pdf: str, page: int = 1, double_page: str = "auto"):
+def apercu_scan_colonnes(chemin_pdf: str, page: int = 1, double_page: str = "auto", edition: bool = False):
     """
     PNG d'UNE page avec les régions détectées (gouttière, colonnes, encadrés,
     candidats-titres), sans OCR : à regarder AVANT de lancer un long traitement.
@@ -884,7 +884,8 @@ def apercu_scan_colonnes(chemin_pdf: str, page: int = 1, double_page: str = "aut
     from app.services.scan_colonnes import ScanColonnesEchec, apercu_pdf
 
     try:
-        png = apercu_pdf(chemin, page, _double_page(double_page) if double_page in ("auto", "oui", "non") else None)
+        png = apercu_pdf(chemin, page, _double_page(double_page) if double_page in ("auto", "oui", "non") else None,
+                         edition)
     except ScanColonnesEchec as e:
         raise HTTPException(status_code=422, detail=str(e))
     return Response(content=png, media_type="image/png")

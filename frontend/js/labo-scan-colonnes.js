@@ -92,10 +92,11 @@ async function chargerInfoScan(chemin) {
 
 // Aperçu partagé : le Laboratoire et le parcours « Nettoyer » de l'Accueil (js/parcours.js) l'appellent
 // avec leurs propres éléments d'affichage. Renvoie true si l'image est affichée.
-async function chargerApercuScan(chemin, page, doublePage, img, zone) {
+// `edition` : l'éditeur de régions dessine lui-même illustrations et zones (déplaçables), le PNG les omet.
+async function chargerApercuScan(chemin, page, doublePage, img, zone, edition = false) {
   zone.innerHTML = "<em>Calcul de l'aperçu…</em>";
   try {
-    const url = `${API_BASE}/labo/scan-colonnes/apercu?chemin_pdf=${encodeURIComponent(chemin)}&page=${page}&double_page=${doublePage}&t=${Date.now()}`;
+    const url = `${API_BASE}/labo/scan-colonnes/apercu?chemin_pdf=${encodeURIComponent(chemin)}&page=${page}&double_page=${doublePage}${edition ? "&edition=true" : ""}&t=${Date.now()}`;
     const rep = await fetch(url);
     if (!rep.ok) {
       const data = await rep.json().catch(() => ({}));
@@ -130,7 +131,7 @@ async function afficherApercuLabo(page) {
   masquerEditeurRegions();
   const doublePage = $("scan-double-page").value;
   const [ok, geo] = await Promise.all([
-    chargerApercuScan(chemin, page, doublePage, $("scan-apercu-image"), $("scan-apercu-statut")),
+    chargerApercuScan(chemin, page, doublePage, $("scan-apercu-image"), $("scan-apercu-statut"), true),
     apiGet(`/labo/scan-colonnes/geometrie?chemin_pdf=${encodeURIComponent(chemin)}&page=${page}&double_page=${doublePage}`,
            API_TIMEOUT_LONG_MS).catch(() => null),
   ]);
@@ -164,7 +165,8 @@ function reglageInitial(geo) {
   const r = geo.reglage || {};
   const moities = geo.moities.map((m, i) => (r.moities && r.moities.length === geo.moities.length && r.moities[i])
     || { mode: "auto" });
-  return { gouttiere: r.gouttiere, moities, illustrations_retirees: [...(r.illustrations_retirees || [])] };
+  return { gouttiere: r.gouttiere, moities, illustrations_retirees: [...(r.illustrations_retirees || [])],
+           zones: (r.zones || []).map(z => ({ type: z.type, rect: [...z.rect] })) };
 }
 
 function libelleMoitie(geo, i) {
@@ -177,7 +179,14 @@ function valeurMode(m) {
 }
 
 function afficherEditeurRegions(chemin, page, geo) {
-  editeurRegions = { chemin, page, geo, reglage: reglageInitial(geo) };
+  // La sélection survit à l'enregistrement qui a provoqué ce rendu (même page du même PDF).
+  const garder = editeurRegions === null && selectionEnAttente && selectionEnAttente.chemin === chemin
+    && selectionEnAttente.page === page ? selectionEnAttente.selection : null;
+  selectionEnAttente = null;
+  editeurRegions = { chemin, page, geo, reglage: reglageInitial(geo), selection: garder, outil: null };
+  if (garder && garder.source === "zone" && !editeurRegions.reglage.zones[garder.index]) editeurRegions.selection = null;
+  if (garder && garder.source === "detectee"
+      && !geo.illustrations.some(r => r.every((v, k) => v === garder.rect[k]))) editeurRegions.selection = null;
   // Menus de mode
   const modes = $("scan-regions-modes");
   modes.innerHTML = "";
@@ -207,6 +216,8 @@ function afficherEditeurRegions(chemin, page, geo) {
   $("scan-regions-auto").disabled = false;     // désactivé pendant l'enregistrement qui a précédé ce rendu
   $("scan-regions").hidden = false;
   $("scan-regions-aide").hidden = false;
+  construireOutilsZones();
+  $("scan-apercu-svg").classList.remove("dessin");
   dessinerPoignees();
 }
 
@@ -229,7 +240,8 @@ function changerModeMoitie(i, valeur) {
 }
 
 async function enregistrerRegions(reglage) {
-  const { chemin, page } = editeurRegions;
+  const { chemin, page, selection } = editeurRegions;
+  selectionEnAttente = { chemin, page, selection: selection || null };
   $("scan-regions-etat").textContent = "⏳ Enregistrement…";
   document.querySelectorAll("#scan-regions select, #scan-regions button").forEach(el => { el.disabled = true; });
   try {
@@ -334,25 +346,265 @@ function dessinerPoignees() {
       });
     });
   });
-  // Illustrations retirables (pas celle d'une demi-page « recopiée comme image » : c'est le menu qui la règle).
-  geo.illustrations.forEach(([x0, y0, x1, y1]) => {
-    const moitie = geo.moities.find(m => m.x0 <= (x0 + x1) / 2 && (x0 + x1) / 2 < m.x1);
-    if (moitie && moitie.mode === "image") return;
-    const b = elementSvg("g", { class: "scan-retirer", tabindex: "0", role: "button",
-                                "aria-label": "Retirer cette illustration (son contenu sera lu comme du texte)" }, svg);
-    elementSvg("title", {}, b).textContent = "Retirer cette illustration";
-    elementSvg("circle", { cx: x1 - 26, cy: y0 + 26, r: 20, fill: "white", stroke: COULEURS_REGIONS.violet, "stroke-width": 5 }, b);
-    const t = elementSvg("text", { x: x1 - 26, y: y0 + 26, "text-anchor": "middle", "dominant-baseline": "central",
-                                   "font-size": 30, "font-weight": 700, fill: COULEURS_REGIONS.violet }, b);
-    t.textContent = "×";
-    const retirer = () => {
-      reglage.illustrations_retirees.push([x0, y0, x1, y1]);
-      enregistrerRegions(reglage);
+  dessinerZones(svg);
+}
+
+// ── Zones (niveau 3) : illustrations détectées et zones dessinées à la main ──
+// Une zone détectée qu'on recadre ou dont on change le type devient une zone manuelle : la détection est
+// retirée (illustrations_retirees) et la zone ajoutée à reglage.zones. Le backend fait le reste.
+
+const TYPES_ZONE = [
+  ["illustration", "Illustration", "violet", "recopiée telle quelle, jamais lue"],
+  ["titre", "Titre", "orange", "lue et rendue en titre (un chapitre)"],
+  ["texte", "Texte", "bleu", "lue à part, en paragraphes (ex. un tableau sur deux colonnes)"],
+  ["conserver", "Ne pas traduire", "turquoise", "lue, mais recopiée dans sa langue d'origine"],
+  ["ignorer", "Ignorer", "gris", "ni lue ni recopiée"],
+];
+const COULEURS_ZONES = { illustration: "rgb(170, 0, 200)", titre: "rgb(240, 140, 0)", texte: "rgb(0, 120, 200)",
+                         conserver: "rgb(0, 150, 140)", ignorer: "rgb(110, 110, 110)" };   // = scan_colonnes.COULEURS_ZONES
+const COTE_MIN_ZONE = 10;           // = scan_colonnes.COTE_MIN_ZONE
+let selectionEnAttente = null;      // sélection à rétablir après le rendu qui suit un enregistrement
+
+const libelleType = (type) => (TYPES_ZONE.find(t => t[0] === type) || [type, type])[1];
+
+// Zones affichées : [{ source: "zone", index } | { source: "detectee", rect }, type, rect]
+function zonesAffichees() {
+  const { geo, reglage } = editeurRegions;
+  const detectees = geo.illustrations.filter(([x0, , x1]) => {
+    const m = geo.moities.find(mm => mm.x0 <= (x0 + x1) / 2 && (x0 + x1) / 2 < mm.x1);
+    return !(m && m.mode === "image");      // l'encre d'une demi-page « image » : c'est le menu qui la règle
+  }).map(r => ({ ref: { source: "detectee", rect: r }, type: "illustration", rect: r }));
+  const manuelles = reglage.zones.map((z, index) => ({ ref: { source: "zone", index }, type: z.type, rect: z.rect }));
+  return [...detectees, ...manuelles];
+}
+
+const memeRef = (a, b) => !!a && !!b && a.source === b.source
+  && (a.source === "zone" ? a.index === b.index : a.rect.every((v, k) => v === b.rect[k]));
+
+function versImageXY(svg, e) {
+  const r = svg.getBoundingClientRect(), { largeur, hauteur } = editeurRegions.geo;
+  return [Math.min(Math.max((e.clientX - r.left) * largeur / r.width, 0), largeur),
+          Math.min(Math.max((e.clientY - r.top) * hauteur / r.height, 0), hauteur)];
+}
+
+const rectNormal = ([x0, y0, x1, y1]) =>
+  [Math.round(Math.min(x0, x1)), Math.round(Math.min(y0, y1)), Math.round(Math.max(x0, x1)), Math.round(Math.max(y0, y1))];
+
+// Applique une modification (nouveau rect et/ou type, ou suppression) à la zone `ref`, puis enregistre.
+function modifierZone(ref, { rect, type, supprimer = false }) {
+  const { reglage } = editeurRegions;
+  if (ref.source === "detectee") {
+    reglage.illustrations_retirees.push([...ref.rect]);
+    if (supprimer) { editeurRegions.selection = null; enregistrerRegions(reglage); return; }
+    reglage.zones.push({ type: type || "illustration", rect: rect || [...ref.rect] });
+    editeurRegions.selection = { source: "zone", index: reglage.zones.length - 1 };
+  } else if (supprimer) {
+    reglage.zones.splice(ref.index, 1);
+    editeurRegions.selection = null;
+  } else {
+    const z = reglage.zones[ref.index];
+    reglage.zones[ref.index] = { type: type || z.type, rect: rect || z.rect };
+  }
+  enregistrerRegions(reglage);
+}
+
+function selectionner(ref) {
+  editeurRegions.selection = ref;
+  dessinerPoignees();
+  majPanneauZone();
+}
+
+function dessinerZones(svg) {
+  const { selection, outil } = editeurRegions;
+  const liste = zonesAffichees();
+  liste.forEach(({ ref, type, rect }) => {
+    const [x0, y0, x1, y1] = rect, couleur = COULEURS_ZONES[type];
+    const choisie = memeRef(ref, selection);
+    const manuelle = ref.source === "zone";
+    const g = elementSvg("g", { class: `scan-zone${choisie ? " choisie" : ""}`, tabindex: "0", role: "button",
+      "aria-label": `${manuelle ? "Zone" : "Illustration détectée"} « ${libelleType(type)} »${choisie ? ", sélectionnée" : ""}. `
+        + "Flèches : déplacer ; Suppr : supprimer." }, svg);
+    const cadre = elementSvg("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, fill: couleur,
+      "fill-opacity": manuelle ? 0.18 : 0.04, stroke: couleur, "stroke-width": choisie ? 8 : 5,
+      "stroke-dasharray": manuelle ? "" : "18 10" }, g);
+    if (manuelle) {
+      const t = elementSvg("text", { x: x0 + 10, y: y0 + 34, "font-size": 30, "font-weight": 700, fill: couleur,
+                                     class: "etiquette" }, g);
+      t.textContent = libelleType(type);
+    }
+    // Déplacer : glisser le corps de la zone (un simple clic la sélectionne).
+    let depart = null, minuteur = null, courant = [...rect];
+    const poser = (r) => {
+      courant = r;
+      cadre.setAttribute("x", r[0]); cadre.setAttribute("y", r[1]);
+      g.querySelectorAll("text.etiquette").forEach(t => { t.setAttribute("x", r[0] + 10); t.setAttribute("y", r[1] + 34); });
     };
-    b.addEventListener("click", retirer);
-    b.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); retirer(); } });
+    g.addEventListener("pointerdown", (e) => {
+      if (editeurRegions.outil) return;
+      e.preventDefault(); e.stopPropagation();
+      g.setPointerCapture(e.pointerId);
+      depart = { xy: versImageXY(svg, e), rect: [...rect] };
+    });
+    g.addEventListener("pointermove", (e) => {
+      if (!depart) return;
+      const [x, y] = versImageXY(svg, e), { largeur, hauteur } = editeurRegions.geo;
+      const dx = Math.min(Math.max(x - depart.xy[0], -depart.rect[0]), largeur - depart.rect[2]);
+      const dy = Math.min(Math.max(y - depart.xy[1], -depart.rect[1]), hauteur - depart.rect[3]);
+      poser([depart.rect[0] + dx, depart.rect[1] + dy, depart.rect[2] + dx, depart.rect[3] + dy].map(Math.round));
+    });
+    g.addEventListener("pointerup", (e) => {
+      if (!depart) return;
+      if (g.hasPointerCapture(e.pointerId)) g.releasePointerCapture(e.pointerId);
+      depart = null;
+      const bouge = courant.some((v, k) => Math.abs(v - rect[k]) >= 2);
+      if (bouge) { editeurRegions.selection = ref; modifierZone(ref, { rect: courant }); }
+      else if (!choisie) selectionner(ref);
+    });
+    g.addEventListener("keydown", (e) => {
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); modifierZone(ref, { supprimer: true }); return; }
+      if (e.key === "Escape") { e.preventDefault(); selectionner(null); return; }
+      if ((e.key === "Enter" || e.key === " ") && !choisie) { e.preventDefault(); selectionner(ref); return; }
+      const pas = e.shiftKey ? 20 : 4;
+      const d = { ArrowLeft: [-pas, 0], ArrowRight: [pas, 0], ArrowUp: [0, -pas], ArrowDown: [0, pas] }[e.key];
+      if (!d) return;
+      e.preventDefault();
+      const { largeur, hauteur } = editeurRegions.geo;
+      const dx = Math.min(Math.max(d[0], -courant[0]), largeur - courant[2]);
+      const dy = Math.min(Math.max(d[1], -courant[1]), hauteur - courant[3]);
+      poser([courant[0] + dx, courant[1] + dy, courant[2] + dx, courant[3] + dy]);
+      clearTimeout(minuteur);      // comme les lignes : enregistré après une courte pause
+      minuteur = setTimeout(() => { editeurRegions.selection = ref; modifierZone(ref, { rect: courant }); }, 700);
+    });
+    // × : supprimer (une illustration détectée retirée est lue comme du texte, comme avant)
+    const b = elementSvg("g", { class: "scan-retirer", tabindex: "-1", "aria-hidden": "true" }, g);
+    elementSvg("title", {}, b).textContent = manuelle ? "Supprimer cette zone" : "Retirer cette illustration (son contenu sera lu comme du texte)";
+    elementSvg("circle", { cx: x1 - 26, cy: y0 + 26, r: 20, fill: "white", stroke: couleur, "stroke-width": 5 }, b);
+    const t = elementSvg("text", { x: x1 - 26, y: y0 + 26, "text-anchor": "middle", "dominant-baseline": "central",
+                                   "font-size": 30, "font-weight": 700, fill: couleur }, b);
+    t.textContent = "×";
+    b.addEventListener("pointerdown", (e) => { e.stopPropagation(); });
+    b.addEventListener("click", (e) => { e.stopPropagation(); modifierZone(ref, { supprimer: true }); });
+    if (choisie) poigneesCoins(svg, ref, rect, couleur);
+  });
+  // Mode dessin : un calque sur toute la page capte le glisser qui crée la zone.
+  if (outil) {
+    const calque = elementSvg("rect", { class: "scan-calque-dessin", x: 0, y: 0, width: editeurRegions.geo.largeur,
+                                        height: editeurRegions.geo.hauteur, fill: "transparent" }, svg);
+    let origine = null, apercu = null;
+    calque.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      calque.setPointerCapture(e.pointerId);
+      origine = versImageXY(svg, e);
+      apercu = elementSvg("rect", { x: origine[0], y: origine[1], width: 0, height: 0, fill: COULEURS_ZONES[outil],
+        "fill-opacity": 0.18, stroke: COULEURS_ZONES[outil], "stroke-width": 5, "pointer-events": "none" }, svg);
+    });
+    calque.addEventListener("pointermove", (e) => {
+      if (!origine) return;
+      const [x0, y0, x1, y1] = rectNormal([...origine, ...versImageXY(svg, e)]);
+      Object.entries({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 }).forEach(([k, v]) => apercu.setAttribute(k, v));
+    });
+    calque.addEventListener("pointerup", (e) => {
+      if (!origine) return;
+      if (calque.hasPointerCapture(e.pointerId)) calque.releasePointerCapture(e.pointerId);
+      const rect = rectNormal([...origine, ...versImageXY(svg, e)]);
+      origine = null;
+      if (rect[2] - rect[0] < COTE_MIN_ZONE || rect[3] - rect[1] < COTE_MIN_ZONE) { apercu.remove(); return; }
+      const { reglage } = editeurRegions;
+      reglage.zones.push({ type: outil, rect });
+      editeurRegions.selection = { source: "zone", index: reglage.zones.length - 1 };
+      choisirOutil(null, false);
+      enregistrerRegions(reglage);
+    });
+  }
+}
+
+// Quatre coins de la zone sélectionnée : les glisser la recadre.
+function poigneesCoins(svg, ref, rect, couleur) {
+  [[0, 1], [2, 1], [0, 3], [2, 3]].forEach(([ix, iy]) => {
+    const c = elementSvg("circle", { class: "scan-coin", cx: rect[ix], cy: rect[iy], r: 16, fill: "white",
+                                     stroke: couleur, "stroke-width": 5 }, svg);
+    let actif = false, courant = [...rect];
+    c.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); c.setPointerCapture(e.pointerId); actif = true; });
+    c.addEventListener("pointermove", (e) => {
+      if (!actif) return;
+      const [x, y] = versImageXY(svg, e);
+      courant = [...rect];
+      courant[ix] = Math.round(x); courant[iy] = Math.round(y);
+      c.setAttribute("cx", courant[ix]); c.setAttribute("cy", courant[iy]);
+      const n = rectNormal(courant);
+      const cadre = [...svg.querySelectorAll(".scan-zone.choisie rect")][0];
+      if (cadre) Object.entries({ x: n[0], y: n[1], width: n[2] - n[0], height: n[3] - n[1] }).forEach(([k, v]) => cadre.setAttribute(k, v));
+    });
+    c.addEventListener("pointerup", (e) => {
+      if (!actif) return;
+      actif = false;
+      if (c.hasPointerCapture(e.pointerId)) c.releasePointerCapture(e.pointerId);
+      const n = rectNormal(courant);
+      if (n[2] - n[0] < COTE_MIN_ZONE || n[3] - n[1] < COTE_MIN_ZONE || n.every((v, k) => v === rect[k])) { dessinerPoignees(); return; }
+      modifierZone(ref, { rect: n });
+    });
   });
 }
+
+// Barre « Nouvelle zone » et panneau de la zone sélectionnée (sous les menus de demi-page).
+function construireOutilsZones() {
+  const barre = $("scan-zones-outils");
+  barre.innerHTML = "";
+  const titre = document.createElement("span");
+  titre.className = "aide";
+  titre.textContent = "Nouvelle zone :";
+  barre.appendChild(titre);
+  TYPES_ZONE.forEach(([type, libelle, , aide]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ds-btn ds-btn--sm scan-outil";
+    b.dataset.type = type;
+    b.title = `${libelle} : ${aide}. Cliquez, puis tracez un rectangle sur la page.`;
+    b.setAttribute("aria-pressed", "false");
+    b.innerHTML = `<span class="scan-pastille-inline" style="border-color:${COULEURS_ZONES[type]}"></span>${libelle}`;
+    b.addEventListener("click", () => choisirOutil(editeurRegions.outil === type ? null : type));
+    barre.appendChild(b);
+  });
+  const select = $("scan-zone-type");
+  select.innerHTML = TYPES_ZONE.map(([v, t]) => `<option value="${v}">${t}</option>`).join("");
+  select.disabled = false;                     // désactivés pendant l'enregistrement qui a précédé ce rendu
+  $("scan-zone-supprimer").disabled = false;
+  majPanneauZone();
+}
+
+function choisirOutil(type, redessiner = true) {
+  editeurRegions.outil = type;
+  if (type) editeurRegions.selection = null;
+  document.querySelectorAll("#scan-zones-outils .scan-outil").forEach(b => {
+    b.setAttribute("aria-pressed", String(b.dataset.type === type));
+  });
+  $("scan-apercu-svg").classList.toggle("dessin", !!type);
+  if (redessiner) { dessinerPoignees(); majPanneauZone(); }
+}
+
+function majPanneauZone() {
+  const panneau = $("scan-zone-panneau");
+  const sel = editeurRegions && editeurRegions.selection;
+  const zone = sel && zonesAffichees().find(z => memeRef(z.ref, sel));
+  panneau.hidden = !zone;
+  if (!zone) return;
+  $("scan-zone-type").value = zone.type;
+  $("scan-zone-libelle").textContent = zone.ref.source === "zone" ? "Zone sélectionnée :" : "Illustration détectée :";
+}
+
+$("scan-zone-type").addEventListener("change", (e) => {
+  if (editeurRegions && editeurRegions.selection) modifierZone(editeurRegions.selection, { type: e.target.value });
+});
+$("scan-zone-supprimer").addEventListener("click", () => {
+  if (editeurRegions && editeurRegions.selection) modifierZone(editeurRegions.selection, { supprimer: true });
+});
+$("scan-apercu-svg").addEventListener("pointerdown", (e) => {
+  // Clic dans le vide : désélectionne (les zones et poignées arrêtent la propagation).
+  if (editeurRegions && !editeurRegions.outil && editeurRegions.selection && e.target === e.currentTarget) selectionner(null);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && editeurRegions && editeurRegions.outil) choisirOutil(null);
+});
 
 $("bouton-scan-apercu").addEventListener("click", () =>
   afficherApercuLabo(parseInt($("scan-page-debut").value, 10) || 1));

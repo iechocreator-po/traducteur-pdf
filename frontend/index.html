@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/components.css?v=1">
   <link rel="stylesheet" href="css/theme-toledo.css?v=2">
-  <link rel="stylesheet" href="css/style.css?v=39">
+  <link rel="stylesheet" href="css/style.css?v=40">
   <link rel="stylesheet" href="css/styles-visuels.css?v=4">
   <link rel="stylesheet" href="css/commutateurs.css?v=2">
   <script>
@@ -768,6 +768,12 @@
           <div id="scan-regions" class="scan-regions" hidden>
             <div id="scan-regions-modes" class="scan-regions-modes"></div>
             <p id="scan-regions-alertes" class="aide scan-regions-alertes" hidden></p>
+            <div id="scan-zones-outils" class="scan-zones-outils" role="toolbar" aria-label="Nouvelle zone"></div>
+            <div id="scan-zone-panneau" class="scan-zone-panneau" hidden>
+              <label for="scan-zone-type" id="scan-zone-libelle">Zone sélectionnée :</label>
+              <select class="ds-select" id="scan-zone-type"></select>
+              <button type="button" class="ds-btn ds-btn--sm" id="scan-zone-supprimer">Supprimer</button>
+            </div>
             <div class="scan-regions-actions">
               <span id="scan-regions-etat" class="aide"></span>
               <button type="button" class="ds-btn ds-btn--sm" id="scan-regions-auto" hidden>Rétablir l'automatique</button>
@@ -780,8 +786,13 @@
           <p class="aide" id="scan-regions-aide" hidden>
             <strong>Ajuster à la main</strong> : faites glisser la ligne rouge (gouttière) ou le bord d'une colonne
             verte par sa poignée ●, ou sélectionnez la poignée (Tab) et déplacez-la avec ← → (Maj : plus vite).
-            Le × d'une zone violette la retire : son contenu sera lu comme du texte. Chaque changement est
-            enregistré pour cette page seulement, à côté du PDF, et pris en compte au prochain « Nettoyer ».
+            <strong>Zones</strong> : choisissez un type dans « Nouvelle zone », puis tracez un rectangle sur la page
+            (Échap : annuler). Cliquez une zone pour la sélectionner : glissez-la pour la déplacer, tirez un coin pour
+            la recadrer, changez son type ou supprimez-la (×, Suppr). Au clavier : Tab jusqu'à la zone, Entrée, puis
+            ← ↑ → ↓. Une illustration détectée (pointillés) qu'on retouche devient une zone à vous ; la retirer fait
+            lire son contenu comme du texte. Le contenu d'une zone n'est plus lu par les colonnes : il est traité selon
+            son type, à sa place dans l'ordre de lecture. Chaque changement est enregistré pour cette page seulement, à
+            côté du PDF, et pris en compte au prochain « Nettoyer ».
           </p>
           <ul class="scan-legende-liste">
             <li><span class="scan-pastille scan-p-vert"></span><strong>Vert — colonne</strong> : une colonne de texte, lue de haut en bas avant de passer à la suivante.</li>
@@ -789,6 +800,10 @@
             <li><span class="scan-pastille scan-p-orange"></span><strong>Orange — titre probable</strong> : ligne en gros caractères, qui devient un titre (et un chapitre) si l'OCR y lit un titre numéroté.</li>
             <li><span class="scan-pastille scan-p-rouge"></span><strong>Rouge — gouttière</strong> : le pli d'une double page ; la page de gauche est lue en entier avant celle de droite.</li>
             <li><span class="scan-pastille scan-p-violet"></span><strong>Violet — illustration</strong> : zone gardée comme image. Elle n'est pas traduite : elle est recopiée telle quelle dans le PDF et le HTML recréés. Du texte entouré de violet resterait dans sa langue d'origine.</li>
+            <li><span class="scan-pastille scan-p-texte"></span><strong>Bleu clair — texte (zone à vous)</strong> : lu à part, en paragraphes, à sa place dans l'ordre de lecture (ex. un tableau à cheval sur deux colonnes).</li>
+            <li><span class="scan-pastille scan-p-conserver"></span><strong>Turquoise — ne pas traduire (zone à vous)</strong> : lu, puis recopié tel quel dans sa langue d'origine (nom propre, titre d'œuvre, citation).</li>
+            <li><span class="scan-pastille scan-p-gris"></span><strong>Gris — ignoré (zone à vous)</strong> : ni lu ni recopié.</li>
+            <li>Une zone dessinée à la main est <strong>pleine</strong> et porte son nom ; une détection est en pointillés.</li>
           </ul>
         </div>
       </section>
@@ -877,12 +892,12 @@
 
   <script src="js/commun.js?v=11"></script>
   <script src="js/module-import.js?v=19"></script>
-  <script src="js/module-bibliotheque.js?v=12"></script>
+  <script src="js/module-bibliotheque.js?v=13"></script>
   <script src="js/bibliotheque-exports.js?v=3"></script>
   <script src="js/module-laboratoire.js?v=11"></script>
   <script src="js/module-chronique.js?v=1"></script>
   <script src="js/module-anticipation.js?v=3"></script>
-  <script src="js/labo-scan-colonnes.js?v=11"></script>
+  <script src="js/labo-scan-colonnes.js?v=12"></script>
   <script src="js/labo-decoupe.js?v=1"></script>
   <script src="js/ui-ids.js?v=2"></script>
   <script src="js/reglages.js?v=4"></script>

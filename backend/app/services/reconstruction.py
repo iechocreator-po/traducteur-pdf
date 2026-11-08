@@ -216,15 +216,25 @@ def illustrations_page(image, mise: dict, reglage: dict | None = None) -> list[t
     Illustrations retenues pour une page : la détection, moins les zones que l'utilisateur a retirées
     dans l'aperçu, moins celles des demi-pages en mode 'image' ou 'ignorer' ; une demi-page 'image'
     devient UNE illustration (son encre entière), recopiée telle quelle dans le PDF recréé.
+    Zones dessinées à la main (mise["zones"]) : une détection dont le centre tombe dans l'une d'elles s'efface
+    devant elle (c'est l'utilisateur qui a dit ce qu'est cet endroit) ; les zones « illustration » sont ajoutées.
     """
     rects = detecter_illustrations(image)
     retirees = (reglage or {}).get("illustrations_retirees") or []
     rects = [r for r in rects if not any(_meme_zone(r, q) for q in retirees)]
+    zones = mise.get("zones") or []
+
+    def dans_une_zone(r) -> bool:
+        cx, cy = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
+        return any(z["rect"][0] <= cx < z["rect"][2] and z["rect"][1] <= cy < z["rect"][3] for z in zones)
+
+    rects = [r for r in rects if not dans_une_zone(r)]
     for moitie in mise["moities"]:
         if moitie["mode"] in ("image", "ignorer"):
             rects = [r for r in rects if not moitie["x0"] <= (r[0] + r[2]) // 2 < moitie["x1"]]
         if moitie["mode"] == "image":
             rects.append(_cadre_encre(mise["gris"], moitie["x0"], moitie["x1"]))
+    rects += [tuple(z["rect"]) for z in zones if z["type"] == "illustration"]
     return sorted(rects, key=lambda r: (r[0] >= mise["w"] // 2, r[1], r[0]))
 
 

@@ -57,6 +57,7 @@ from app.services.persistance import ecrire_json_atomique, ecrire_texte_atomique
 DPI_RENDU = 200
 ECHELLE_OCR = 3            # agrandissement avant Tesseract (mesuré : ×3 suffit, ×4/×5 sans gain)
 CONFIANCE_MIN_LIGNE = 55   # sous ce seuil, la ligne est du bruit (illustration, ombre de reliure)
+CONFIANCE_MIN_ZONE = 40    # dans une zone déclarée texte par l'utilisateur (voir ocr_lignes)
 CONFIANCE_MIN_TITRE = 70   # idem pour une bande de titre (voir ocr_titre)
 VERSION_ALGO = 4           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
 RATIO_DOUBLE_PAGE = 1.25   # largeur/hauteur au-delà duquel la page est une double page
@@ -70,6 +71,19 @@ LARGEUR_MIN_CLAIRSEMEE = 40    # px ; en dessous, c'est un trait ou une ombre
 ECART_MAX_RATTACHEMENT = 60    # px entre la colonne et la bande clairsemée qui la prolonge
 MODES_MOITIE = ("auto", "colonnes", "image", "ignorer")
 LARGEUR_MIN_COLONNE = 30       # px : une colonne réglée à la main plus étroite est ignorée
+# Zones dessinées à la main dans l'aperçu. Leur contenu n'est plus lu par les colonnes (il est masqué) ;
+# chaque zone est rendue selon son type, à sa place dans l'ordre de lecture :
+#   illustration : recopiée telle quelle (reconstruction), rien n'est lu ;
+#   titre        : lue et rendue en titre (## …, donc un chapitre) ;
+#   texte        : lue à part, en paragraphes (ex. un tableau à cheval sur deux colonnes) ;
+#   conserver    : lue, mais JAMAIS traduite (voir MARQUE_CONSERVER) ;
+#   ignorer      : ni lue ni recopiée.
+TYPES_ZONE = ("illustration", "titre", "texte", "conserver", "ignorer")
+COTE_MIN_ZONE = 10             # px
+NB_MAX_ZONES = 60
+# Un texte à ne pas traduire est écrit entre ces deux lignes dans le Markdown nettoyé : translator les masque
+# (le modèle ne voit jamais ce texte) et le lecteur de la Bibliothèque n'affiche pas les commentaires.
+MARQUE_CONSERVER = ("<!-- conserver -->", "<!-- /conserver -->")
 TRAVAILLEURS_PAR_DEFAUT = 3
 MARQUEUR_ICONE = "⟦icône⟧"
 PONCTUATION_OK = set(".,;:!?—–-“”\"'’‘()…")
@@ -259,10 +273,13 @@ def _tesseract(image, psm: int, langue: str, tsv: bool = False) -> str:
     return res.stdout
 
 
-def ocr_lignes(image, langue: str, y_decalage: int = 0) -> list[dict]:
-    """Lignes OCR d'un segment : mots (avec géométrie et confiance), position absolue."""
+def ocr_lignes(image, langue: str, y_decalage: int = 0, zone: bool = False) -> list[dict]:
+    """Lignes OCR d'un segment : mots (avec géométrie et confiance), position absolue.
+    `zone=True` : zone que l'utilisateur a déclarée texte. Mesuré sur un tableau aéré (Cycle I p. 1) : le mode
+    bloc (psm 6) n'y lisait que l'en-tête ; psm 4 lit chaque rangée. Les lignes de chiffres (« 1-3 1-2 »),
+    écartées des colonnes comme du bruit d'illustration, et les lignes un peu moins sûres y sont gardées."""
     lignes: dict[tuple, list[dict]] = {}
-    for ligne in _tesseract(image, 6, langue, tsv=True).splitlines()[1:]:
+    for ligne in _tesseract(image, 4 if zone else 6, langue, tsv=True).splitlines()[1:]:
         f = ligne.split("\t")
         if len(f) < 12 or not f[11].strip():
             continue
@@ -271,10 +288,10 @@ def ocr_lignes(image, langue: str, y_decalage: int = 0) -> list[dict]:
         )
     res = []
     for mots in lignes.values():
-        if sum(m["c"] for m in mots) / len(mots) < CONFIANCE_MIN_LIGNE:
+        if sum(m["c"] for m in mots) / len(mots) < (CONFIANCE_MIN_ZONE if zone else CONFIANCE_MIN_LIGNE):
             continue
         # sans un vrai mot (≥ 3 lettres), c'est du bruit d'illustration
-        if not any(len(re.sub(r"[^A-Za-z]", "", m["txt"])) >= 3 for m in mots):
+        if not zone and not any(len(re.sub(r"[^A-Za-z]", "", m["txt"])) >= 3 for m in mots):
             continue
         res.append(dict(
             mots=mots,
@@ -340,7 +357,8 @@ def est_pied_de_page(texte: str, y_abs: float, hauteur_page: int) -> bool:
     return bool(_RE_PIED.match(texte)) and len(texte.split()) <= 6
 
 
-def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int) -> list[tuple[str, str]]:
+def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int,
+                      filtrer: bool = True) -> list[tuple[str, str]]:
     """Lignes → paragraphes. Nouveau paragraphe sur retrait ou sur ligne courte finissant
     une phrase ; les mots coupés en fin de ligne sont recollés."""
     blocs: list[tuple[str, str]] = []
@@ -367,7 +385,7 @@ def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int)
             cur = (cur + " " + txt).strip()
         prec = L
     vider()
-    return [(k, t) for k, t in blocs if len(re.findall(r"[A-Za-z]{3,}", t)) >= 2]
+    return [(k, t) for k, t in blocs if not filtrer or len(re.findall(r"[A-Za-z]{3,}", t)) >= 2]
 
 
 def reparer_titres(blocs: list[tuple[str, str]], journal: list[str]) -> list[tuple[str, str]]:
@@ -414,6 +432,8 @@ def blocs_vers_markdown(blocs: list[tuple[str, str]]) -> str:
             md.append(f"\n## {t}\n")
         elif k == "encadre":
             md.append("> " + t + "\n")
+        elif k == "conserve":
+            md.append(f"{MARQUE_CONSERVER[0]}\n{t}\n{MARQUE_CONSERVER[1]}\n")
         else:
             md.append(t + "\n")
     return "\n".join(md)
@@ -482,7 +502,13 @@ def analyser_mise_en_page(image, double_page: bool | None = None, reglage: dict 
             if not alertes:
                 alertes.append("aucune colonne détectée : lue en pleine largeur")
         res.append(dict(x0=x0, x1=x1, colonnes=cols, pleine_largeur=pleine_largeur, mode=mode, alertes=alertes))
-    return dict(gris=gris, double_page=double, gouttiere=gx, moities=res, h=h, w=w)
+    zones = []      # rognées à la page (un recadrage PIL hors de l'image ajouterait du noir)
+    for z in reglage.get("zones") or []:
+        x0, y0, x1, y1 = z["rect"]
+        x0, x1, y0, y1 = max(x0, 0), min(x1, w), max(y0, 0), min(y1, h)
+        if x1 - x0 >= COTE_MIN_ZONE and y1 - y0 >= COTE_MIN_ZONE:
+            zones.append({"type": z["type"], "rect": [x0, y0, x1, y1]})
+    return dict(gris=gris, double_page=double, gouttiere=gx, moities=res, h=h, w=w, zones=zones)
 
 
 def traiter_page(image, langue: str = "eng", double_page: bool | None = None, reglage: dict | None = None) -> dict:
@@ -492,33 +518,96 @@ def traiter_page(image, langue: str = "eng", double_page: bool | None = None, re
     rien n'y est lu.
     """
     mise = analyser_mise_en_page(image, double_page, reglage)
-    gris, h = mise["gris"], mise["h"]
-    blocs, avert = [], []
-    for moitie in mise["moities"]:
+    zones = mise["zones"]
+    gris, image_lue = (_masquer_zones(mise["gris"], image, zones) if zones else (mise["gris"], image))
+    h = mise["h"]
+    blocs, avert = [], []      # blocs : (clé d'ordre de lecture, type, texte)
+    for mi, moitie in enumerate(mise["moities"]):
         avert += moitie["alertes"]
-        for a, b in moitie["colonnes"]:
+        for ci, (a, b) in enumerate(moitie["colonnes"]):
             for genre, y0, y1 in decouper_segments(gris[:, a:b]):
                 if y1 - y0 < 25:
                     continue
-                sous = (_decouper_titres(gris[y0:y1, a:b], image.crop((a, y0, b, y1)), langue)
+                sous = (_decouper_titres(gris[y0:y1, a:b], image_lue.crop((a, y0, b, y1)), langue)
                         if genre == "texte" else [("encadre", 0, y1 - y0, "")])
                 for sk, s0, s1, ttxt in sous:
                     if s1 - s0 < 8:
                         continue
+                    cle = (mi, ci, y0 + s0)
                     if sk == "titre":
-                        blocs.append(("titre", ttxt))
+                        blocs.append((cle, "titre", ttxt))
                         continue
                     marge = 4 if sk == "encadre" else 0   # évite les coins arrondis du cadre
                     if s1 - s0 < 2 * marge + 8:
                         continue
-                    lignes = ocr_lignes(image.crop((a + marge, y0 + s0 + marge, b - marge, y0 + s1 - marge)),
+                    lignes = ocr_lignes(image_lue.crop((a + marge, y0 + s0 + marge, b - marge, y0 + s1 - marge)),
                                         langue, y_decalage=y0 + s0 + marge)
                     if not lignes:
                         continue
                     for _, t in lignes_vers_blocs(lignes, b - a, h):
-                        blocs.append(("encadre" if sk == "encadre" else "para", t))
+                        blocs.append((cle, "encadre" if sk == "encadre" else "para", t))
                     # NB : lignes_vers_blocs renvoie des 'para' ; l'encadré est requalifié ici
-    return {"blocs": blocs, "avertissements": avert}
+    for z in zones:
+        blocs += [(_cle_zone(mise, z["rect"]), k, t) for k, t in _lire_zone(image, z, langue, h, avert)]
+    blocs.sort(key=lambda b: b[0])      # tri stable : sans zone, l'ordre est celui de la boucle
+    return {"blocs": [(k, t) for _, k, t in blocs], "avertissements": avert}
+
+
+def _masquer_zones(gris, image, zones: list[dict]):
+    """Copies de la page où chaque zone dessinée à la main est passée en blanc : les colonnes ne la lisent plus
+    (c'est la zone elle-même qui est lue, ou recopiée, ou ignorée)."""
+    from PIL import ImageDraw
+    gris = gris.copy()
+    image = image.copy()
+    d = ImageDraw.Draw(image)
+    for z in zones:
+        x0, y0, x1, y1 = z["rect"]
+        gris[y0:y1, x0:x1] = 255
+        d.rectangle([x0, y0, x1 - 1, y1 - 1], fill=(255, 255, 255) if image.mode == "RGB" else 255)
+    return gris, image
+
+
+def _cle_zone(mise: dict, rect) -> tuple[int, int, int]:
+    """Place d'une zone dans l'ordre de lecture : sa demi-page (centre), la première colonne qu'elle recouvre (ou
+    la première à sa droite), son haut. Une zone à cheval sur deux colonnes (un tableau) est lue avec la première,
+    à sa hauteur."""
+    x0, y0, x1, _ = rect
+    cx = (x0 + x1) / 2
+    mi = next((i for i, m in enumerate(mise["moities"]) if m["x0"] <= cx < m["x1"]), len(mise["moities"]) - 1)
+    cols = mise["moities"][mi]["colonnes"]
+    ci = next((i for i, (a, b) in enumerate(cols) if b > x0 and a < x1), None)
+    if ci is None:
+        ci = next((i for i, (a, _) in enumerate(cols) if a >= cx), len(cols))
+    return (mi, ci, y0)
+
+
+def _lire_zone(image, zone: dict, langue: str, hauteur_page: int, avert: list[str]) -> list[tuple[str, str]]:
+    """Blocs d'une zone dessinée à la main (voir TYPES_ZONE). Une zone à lire où l'OCR ne trouve rien est signalée."""
+    if zone["type"] in ("illustration", "ignorer"):
+        return []
+    x0, y0, x1, y1 = zone["rect"]
+    lignes = ocr_lignes(image.crop((x0, y0, x1, y1)), langue, y_decalage=y0, zone=True)
+    texte = " ".join(t for t in (texte_ligne(L) for L in lignes) if t).strip()
+    if not texte:
+        avert.append(f"zone « {zone['type']} » ({x0}, {y0}) : aucun texte lu")
+        return []
+    if zone["type"] == "titre":
+        return [("titre", texte)]
+    if zone["type"] == "conserver":
+        return [("conserve", texte)]
+    if _ressemble_a_un_tableau(lignes):     # une rangée par paragraphe : fusionnées, les cellules se mélangent
+        return [("para", t) for t in (texte_ligne(L) for L in lignes) if t]
+    return lignes_vers_blocs(lignes, x1 - x0, hauteur_page, filtrer=False) or [("para", texte)]
+
+
+def _ressemble_a_un_tableau(lignes: list[dict]) -> bool:
+    """Au moins la moitié des lignes ont un grand blanc entre deux mots (plus de 2,5 hauteurs de lettre) : des
+    cellules, pas de la prose."""
+    def rangee(L) -> bool:
+        mots = sorted(L["mots"], key=lambda m: m["l"])
+        h = sorted(m["h"] for m in mots)[len(mots) // 2] or 1
+        return any(b["l"] - (a["l"] + a["w"]) > 2.5 * h for a, b in zip(mots, mots[1:]))
+    return len(lignes) >= 2 and sum(rangee(L) for L in lignes) * 2 >= len(lignes)
 
 
 def geometrie_page(image, double_page: bool | None = None, reglage: dict | None = None) -> dict:
@@ -533,38 +622,58 @@ def geometrie_page(image, double_page: bool | None = None, reglage: dict | None 
 
 
 def geometrie_publique(geo: dict, reglage: dict | None) -> dict:
-    """La géométrie sans le tableau de pixels, sérialisable en JSON."""
+    """La géométrie sans le tableau de pixels, sérialisable en JSON. `illustrations` : celles de la DÉTECTION
+    (et l'encre d'une demi-page « image ») ; les zones dessinées à la main sont dans `zones`."""
     mise = geo["mise"]
+    zones = mise["zones"]
+    manuelles = [z["rect"] for z in zones if z["type"] == "illustration"]
     return {
         "largeur": mise["w"], "hauteur": mise["h"], "double_page": mise["double_page"],
         "gouttiere": mise["gouttiere"],
         "moities": [{k: m[k] for k in ("x0", "x1", "mode", "pleine_largeur", "alertes")}
                     | {"colonnes": [list(c) for c in m["colonnes"]]} for m in mise["moities"]],
-        "illustrations": [list(r) for r in geo["illustrations"]],
+        "illustrations": [list(r) for r in geo["illustrations"] if list(r) not in manuelles],
+        "zones": zones,
         "reglage": reglage,
     }
 
 
-def apercu_page(image, double_page: bool | None = None, reglage: dict | None = None) -> bytes:
+COULEURS_ZONES = {"illustration": (170, 0, 200), "titre": (240, 140, 0), "texte": (0, 120, 200),
+                  "conserver": (0, 150, 140), "ignorer": (110, 110, 110)}
+
+
+def apercu_page(image, double_page: bool | None = None, reglage: dict | None = None, edition: bool = False) -> bytes:
     """PNG de la page avec les régions détectées (gouttière rouge, colonnes vertes,
     encadrés bleus, titres orange, illustrations violettes) — c'est le moyen de repérer un
     mauvais découpage AVANT de lancer un long traitement. Géométrie seule, aucun OCR.
     Le violet vient de la reconstruction (reconstruction.illustrations_page) : ces zones ne
     sont pas traduites mais recopiées telles quelles dans le PDF et le HTML recréés.
-    Une demi-page ignorée est voilée de gris."""
+    Une demi-page ignorée est voilée de gris ; les zones dessinées à la main sont pleines, de la couleur de leur type.
+    `edition` : l'éditeur du Laboratoire dessine lui-même illustrations et zones (déplaçables) : elles sont omises."""
     from PIL import Image, ImageDraw
 
     geo = geometrie_page(image, double_page, reglage)
-    mise, illustrations = geo["mise"], geo["illustrations"]
+    mise = geo["mise"]
+    zones = mise["zones"]
+    manuelles = [z["rect"] for z in zones if z["type"] == "illustration"]
+    illustrations = [] if edition else [r for r in geo["illustrations"] if list(r) not in manuelles]
     img = image.convert("RGB").copy()
     for moitie in mise["moities"]:
         if moitie["mode"] == "ignorer":
             zone = img.crop((moitie["x0"], 0, moitie["x1"], mise["h"]))
             img.paste(Image.blend(zone, Image.new("RGB", zone.size, (128, 128, 128)), 0.6), (moitie["x0"], 0))
+    if not edition:
+        for z in zones:
+            x0, y0, x1, y1 = z["rect"]
+            zone = img.crop((x0, y0, x1, y1))
+            img.paste(Image.blend(zone, Image.new("RGB", zone.size, COULEURS_ZONES[z["type"]]), 0.25), (x0, y0))
     d = ImageDraw.Draw(img)
+    if not edition:
+        for z in zones:
+            d.rectangle(z["rect"], outline=COULEURS_ZONES[z["type"]], width=5)
     if mise["gouttiere"] is not None:
         d.line([(mise["gouttiere"], 0), (mise["gouttiere"], mise["h"])], fill=(220, 0, 0), width=3)
-    gris = mise["gris"]
+    gris = _masquer_zones(mise["gris"], image, zones)[0] if zones else mise["gris"]
     for moitie in mise["moities"]:
         for a, b in moitie["colonnes"]:
             d.rectangle([a, 0, b, mise["h"] - 1], outline=(0, 160, 0), width=2)
@@ -617,8 +726,8 @@ def _image_de_page(chemin_pdf: str, page: int):
         doc.close()
 
 
-def apercu_pdf(chemin_pdf: str, page: int, double_page: bool | None = None) -> bytes:
-    return apercu_page(_image_de_page(chemin_pdf, page), double_page, reglage_page(chemin_pdf, page))
+def apercu_pdf(chemin_pdf: str, page: int, double_page: bool | None = None, edition: bool = False) -> bytes:
+    return apercu_page(_image_de_page(chemin_pdf, page), double_page, reglage_page(chemin_pdf, page), edition)
 
 
 def geometrie_pdf(chemin_pdf: str, page: int, double_page: bool | None = None) -> dict:
@@ -651,8 +760,9 @@ def normaliser_reglage(brut) -> dict | None:
     Réglage d'une page tel qu'il est enregistré, ou None s'il n'y a rien à retenir (tout en automatique) :
       {"gouttiere": int | absent,
        "moities": [{"mode": "auto"|"colonnes"|"image"|"ignorer", "colonnes": [[x0, x1], ...]}, ...],
-       "illustrations_retirees": [[x0, y0, x1, y1], ...]}
-    Les bornes sont validées contre la page au moment de l'appliquer (analyser_mise_en_page), pas ici.
+       "illustrations_retirees": [[x0, y0, x1, y1], ...],
+       "zones": [{"type": TYPES_ZONE, "rect": [x0, y0, x1, y1]}, ...]}   # dessinées à la main, dans l'ordre
+    Les bornes sont validées contre la page au moment de l'appliquer, pas ici (une zone hors page est rognée).
     """
     if not isinstance(brut, dict):
         return None
@@ -684,6 +794,19 @@ def normaliser_reglage(brut) -> dict | None:
             retirees.append([int(v) for v in r])
     if retirees:
         sortie["illustrations_retirees"] = retirees
+    zones = []
+    for z in (brut.get("zones") or [])[:NB_MAX_ZONES] if isinstance(brut.get("zones"), list) else []:
+        if not isinstance(z, dict) or z.get("type") not in TYPES_ZONE:
+            continue
+        r = z.get("rect")
+        if not (isinstance(r, (list, tuple)) and len(r) == 4 and all(_entier(v) is not None for v in r)):
+            continue
+        x0, y0, x1, y1 = (int(v) for v in r)
+        x0, x1, y0, y1 = min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
+        if x1 - x0 >= COTE_MIN_ZONE and y1 - y0 >= COTE_MIN_ZONE:
+            zones.append({"type": z["type"], "rect": [x0, y0, x1, y1]})
+    if zones:
+        sortie["zones"] = zones
     return sortie or None
 
 

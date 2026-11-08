@@ -910,6 +910,9 @@ html.avance .biblio-lecture {
 .scan-p-orange { border-color: rgb(240, 140, 0); }
 .scan-p-rouge { border-color: rgb(220, 0, 0); }
 .scan-p-violet { border-color: rgb(170, 0, 200); }
+.scan-p-texte { border-color: rgb(0, 120, 200); }
+.scan-p-conserver { border-color: rgb(0, 150, 140); }
+.scan-p-gris { border-color: rgb(110, 110, 110); }
 /* Éditeur de régions : un SVG posé sur l'image de l'aperçu, dans les coordonnées de l'image (viewBox). */
 .scan-regions { margin-top: 0.6rem; display: grid; gap: 0.4rem; }
 .scan-regions-modes { display: flex; flex-wrap: wrap; gap: 0.8rem; }
@@ -923,6 +926,16 @@ html.avance .biblio-lecture {
 .scan-poignee { cursor: ew-resize; outline: none; }
 .scan-poignee .zone { stroke: transparent; }
 .scan-poignee:hover .grip, .scan-poignee:focus .grip, .scan-poignee.glisse .grip { stroke-width: 8; }
+.scan-zones-outils, .scan-zone-panneau { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.scan-zone-panneau label { margin: 0; }
+.scan-zone-panneau .ds-select { width: auto; margin: 0; }
+.scan-outil[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.scan-pastille-inline { display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.35em; vertical-align: -0.05em;
+                        box-sizing: border-box; border: 3px solid; border-radius: 2px; }
+.scan-zone { cursor: move; outline: none; }
+.scan-zone:focus rect { stroke-width: 9; }
+.scan-coin { cursor: nwse-resize; }
+.scan-apercu-svg.dessin, .scan-calque-dessin { cursor: crosshair; }
 .scan-retirer { cursor: pointer; }
 .scan-retirer:hover circle, .scan-retirer:focus circle { fill: rgb(170, 0, 200); }
 .scan-retirer:hover text, .scan-retirer:focus text { fill: white; }

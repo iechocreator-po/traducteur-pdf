@@ -112,13 +112,16 @@ def appeler_ollama(
 # ne veut SURTOUT pas envoyer au modèle (gaspillage de tokens + risque qu'il
 # traduise/altère le chemin). On le masque par une sentinelle avant l'appel.
 _RE_TAG_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+# Texte marqué « à ne pas traduire » (Documents complexes, zone dessinée à la main ; voir
+# scan_colonnes.MARQUE_CONSERVER) : masqué de la même façon, donc recopié à l'identique, marques comprises.
+_RE_PROTEGE = re.compile(r"!\[[^\]]*\]\([^)]*\)|<!-- conserver -->\n.*?\n<!-- /conserver -->", re.S)
 
 
 def _masquer_images(texte: str) -> tuple[str, list[str]]:
     """
-    Remplace chaque tag image par une sentinelle neutre `⟦IMGk⟧`. Ainsi Ollama ne
-    reçoit jamais le chemin de l'image (ni l'alt) : il ne peut ni le traduire ni
-    l'altérer. Retourne (texte_masqué, liste des tags dans l'ordre d'apparition).
+    Remplace chaque tag image (et chaque texte « à ne pas traduire ») par une sentinelle neutre
+    `⟦IMGk⟧`. Ainsi Ollama ne reçoit jamais le chemin de l'image (ni l'alt) : il ne peut ni le
+    traduire ni l'altérer. Retourne (texte_masqué, liste des tags dans l'ordre d'apparition).
     """
     tags: list[str] = []
 
@@ -126,7 +129,7 @@ def _masquer_images(texte: str) -> tuple[str, list[str]]:
         tags.append(m.group(0))
         return f"⟦IMG{len(tags) - 1}⟧"
 
-    return _RE_TAG_IMAGE.sub(_sub, texte), tags
+    return _RE_PROTEGE.sub(_sub, texte), tags
 
 
 def _restaurer_images(traduit: str, tags: list[str]) -> str:
@@ -161,6 +164,8 @@ def traduire_texte(
     chemin n'est jamais envoyé au modèle) puis restaurés à l'identique.
     """
     texte_a_traduire, tags_images = _masquer_images(texte)
+    if tags_images and not re.sub(r"⟦IMG\d+⟧", "", texte_a_traduire).strip():
+        return texte    # rien d'autre que des images ou du texte à conserver : le modèle n'a rien à faire
 
     system = (
         f"You are a professional literal translator. Traduis de {langue_source} vers {langue_cible}.\n"

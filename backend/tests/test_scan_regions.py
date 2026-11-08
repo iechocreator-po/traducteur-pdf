@@ -215,3 +215,165 @@ def test_geometrie_de_reconstruction_refaite_pour_la_page_retouchee(tmp_path):
     page = m2["pages"]["1"]
     assert page["regions"] == {"moities": [{"mode": "image"}]}
     assert page["cadres"] == [] and len(page["illustrations"]) == 1
+
+
+# ── Zones dessinées à la main (niveau 3) ─────────────────────────────────────
+
+from app.services import translator as T                                   # noqa: E402
+from tests.test_scan_colonnes import ligne                                  # noqa: E402
+
+
+def test_normaliser_zones():
+    r = S.normaliser_reglage({"zones": [
+        {"type": "titre", "rect": [300, 50, 100, 90]},          # coins inversés : remis dans l'ordre
+        {"type": "pirate", "rect": [0, 0, 100, 100]},           # type inconnu
+        {"type": "texte", "rect": [0, 0, 5, 100]},              # trop étroite
+        {"type": "conserver", "rect": [0, 0, "a", 100]},
+        "x",
+    ]})
+    assert r == {"zones": [{"type": "titre", "rect": [100, 50, 300, 90]}]}
+
+
+def test_zone_rognee_a_la_page():
+    img, _ = page_synthetique()
+    mise = S.analyser_mise_en_page(img, double_page=False, reglage={"zones": [
+        {"type": "ignorer", "rect": [-50, 800, 5000, 5000]}, {"type": "titre", "rect": [5000, 0, 6000, 50]}]})
+    assert mise["zones"] == [{"type": "ignorer", "rect": [0, 800, img.width, img.height]}]
+
+
+def _ocr_factice(appels):
+    """OCR sans Tesseract : une ligne dont le texte dit d'où vient le recadrage (zone ou colonne)."""
+    def ocr(image, langue, y_decalage=0, zone=False):
+        appels.append((image.size, y_decalage, zone))
+        return [ligne(f"Lu{image.width}x{image.height} depuis {y_decalage} mots", 0, image.width, y_decalage)]
+    return ocr
+
+
+def test_zones_lues_a_leur_place_selon_leur_type(monkeypatch):
+    img, cols = page_synthetique()
+    monkeypatch.setattr(S, "ocr_titre", lambda image, langue: ("", 0.0))
+    appels = []
+    monkeypatch.setattr(S, "ocr_lignes", _ocr_factice(appels))
+    a, b = cols[1]
+    reglage = {"zones": [{"type": "conserver", "rect": [a, 600, b, 640]},
+                         {"type": "titre", "rect": [a, 300, b, 340]},
+                         {"type": "ignorer", "rect": [cols[2][0], 30, cols[2][1], 200]},
+                         {"type": "illustration", "rect": [cols[0][0], 500, cols[0][1], 700]}]}
+    blocs = S.traiter_page(img, "eng", double_page=False, reglage=reglage)["blocs"]
+    largeur = b - a
+    titre = ("titre", f"Lu{largeur}x40 depuis 300 mots")
+    conserve = ("conserve", f"Lu{largeur}x40 depuis 600 mots")
+    assert titre in blocs and conserve in blocs
+    i_titre, i_conserve = blocs.index(titre), blocs.index(conserve)
+    assert i_titre < i_conserve
+    # Ordre de lecture : tout ce qui est lu dans la 1re colonne vient avant le titre (2e colonne, en haut),
+    # et le texte de la 3e colonne après le texte conservé.
+    avant = [t for k, t in blocs[:i_titre] if k == "para"]
+    apres = [t for k, t in blocs[i_conserve + 1:] if k == "para"]
+    assert avant and apres
+    # Les zones ignorer / illustration ne sont jamais lues : aucun recadrage à leur taille.
+    assert all(taille != (cols[2][1] - cols[2][0], 170) and taille != (cols[0][1] - cols[0][0], 200)
+               for taille, _, _ in appels)
+    # Une zone garde ses lignes de chiffres (tableau) ; les colonnes, non.
+    assert {(t, e) for t, y, e in appels if y in (300, 600)} == {((largeur, 40), True)}
+
+
+def test_contenu_d_une_zone_masque_pour_les_colonnes():
+    img, cols = page_synthetique()
+    mise = S.analyser_mise_en_page(img, double_page=False)
+    zone = {"type": "ignorer", "rect": [cols[1][0], 100, cols[1][1], 400]}
+    gris, image = S._masquer_zones(mise["gris"], img, [zone])
+    assert gris[100:400, cols[1][0]:cols[1][1]].min() == 255
+    assert mise["gris"][100:400, cols[1][0]:cols[1][1]].min() < 100          # l'original n'est pas touché
+    assert min(image.crop((cols[1][0], 100, cols[1][1], 400)).getdata()) == 255
+
+
+def test_zone_vide_signalee(monkeypatch):
+    img, cols = page_synthetique()
+    monkeypatch.setattr(S, "ocr_titre", lambda image, langue: ("", 0.0))
+    monkeypatch.setattr(S, "ocr_lignes", lambda image, langue, y_decalage=0, zone=False: [])
+    res = S.traiter_page(img, "eng", double_page=False,
+                         reglage={"zones": [{"type": "titre", "rect": [cols[0][0], 50, cols[0][1], 90]}]})
+    assert any("aucun texte lu" in a for a in res["avertissements"])
+
+
+def test_markdown_du_texte_conserve_et_relu_par_la_reconstruction():
+    md = S.blocs_vers_markdown([("para", "Avant."), ("conserve", "Nom Propre"), ("para", "Après.")])
+    assert "<!-- conserver -->\nNom Propre\n<!-- /conserver -->" in md
+    assert R._blocs_traduits(md) == [("para", "Avant."), ("para", "Nom Propre"), ("para", "Après.")]
+
+
+def test_texte_conserve_jamais_envoye_au_modele(monkeypatch):
+    vus = []
+
+    def faux_ollama(payload, interruption=None):
+        vus.append(payload["prompt"])
+        return {"response": payload["prompt"].replace("Hello world.", "Bonjour le monde.")}
+
+    monkeypatch.setattr(T, "appeler_ollama", faux_ollama)
+    bloc = "<!-- conserver -->\nThe Unknown Studio\n<!-- /conserver -->"
+    sortie = T.traduire_texte(f"Hello world.\n\n{bloc}\n\nHello world.", "m", "anglais", "français")
+    assert "Unknown" not in vus[0] and "⟦IMG0⟧" in vus[0]
+    assert sortie == f"Bonjour le monde.\n\n{bloc}\n\nBonjour le monde."
+
+
+def test_morceau_entierement_conserve_sans_appel_au_modele(monkeypatch):
+    def interdit(*a, **k):
+        raise AssertionError("le modèle ne doit pas être appelé")
+
+    monkeypatch.setattr(T, "appeler_ollama", interdit)
+    bloc = "<!-- conserver -->\nCREDITS\n<!-- /conserver -->"
+    assert T.traduire_texte(bloc, "m", "anglais", "français") == bloc
+
+
+def test_zones_et_illustrations_detectees(monkeypatch):
+    img, _ = _double_page()
+    monkeypatch.setattr(R, "detecter_illustrations", lambda image: [(100, 100, 400, 400), (900, 100, 1200, 400)])
+    reglage = {"zones": [{"type": "titre", "rect": [80, 80, 420, 420]},            # recouvre la 1re détection
+                         {"type": "illustration", "rect": [900, 500, 1100, 700]}]}
+    mise = S.analyser_mise_en_page(img, double_page=True, reglage=reglage)
+    illus = R.illustrations_page(img, mise, reglage)
+    assert illus == [(900, 100, 1200, 400), (900, 500, 1100, 700)]
+    geo = S.geometrie_publique({"mise": mise, "illustrations": illus}, reglage)
+    assert geo["illustrations"] == [[900, 100, 1200, 400]]            # la zone manuelle n'y est pas en double
+    assert [z["type"] for z in geo["zones"]] == ["titre", "illustration"]
+
+
+def test_geometrie_de_reconstruction_avec_zone_illustration(tmp_path):
+    pdf = _pdf(tmp_path)
+    S.enregistrer_reglage_page(pdf, 1, {"zones": [{"type": "illustration", "rect": [40, 40, 240, 240]}]})
+    page = R.preparer_geometrie(pdf, str(tmp_path / "illus"), [1], False)["pages"]["1"]
+    assert {"rect": [40, 40, 240, 240], "fichier": "page-0001-illus-1.jpg"} in page["illustrations"]
+
+
+def test_apercu_en_edition_omet_les_zones(monkeypatch):
+    img, cols = page_synthetique()
+    reglage = {"zones": [{"type": "conserver", "rect": [cols[0][0], 100, cols[0][1], 300]}]}
+    normal = Image.open(__import__("io").BytesIO(S.apercu_page(img, False, reglage))).convert("RGB")
+    edition = Image.open(__import__("io").BytesIO(S.apercu_page(img, False, reglage, edition=True))).convert("RGB")
+    x, y = cols[0][0] + 2, 200          # sur le bord de la zone : turquoise d'un côté, page de l'autre
+    assert normal.getpixel((x, y)) == S.COULEURS_ZONES["conserver"]
+    assert edition.getpixel((x, y)) != S.COULEURS_ZONES["conserver"]
+
+
+def test_zone_texte_garde_les_lignes_de_chiffres():
+    """Corps d'un tableau (« 1-3 1-2 ») : écarté comme du bruit dans une colonne, gardé dans une zone « texte »."""
+    lignes = [ligne("Story I Story II", 0, 300, 10), ligne("1-3 1-2", 0, 300, 40)]
+    assert S.lignes_vers_blocs(lignes, 300, 1000, filtrer=False) == [("para", "Story I Story II 1-3 1-2")]
+
+
+def _rangee(cellules, haut):
+    """Ligne OCR dont les mots sont séparés par de grands blancs (cellules d'un tableau)."""
+    mots = [dict(l=i * 200, t=0, w=40, h=20, c=90, txt=c) for i, c in enumerate(cellules)]
+    return dict(mots=mots, gauche=0, droite=len(cellules) * 200, haut=haut)
+
+
+def test_zone_texte_en_tableau_une_rangee_par_paragraphe(monkeypatch):
+    img, cols = page_synthetique()
+    monkeypatch.setattr(S, "ocr_lignes", lambda image, langue, y_decalage=0, zone=False:
+                        [_rangee(["1-3", "1-2", "Fated"], y_decalage), _rangee(["4-6", "3-4", "Plight"], y_decalage + 30)]
+                        if zone else [])
+    monkeypatch.setattr(S, "ocr_titre", lambda image, langue: ("", 0.0))
+    blocs = S.traiter_page(img, "eng", False, {"zones": [{"type": "texte", "rect": [cols[0][0], 50, cols[2][1], 120]}]})["blocs"]
+    assert blocs == [("para", "1-3 1-2 Fated"), ("para", "4-6 3-4 Plight")]
+    assert not S._ressemble_a_un_tableau([ligne("Une phrase de prose normale", 0, 300, 0), ligne("et sa suite", 0, 300, 20)])
