@@ -910,6 +910,22 @@ html.avance .biblio-lecture {
 .scan-p-orange { border-color: rgb(240, 140, 0); }
 .scan-p-rouge { border-color: rgb(220, 0, 0); }
 .scan-p-violet { border-color: rgb(170, 0, 200); }
+/* Éditeur de régions : un SVG posé sur l'image de l'aperçu, dans les coordonnées de l'image (viewBox). */
+.scan-regions { margin-top: 0.6rem; display: grid; gap: 0.4rem; }
+.scan-regions-modes { display: flex; flex-wrap: wrap; gap: 0.8rem; }
+.scan-regions-modes label { display: flex; align-items: center; gap: 0.4rem; margin: 0; }
+.scan-regions-modes .ds-select { width: auto; margin: 0; }
+.scan-regions-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+.scan-regions-alertes { margin: 0; color: var(--amber); }
+.scan-apercu-cadre { position: relative; display: inline-block; max-width: 100%; margin-top: 0.8rem; }
+.scan-apercu-cadre .scan-apercu { display: block; margin: 0; }
+.scan-apercu-svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.scan-poignee { cursor: ew-resize; outline: none; }
+.scan-poignee .zone { stroke: transparent; }
+.scan-poignee:hover .grip, .scan-poignee:focus .grip, .scan-poignee.glisse .grip { stroke-width: 8; }
+.scan-retirer { cursor: pointer; }
+.scan-retirer:hover circle, .scan-retirer:focus circle { fill: rgb(170, 0, 200); }
+.scan-retirer:hover text, .scan-retirer:focus text { fill: white; }
 
 /* ── Réglages (⚙) : panneau plein écran, même principe que castellana ───────── */
 .icon-btn {

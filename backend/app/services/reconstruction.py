@@ -33,7 +33,7 @@ from app.services import scan_colonnes
 from app.services.persistance import ecrire_binaire_atomique, ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
 
 SUFFIXE_SCAN = "_scan_colonnes"
-VERSION_CACHE = 4            # à incrémenter quand la détection change (invalide le cache)
+VERSION_CACHE = 5           # à incrémenter quand la détection change (invalide le cache)
 DPI_APERCU = 90              # scan d'origine embarqué dans le HTML (mode « Pages »)
 QUALITE_ILLUS = 85
 QUALITE_APERCU = 65
@@ -193,6 +193,41 @@ def _ressemble_a_du_texte(gris, largeur_page: int, hauteur_page: int) -> bool:
     return float(aires[petits].sum()) / float(aires.sum()) >= PART_ENCRE_EN_PETITS_MORCEAUX
 
 
+def _meme_zone(r, q) -> bool:
+    """Deux rectangles désignent la même zone s'ils se recouvrent à plus de moitié (intersection / union)."""
+    ix = max(0, min(r[2], q[2]) - max(r[0], q[0]))
+    iy = max(0, min(r[3], q[3]) - max(r[1], q[1]))
+    inter = ix * iy
+    union = (r[2] - r[0]) * (r[3] - r[1]) + (q[2] - q[0]) * (q[3] - q[1]) - inter
+    return union > 0 and inter / union >= 0.5
+
+
+def _cadre_encre(gris, x0: int, x1: int) -> tuple[int, int, int, int]:
+    """Rectangle de l'encre d'une demi-page (le papier vide autour n'est pas une illustration)."""
+    zone = gris[:, x0:x1] < 200
+    lignes, cols = zone.any(axis=1).nonzero()[0], zone.any(axis=0).nonzero()[0]
+    if not len(lignes):
+        return (x0, 0, x1, gris.shape[0])
+    return (int(x0 + cols[0]), int(lignes[0]), int(x0 + cols[-1] + 1), int(lignes[-1] + 1))
+
+
+def illustrations_page(image, mise: dict, reglage: dict | None = None) -> list[tuple[int, int, int, int]]:
+    """
+    Illustrations retenues pour une page : la détection, moins les zones que l'utilisateur a retirées
+    dans l'aperçu, moins celles des demi-pages en mode 'image' ou 'ignorer' ; une demi-page 'image'
+    devient UNE illustration (son encre entière), recopiée telle quelle dans le PDF recréé.
+    """
+    rects = detecter_illustrations(image)
+    retirees = (reglage or {}).get("illustrations_retirees") or []
+    rects = [r for r in rects if not any(_meme_zone(r, q) for q in retirees)]
+    for moitie in mise["moities"]:
+        if moitie["mode"] in ("image", "ignorer"):
+            rects = [r for r in rects if not moitie["x0"] <= (r[0] + r[2]) // 2 < moitie["x1"]]
+        if moitie["mode"] == "image":
+            rects.append(_cadre_encre(mise["gris"], moitie["x0"], moitie["x1"]))
+    return sorted(rects, key=lambda r: (r[0] >= mise["w"] // 2, r[1], r[0]))
+
+
 def cadres_texte(mise: dict, illustrations: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
     """
     Cadres où couler le texte traduit, DANS L'ORDRE DE LECTURE (demi-page gauche puis droite,
@@ -243,15 +278,18 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_p
     manifeste = lire_json_tolerant(manifeste_chemin)
     if not isinstance(manifeste, dict) or manifeste.get("signature") != signature:
         manifeste = {"signature": signature, "pages": {}}
-    a_faire = [n for n in pages if str(n) not in manifeste["pages"]]
+    # Une page dont les régions ont été retouchées à la main depuis est refaite (le reste du cache tient).
+    manuels = {n: scan_colonnes.reglage_page(chemin_pdf, n) for n in pages}
+    a_faire = [n for n in pages if str(n) not in manifeste["pages"]
+               or manifeste["pages"][str(n)].get("regions") != manuels[n]]
     if a_faire:
         os.makedirs(dossier, exist_ok=True)
         doc = scan_colonnes._ouvrir_pdf(chemin_pdf)
         try:
             for n in a_faire:
                 image = scan_colonnes.rendre_page(doc, n)
-                illus = detecter_illustrations(image)
-                mise = scan_colonnes.analyser_mise_en_page(image, double_page)
+                mise = scan_colonnes.analyser_mise_en_page(image, double_page, manuels[n])
+                illus = illustrations_page(image, mise, manuels[n])
                 fichiers = []
                 for i, (x0, y0, x1, y1) in enumerate(illus):
                     nom = f"page-{n:04d}-illus-{i + 1}.jpg"
@@ -267,6 +305,7 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_p
                     "illustrations": fichiers,
                     "cadres": [list(c) for c in cadres_texte(mise, illus)],
                     "apercu": apercu,
+                    "regions": manuels[n],
                 }
         finally:
             doc.close()

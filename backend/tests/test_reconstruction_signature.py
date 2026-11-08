@@ -401,7 +401,7 @@ def test_reglage_double_page_du_scan_transmis_et_dans_le_cache(scan_traduit, mon
 
     vus = []
     origine = scan_colonnes.analyser_mise_en_page
-    monkeypatch.setattr(scan_colonnes, "analyser_mise_en_page", lambda image, dp=None: vus.append(dp) or origine(image, dp))
+    monkeypatch.setattr(scan_colonnes, "analyser_mise_en_page", lambda image, dp=None, reglage=None: vus.append(dp) or origine(image, dp, reglage))
     _etat_scan(pdf, double_page=False)
     reconstruction.generer_pdf(scan_traduit)     # le réglage a changé : le cache ne doit pas resservir
     assert vus == [False, False]

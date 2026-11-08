@@ -127,10 +127,231 @@ async function afficherApercuLabo(page) {
   $("scan-apercu-bloc").hidden = false;
   const nav = [$("scan-apercu-prec"), $("scan-apercu-suiv"), $("scan-apercu-page")];
   nav.forEach(el => { el.disabled = true; });
-  await chargerApercuScan(chemin, page, $("scan-double-page").value, $("scan-apercu-image"), $("scan-apercu-statut"));
+  masquerEditeurRegions();
+  const doublePage = $("scan-double-page").value;
+  const [ok, geo] = await Promise.all([
+    chargerApercuScan(chemin, page, doublePage, $("scan-apercu-image"), $("scan-apercu-statut")),
+    apiGet(`/labo/scan-colonnes/geometrie?chemin_pdf=${encodeURIComponent(chemin)}&page=${page}&double_page=${doublePage}`,
+           API_TIMEOUT_LONG_MS).catch(() => null),
+  ]);
+  if (ok && geo) afficherEditeurRegions(chemin, page, geo);
   nav.forEach(el => { el.disabled = false; });
   $("scan-apercu-prec").disabled = page <= 1;
   $("scan-apercu-suiv").disabled = page >= max;
+}
+
+// ── Réglage manuel des régions d'une page (niveaux 1 et 2) ───────────────────
+// Niveau 1 : un mode par demi-page (auto, 1 à 3 colonnes, recopier comme image, ignorer).
+// Niveau 2 : gouttière et bords de colonnes déplaçables, illustrations retirables.
+// Le backend reste la seule source : chaque geste envoie le réglage complet de la page
+// (PUT /labo/scan-colonnes/reglage-page), puis l'aperçu ET la géométrie sont recalculés par lui.
+// Coordonnées : pixels de l'image de l'aperçu (rendu 200 dpi), via le viewBox du SVG.
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const COULEURS_REGIONS = { rouge: "rgb(220, 0, 0)", vert: "rgb(0, 160, 0)", violet: "rgb(170, 0, 200)" };
+const LARGEUR_MIN_COLONNE = 30;     // = scan_colonnes.LARGEUR_MIN_COLONNE
+let editeurRegions = null;          // { chemin, page, geo, reglage }
+
+function masquerEditeurRegions() {
+  editeurRegions = null;
+  $("scan-regions").hidden = true;
+  $("scan-apercu-svg").setAttribute("hidden", "");   // un <svg> n'a pas la propriété .hidden des éléments HTML
+  $("scan-regions-aide").hidden = true;
+}
+
+// Réglage de départ = celui en vigueur, complété pour avoir une entrée par demi-page.
+function reglageInitial(geo) {
+  const r = geo.reglage || {};
+  const moities = geo.moities.map((m, i) => (r.moities && r.moities.length === geo.moities.length && r.moities[i])
+    || { mode: "auto" });
+  return { gouttiere: r.gouttiere, moities, illustrations_retirees: [...(r.illustrations_retirees || [])] };
+}
+
+function libelleMoitie(geo, i) {
+  return geo.moities.length === 1 ? "Page" : (i === 0 ? "Page de gauche" : "Page de droite");
+}
+
+function valeurMode(m) {
+  if (m.mode !== "colonnes") return m.mode;
+  return `c${m.colonnes.length}`;
+}
+
+function afficherEditeurRegions(chemin, page, geo) {
+  editeurRegions = { chemin, page, geo, reglage: reglageInitial(geo) };
+  // Menus de mode
+  const modes = $("scan-regions-modes");
+  modes.innerHTML = "";
+  geo.moities.forEach((m, i) => {
+    const label = document.createElement("label");
+    const n = m.colonnes.length;
+    const options = [["auto", "Automatique"], ["c1", "1 colonne"], ["c2", "2 colonnes"], ["c3", "3 colonnes"],
+                     ["image", "Recopier comme image"], ["ignorer", "Ignorer (ni lue ni recopiée)"]];
+    if (m.mode === "colonnes" && n > 3) options.splice(4, 0, [`c${n}`, `${n} colonnes`]);
+    label.innerHTML = `${libelleMoitie(geo, i)} :`;
+    const select = document.createElement("select");
+    select.className = "ds-select";
+    select.innerHTML = options.map(([v, t]) => `<option value="${v}">${t}</option>`).join("");
+    select.value = valeurMode(m);
+    select.addEventListener("change", () => changerModeMoitie(i, select.value));
+    label.appendChild(select);
+    modes.appendChild(label);
+  });
+  // Alertes de la détection (page à vérifier) et état du réglage
+  const alertes = geo.moities.flatMap((m, i) => m.alertes.map(a => `${libelleMoitie(geo, i)} : ${a}`));
+  $("scan-regions-alertes").hidden = !alertes.length;
+  $("scan-regions-alertes").textContent = alertes.length ? `⚠ À vérifier — ${alertes.join(" · ")}.` : "";
+  $("scan-regions-etat").textContent = geo.reglage
+    ? "✋ Régions réglées à la main pour cette page."
+    : "Détection automatique.";
+  $("scan-regions-auto").hidden = !geo.reglage;
+  $("scan-regions-auto").disabled = false;     // désactivé pendant l'enregistrement qui a précédé ce rendu
+  $("scan-regions").hidden = false;
+  $("scan-regions-aide").hidden = false;
+  dessinerPoignees();
+}
+
+function changerModeMoitie(i, valeur) {
+  const { geo, reglage } = editeurRegions;
+  const m = geo.moities[i];
+  if (valeur.startsWith("c")) {
+    // N colonnes égales dans la demi-page, marges de 5 % et gouttières de 2 % : un point de départ à ajuster.
+    const n = parseInt(valeur.slice(1), 10);
+    const largeur = m.x1 - m.x0, marge = largeur * 0.05, ecart = largeur * 0.02;
+    const pas = (largeur - 2 * marge - (n - 1) * ecart) / n;
+    reglage.moities[i] = { mode: "colonnes", colonnes: Array.from({ length: n }, (_, k) => {
+      const a = m.x0 + marge + k * (pas + ecart);
+      return [Math.round(a), Math.round(a + pas)];
+    }) };
+  } else {
+    reglage.moities[i] = { mode: valeur };
+  }
+  enregistrerRegions(reglage);
+}
+
+async function enregistrerRegions(reglage) {
+  const { chemin, page } = editeurRegions;
+  $("scan-regions-etat").textContent = "⏳ Enregistrement…";
+  document.querySelectorAll("#scan-regions select, #scan-regions button").forEach(el => { el.disabled = true; });
+  try {
+    const rep = await fetch(`${API_BASE}/labo/scan-colonnes/reglage-page`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chemin_pdf: chemin, page, reglage }),
+    });
+    const data = await rep.json().catch(() => ({}));
+    if (!rep.ok) throw new Error(data.detail || `Erreur HTTP ${rep.status}`);
+    await afficherApercuLabo(page);
+  } catch (e) {
+    $("scan-regions-etat").innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    document.querySelectorAll("#scan-regions select, #scan-regions button").forEach(el => { el.disabled = false; });
+  }
+}
+
+$("scan-regions-auto").addEventListener("click", () => {
+  if (editeurRegions) enregistrerRegions(null);
+});
+
+function elementSvg(nom, attributs, parent) {
+  const el = document.createElementNS(SVG_NS, nom);
+  Object.entries(attributs).forEach(([k, v]) => el.setAttribute(k, v));
+  if (parent) parent.appendChild(el);
+  return el;
+}
+
+// Une poignée = un trait vertical (large zone de prise invisible + trait visible + rond au milieu).
+// `bornes()` donne [min, max] autorisés au moment du geste ; `valider(x)` enregistre la position finale.
+function poignee(svg, x, couleur, libelle, bornes, valider) {
+  const { hauteur } = editeurRegions.geo;
+  const g = elementSvg("g", { class: "scan-poignee", tabindex: "0", role: "slider", "aria-label": libelle,
+                              "aria-valuenow": String(x) }, svg);
+  const zone = elementSvg("line", { class: "zone", x1: x, x2: x, y1: 0, y2: hauteur, "stroke-width": 36 }, g);
+  const trait = elementSvg("line", { x1: x, x2: x, y1: 0, y2: hauteur, stroke: couleur, "stroke-width": 3,
+                                     "stroke-dasharray": "14 10" }, g);
+  const rond = elementSvg("circle", { class: "grip", cx: x, cy: hauteur / 2, r: 16, fill: "white", stroke: couleur,
+                                      "stroke-width": 5 }, g);
+  let pos = x, minuteur = null;
+  const placer = (nx) => {
+    const [mn, mx] = bornes();
+    pos = Math.round(Math.min(Math.max(nx, mn), mx));
+    [zone, trait].forEach(l => { l.setAttribute("x1", pos); l.setAttribute("x2", pos); });
+    rond.setAttribute("cx", pos);
+    g.setAttribute("aria-valuenow", String(pos));
+  };
+  const versImage = (clientX) => {
+    const r = svg.getBoundingClientRect();
+    return (clientX - r.left) * editeurRegions.geo.largeur / r.width;
+  };
+  g.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    g.setPointerCapture(e.pointerId);
+    g.classList.add("glisse");
+  });
+  g.addEventListener("pointermove", (e) => { if (g.hasPointerCapture(e.pointerId)) placer(versImage(e.clientX)); });
+  g.addEventListener("pointerup", (e) => {
+    if (!g.hasPointerCapture(e.pointerId)) return;
+    g.releasePointerCapture(e.pointerId);
+    g.classList.remove("glisse");
+    if (pos !== x) valider(pos);
+  });
+  g.addEventListener("keydown", (e) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+    e.preventDefault();
+    placer(pos + (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 20 : 4));
+    clearTimeout(minuteur);       // le clavier enregistre après une courte pause, pas à chaque flèche
+    minuteur = setTimeout(() => { if (pos !== x) valider(pos); }, 700);
+  });
+}
+
+function dessinerPoignees() {
+  const { geo, reglage } = editeurRegions;
+  const svg = $("scan-apercu-svg");
+  svg.innerHTML = "";
+  svg.setAttribute("viewBox", `0 0 ${geo.largeur} ${geo.hauteur}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.removeAttribute("hidden");
+  // Gouttière (double page)
+  if (geo.gouttiere !== null) {
+    poignee(svg, geo.gouttiere, COULEURS_REGIONS.rouge, "Gouttière",
+      () => [geo.largeur * 0.2, geo.largeur * 0.8],
+      (x) => { reglage.gouttiere = x; enregistrerRegions(reglage); });
+  }
+  // Bords des colonnes : déplacer un bord en mode automatique fige les colonnes de la demi-page à la main.
+  geo.moities.forEach((m, i) => {
+    if (!["auto", "colonnes"].includes(m.mode)) return;
+    const cols = m.colonnes.map(c => [...c]);
+    cols.forEach((c, k) => {
+      [0, 1].forEach((bord) => {
+        const precedente = k > 0 ? cols[k - 1][1] : m.x0;
+        const suivante = k < cols.length - 1 ? cols[k + 1][0] : m.x1;
+        const bornes = () => bord === 0 ? [precedente, c[1] - LARGEUR_MIN_COLONNE] : [c[0] + LARGEUR_MIN_COLONNE, suivante];
+        poignee(svg, c[bord], COULEURS_REGIONS.vert,
+          `${libelleMoitie(geo, i)}, colonne ${k + 1}, bord ${bord === 0 ? "gauche" : "droit"}`, bornes,
+          (x) => {
+            cols[k][bord] = x;
+            reglage.moities[i] = { mode: "colonnes", colonnes: cols };
+            enregistrerRegions(reglage);
+          });
+      });
+    });
+  });
+  // Illustrations retirables (pas celle d'une demi-page « recopiée comme image » : c'est le menu qui la règle).
+  geo.illustrations.forEach(([x0, y0, x1, y1]) => {
+    const moitie = geo.moities.find(m => m.x0 <= (x0 + x1) / 2 && (x0 + x1) / 2 < m.x1);
+    if (moitie && moitie.mode === "image") return;
+    const b = elementSvg("g", { class: "scan-retirer", tabindex: "0", role: "button",
+                                "aria-label": "Retirer cette illustration (son contenu sera lu comme du texte)" }, svg);
+    elementSvg("title", {}, b).textContent = "Retirer cette illustration";
+    elementSvg("circle", { cx: x1 - 26, cy: y0 + 26, r: 20, fill: "white", stroke: COULEURS_REGIONS.violet, "stroke-width": 5 }, b);
+    const t = elementSvg("text", { x: x1 - 26, y: y0 + 26, "text-anchor": "middle", "dominant-baseline": "central",
+                                   "font-size": 30, "font-weight": 700, fill: COULEURS_REGIONS.violet }, b);
+    t.textContent = "×";
+    const retirer = () => {
+      reglage.illustrations_retirees.push([x0, y0, x1, y1]);
+      enregistrerRegions(reglage);
+    };
+    b.addEventListener("click", retirer);
+    b.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); retirer(); } });
+  });
 }
 
 $("bouton-scan-apercu").addEventListener("click", () =>

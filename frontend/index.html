@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/components.css?v=1">
   <link rel="stylesheet" href="css/theme-toledo.css?v=2">
-  <link rel="stylesheet" href="css/style.css?v=38">
+  <link rel="stylesheet" href="css/style.css?v=39">
   <link rel="stylesheet" href="css/styles-visuels.css?v=4">
   <link rel="stylesheet" href="css/commutateurs.css?v=2">
   <script>
@@ -696,8 +696,10 @@
           déterministe.
         </p>
         <ol class="aide scan-etapes">
-          <li>Choisissez le PDF.</li>
+          <li>Choisissez le PDF (« Parcourir… »).</li>
           <li>« Aperçu des régions » : vérifiez sur quelques pages (‹ ›) que les colonnes sont bien repérées.</li>
+          <li>Si besoin, corrigez une page à la main : mode de chaque demi-page, lignes à faire glisser,
+            illustrations à retirer. Facultatif : une page non retouchée garde la détection automatique.</li>
           <li>« Nettoyer le document » : un fichier <code>&lt;nom&gt;_scan_colonnes.md</code> est écrit à côté du PDF.</li>
           <li>« Envoyer vers Nouveau document » pour le traduire, ou cochez « Traduire ensuite » avant de nettoyer.</li>
         </ol>
@@ -763,7 +765,24 @@
             <button type="button" class="ds-btn ds-btn--sm" id="scan-apercu-suiv" aria-label="Page suivante">›</button>
             <span id="scan-apercu-statut" class="aide"></span>
           </div>
-          <img id="scan-apercu-image" class="scan-apercu" alt="Aperçu des régions détectées" hidden>
+          <div id="scan-regions" class="scan-regions" hidden>
+            <div id="scan-regions-modes" class="scan-regions-modes"></div>
+            <p id="scan-regions-alertes" class="aide scan-regions-alertes" hidden></p>
+            <div class="scan-regions-actions">
+              <span id="scan-regions-etat" class="aide"></span>
+              <button type="button" class="ds-btn ds-btn--sm" id="scan-regions-auto" hidden>Rétablir l'automatique</button>
+            </div>
+          </div>
+          <div class="scan-apercu-cadre">
+            <img id="scan-apercu-image" class="scan-apercu" alt="Aperçu des régions détectées" hidden>
+            <svg id="scan-apercu-svg" class="scan-apercu-svg" aria-label="Lignes déplaçables" hidden></svg>
+          </div>
+          <p class="aide" id="scan-regions-aide" hidden>
+            <strong>Ajuster à la main</strong> : faites glisser la ligne rouge (gouttière) ou le bord d'une colonne
+            verte par sa poignée ●, ou sélectionnez la poignée (Tab) et déplacez-la avec ← → (Maj : plus vite).
+            Le × d'une zone violette la retire : son contenu sera lu comme du texte. Chaque changement est
+            enregistré pour cette page seulement, à côté du PDF, et pris en compte au prochain « Nettoyer ».
+          </p>
           <ul class="scan-legende-liste">
             <li><span class="scan-pastille scan-p-vert"></span><strong>Vert — colonne</strong> : une colonne de texte, lue de haut en bas avant de passer à la suivante.</li>
             <li><span class="scan-pastille scan-p-bleu"></span><strong>Bleu — encadré</strong> : bloc sur fond blanc, plus clair que le papier (règle, encart), lu à part et rendu en citation.</li>
@@ -863,7 +882,7 @@
   <script src="js/module-laboratoire.js?v=11"></script>
   <script src="js/module-chronique.js?v=1"></script>
   <script src="js/module-anticipation.js?v=3"></script>
-  <script src="js/labo-scan-colonnes.js?v=10"></script>
+  <script src="js/labo-scan-colonnes.js?v=11"></script>
   <script src="js/labo-decoupe.js?v=1"></script>
   <script src="js/ui-ids.js?v=2"></script>
   <script src="js/reglages.js?v=4"></script>

@@ -890,6 +890,47 @@ def apercu_scan_colonnes(chemin_pdf: str, page: int = 1, double_page: str = "aut
     return Response(content=png, media_type="image/png")
 
 
+@router.get("/labo/scan-colonnes/geometrie")
+def geometrie_scan_colonnes(chemin_pdf: str, page: int = 1, double_page: str = "auto") -> dict:
+    """
+    Régions d'UNE page en données (gouttière, colonnes et mode de chaque demi-page, illustrations, alertes
+    de détection, réglage manuel en vigueur) : c'est ce que l'éditeur de l'aperçu rend déplaçable.
+    Coordonnées en pixels du rendu à 200 dpi, celles du PNG de l'aperçu.
+    """
+    chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.scan_colonnes import ScanColonnesEchec, geometrie_pdf
+
+    try:
+        return geometrie_pdf(chemin, page, _double_page(double_page) if double_page in ("auto", "oui", "non") else None)
+    except ScanColonnesEchec as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+class ReglagePageRequest(BaseModel):
+    chemin_pdf: str
+    page: int = Field(ge=1)
+    reglage: dict | None = None     # None : la page revient à la détection automatique
+
+
+@router.put("/labo/scan-colonnes/reglage-page")
+def reglage_page_scan_colonnes(req: ReglagePageRequest) -> dict:
+    """
+    Enregistre les régions posées à la main pour une page (mode de chaque demi-page, gouttière, bornes des
+    colonnes, illustrations retirées) dans `<nom>_scan_colonnes_regions.json`, à côté du PDF. Le prochain
+    nettoyage refait cette page seulement. 409 pendant un nettoyage.
+    """
+    _exiger_flag("extraction_scan_colonnes")
+    chemin = valider_chemin_source(req.chemin_pdf, extensions=(".pdf",), label="PDF scanné")
+    from app.services.scan_colonnes import ScanColonnesEchec, enregistrer_reglage_page, nombre_de_pages
+
+    try:
+        if req.page > nombre_de_pages(chemin):
+            raise HTTPException(status_code=422, detail="Page hors du document.")
+        return {"reglage": enregistrer_reglage_page(chemin, req.page, req.reglage)}
+    except ScanColonnesEchec as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
 @router.get("/labo/scan-colonnes/info")
 def info_scan_colonnes(chemin_pdf: str) -> dict:
     """Nombre de pages + disponibilité de Tesseract et de ses langues (lecture seule, rapide)."""

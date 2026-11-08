@@ -41,6 +41,7 @@ import shutil
 import statistics as st
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 
@@ -57,8 +58,18 @@ DPI_RENDU = 200
 ECHELLE_OCR = 3            # agrandissement avant Tesseract (mesuré : ×3 suffit, ×4/×5 sans gain)
 CONFIANCE_MIN_LIGNE = 55   # sous ce seuil, la ligne est du bruit (illustration, ombre de reliure)
 CONFIANCE_MIN_TITRE = 70   # idem pour une bande de titre (voir ocr_titre)
-VERSION_ALGO = 3           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
+VERSION_ALGO = 4           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
 RATIO_DOUBLE_PAGE = 1.25   # largeur/hauteur au-delà duquel la page est une double page
+# Page qui n'est pas du texte courant (page titre, couverture) : peu de bandes horizontales ont la forme
+# d'un texte en colonnes. Mesuré sur le Cycle I : page titre 5/41, page avec grande illustration 7/20,
+# pages de texte ≥ 44/45. En dessous du seuil, la demi-page est lue en pleine largeur.
+PART_BANDES_TEXTE_MIN = 0.25
+# Encre clairsemée (numéros d'une table des matières) : invisible au 70ᵉ centile, visible au 85ᵉ.
+CENTILE_ENCRE_CLAIRSEMEE = 85
+LARGEUR_MIN_CLAIRSEMEE = 40    # px ; en dessous, c'est un trait ou une ombre
+ECART_MAX_RATTACHEMENT = 60    # px entre la colonne et la bande clairsemée qui la prolonge
+MODES_MOITIE = ("auto", "colonnes", "image", "ignorer")
+LARGEUR_MIN_COLONNE = 30       # px : une colonne réglée à la main plus étroite est ignorée
 TRAVAILLEURS_PAR_DEFAUT = 3
 MARQUEUR_ICONE = "⟦icône⟧"
 PONCTUATION_OK = set(".,;:!?—–-“”\"'’‘()…")
@@ -113,25 +124,33 @@ def detecter_gouttiere(gris) -> int:
     return bas + (plage[0] + plage[1]) // 2
 
 
-def detecter_colonnes(gris, x0: int, x1: int, bande: int = 50) -> list[tuple[int, int]]:
+def detecter_colonnes(gris, x0: int, x1: int, bande: int = 50,
+                      journal: list[str] | None = None) -> list[tuple[int, int]]:
     """
     Bornes x des colonnes d'une demi-page. Ne vote que sur les bandes
     horizontales qui ressemblent à du texte (≥ 2 gouttières verticales nettes) :
     une illustration n'en a pas. Le 70ᵉ centile entre bandes évite qu'un
     encadré ou une marge irrégulière referme une gouttière réelle.
+    `journal` reçoit, en clair, ce que la détection a dû deviner (affiché comme « page à vérifier »).
     """
     np = _numpy()
     h = gris.shape[0]
-    profils = []
+    profils, examinees = [], 0
     for y in range(0, h - bande, bande // 2):
         d = (gris[y:y + bande, x0:x1] < 120).astype(float)
         if d.mean() > 0.30:
             continue
+        examinees += 1
         p = _lisser(d.mean(0), 5)
         trous = [r for r in plages(p < 0.01, 12) if r[0] > 20 and r[1] < len(p) - 20]
         if len(trous) >= 2:
             profils.append(p)
     if not profils:
+        return []
+    if len(profils) < PART_BANDES_TEXTE_MIN * examinees:
+        # Page titre, couverture : quelques grosses lettres font une « colonne » étroite qui coupait le titre.
+        if journal is not None:
+            journal.append("peu de texte en colonnes (page titre ?) : lue en pleine largeur")
         return []
     profil = np.percentile(np.array(profils), 70, axis=0)
     fusion: list[tuple[int, int]] = []
@@ -140,7 +159,41 @@ def detecter_colonnes(gris, x0: int, x1: int, bande: int = 50) -> list[tuple[int
             fusion[-1] = (fusion[-1][0], b)
         else:
             fusion.append((a, b))
-    return [(max(x0 + a - 6, 0), x0 + b + 6) for a, b in fusion if b - a > 120]
+    colonnes = [(a, b) for a, b in fusion if b - a > 120]
+    colonnes = _rattacher_encre_clairsemee(np.array(profils), colonnes, journal)
+    return [(max(x0 + a - 6, 0), x0 + b + 6) for a, b in colonnes]
+
+
+def _rattacher_encre_clairsemee(profils, colonnes: list[tuple[int, int]],
+                                journal: list[str] | None) -> list[tuple[int, int]]:
+    """
+    Table des matières : les numéros de page, alignés à droite et espacés, n'apparaissent pas au 70ᵉ centile ;
+    la colonne s'arrêtait au bout des titres et les numéros n'étaient jamais lus (Cycle I, p. 1). Une bande
+    d'encre clairsemée qui ne touche aucune colonne ni le bord de la demi-page prolonge la colonne à sa
+    GAUCHE (le numéro suit le titre), si elle en est proche. Les bords sont exclus : l'ombre de reliure et
+    le bord d'une illustration y forment des bandes du même genre (mesuré p. 1, 2, 5).
+    """
+    if not colonnes:
+        return colonnes
+    largeur = profils.shape[1]
+    clair = _numpy().percentile(profils, CENTILE_ENCRE_CLAIRSEMEE, axis=0)
+    sortie = list(colonnes)
+    for a, b in plages(clair > 0.02, LARGEUR_MIN_CLAIRSEMEE):
+        if a <= 5 or b >= largeur - 5:
+            continue
+        if any(min(b, q) > max(a, p) for p, q in sortie):
+            continue
+        gauche = [i for i, (p, q) in enumerate(sortie) if q <= a and a - q <= ECART_MAX_RATTACHEMENT]
+        if not gauche:
+            continue
+        i = gauche[-1]
+        suivante = [p for p, _ in sortie if p >= b]
+        if suivante and min(suivante) - b < 10:
+            continue        # collée à la colonne suivante : rien ne dit à laquelle elle appartient
+        sortie[i] = (sortie[i][0], b)
+        if journal is not None:
+            journal.append("colonne prolongée par des numéros isolés (table des matières ?)")
+    return sortie
 
 
 def decouper_segments(gris_colonne) -> list[tuple[str, int, int]]:
@@ -386,43 +439,63 @@ def _decouper_titres(gris_segment, image_segment, langue: str):
     return sortie or [("texte", 0, len(gris_segment), "")]
 
 
-def analyser_mise_en_page(image, double_page: bool | None = None) -> dict:
+def analyser_mise_en_page(image, double_page: bool | None = None, reglage: dict | None = None) -> dict:
     """Géométrie seule (aucun OCR) : gouttière, colonnes par demi-page. Sert à l'aperçu
     et à la page elle-même. `double_page` : True/False impose le réglage ; None = auto
     (largeur/hauteur ≥ RATIO_DOUBLE_PAGE). L'auto est une heuristique : une page SIMPLE en
     paysage (ex. A4 à l'italienne) serait prise pour une double page — d'où le réglage
-    explicite, mesuré en construisant le test."""
+    explicite, mesuré en construisant le test.
+    `reglage` : réglage manuel de CETTE page (voir normaliser_reglage), prioritaire sur la détection.
+    Mode d'une demi-page : 'auto' (détection), 'colonnes' (bornes posées à la main), 'image' (recopiée
+    telle quelle, rien n'est lu), 'ignorer' (ni lue ni recopiée)."""
     np = _numpy()
     gris = np.array(image.convert("L"))
     h, w = gris.shape
+    reglage = reglage or {}
     double = (w / h >= RATIO_DOUBLE_PAGE) if double_page is None else double_page
     if double:
-        gx = detecter_gouttiere(gris)
+        gx_manuelle = reglage.get("gouttiere")
+        gx = gx_manuelle if isinstance(gx_manuelle, int) and 0.2 * w <= gx_manuelle <= 0.8 * w \
+            else detecter_gouttiere(gris)
         moities = [(0, gx), (gx, w)]
     else:
         gx, moities = None, [(0, w)]
+    manuels = reglage.get("moities")
+    if not isinstance(manuels, list) or len(manuels) != len(moities):
+        manuels = [{}] * len(moities)       # réglage fait pour l'autre découpage (simple/double) : ignoré
     res = []
-    for x0, x1 in moities:
-        cols = detecter_colonnes(gris, x0, x1)
-        pleine_largeur = not cols
+    for (x0, x1), manuel in zip(moities, manuels):
+        mode = manuel.get("mode") if manuel.get("mode") in MODES_MOITIE else "auto"
+        alertes: list[str] = []
+        cols: list[tuple[int, int]] = []
+        if mode == "colonnes":
+            cols = [(max(a, x0), min(b, x1)) for a, b in manuel.get("colonnes") or []]
+            cols = [(a, b) for a, b in cols if b - a >= LARGEUR_MIN_COLONNE]
+            if not cols:
+                mode = "auto"
+        if mode == "auto":
+            cols = detecter_colonnes(gris, x0, x1, journal=alertes)
+        pleine_largeur = mode == "auto" and not cols
         if pleine_largeur:
             m = int((x1 - x0) * 0.05)
             cols = [(x0 + m, x1 - m)]
-        res.append(dict(x0=x0, x1=x1, colonnes=cols, pleine_largeur=pleine_largeur))
+            if not alertes:
+                alertes.append("aucune colonne détectée : lue en pleine largeur")
+        res.append(dict(x0=x0, x1=x1, colonnes=cols, pleine_largeur=pleine_largeur, mode=mode, alertes=alertes))
     return dict(gris=gris, double_page=double, gouttiere=gx, moities=res, h=h, w=w)
 
 
-def traiter_page(image, langue: str = "eng", double_page: bool | None = None) -> dict:
+def traiter_page(image, langue: str = "eng", double_page: bool | None = None, reglage: dict | None = None) -> dict:
     """
     Une page → {'blocs': [(type, texte)], 'avertissements': [...]}.
-    Types : 'titre', 'encadre', 'para'.
+    Types : 'titre', 'encadre', 'para'. Une demi-page en mode 'image' ou 'ignorer' n'a pas de colonne :
+    rien n'y est lu.
     """
-    mise = analyser_mise_en_page(image, double_page)
+    mise = analyser_mise_en_page(image, double_page, reglage)
     gris, h = mise["gris"], mise["h"]
     blocs, avert = [], []
     for moitie in mise["moities"]:
-        if moitie["pleine_largeur"]:
-            avert.append("aucune colonne détectée : lecture en pleine largeur")
+        avert += moitie["alertes"]
         for a, b in moitie["colonnes"]:
             for genre, y0, y1 in decouper_segments(gris[:, a:b]):
                 if y1 - y0 < 25:
@@ -448,18 +521,46 @@ def traiter_page(image, langue: str = "eng", double_page: bool | None = None) ->
     return {"blocs": blocs, "avertissements": avert}
 
 
-def apercu_page(image, double_page: bool | None = None) -> bytes:
+def geometrie_page(image, double_page: bool | None = None, reglage: dict | None = None) -> dict:
+    """Ce que montre l'aperçu, en données : sert au dessin du PNG ET à l'éditeur de régions du navigateur
+    (lignes déplaçables). Coordonnées en pixels du rendu à DPI_RENDU."""
+    from app.services.reconstruction import illustrations_page   # import local : reconstruction importe ce module
+    mise = analyser_mise_en_page(image, double_page, reglage)
+    return {
+        "mise": mise,
+        "illustrations": illustrations_page(image, mise, reglage),
+    }
+
+
+def geometrie_publique(geo: dict, reglage: dict | None) -> dict:
+    """La géométrie sans le tableau de pixels, sérialisable en JSON."""
+    mise = geo["mise"]
+    return {
+        "largeur": mise["w"], "hauteur": mise["h"], "double_page": mise["double_page"],
+        "gouttiere": mise["gouttiere"],
+        "moities": [{k: m[k] for k in ("x0", "x1", "mode", "pleine_largeur", "alertes")}
+                    | {"colonnes": [list(c) for c in m["colonnes"]]} for m in mise["moities"]],
+        "illustrations": [list(r) for r in geo["illustrations"]],
+        "reglage": reglage,
+    }
+
+
+def apercu_page(image, double_page: bool | None = None, reglage: dict | None = None) -> bytes:
     """PNG de la page avec les régions détectées (gouttière rouge, colonnes vertes,
     encadrés bleus, titres orange, illustrations violettes) — c'est le moyen de repérer un
     mauvais découpage AVANT de lancer un long traitement. Géométrie seule, aucun OCR.
-    Le violet vient de la reconstruction (reconstruction.detecter_illustrations) : ces zones ne
-    sont pas traduites mais recopiées telles quelles dans le PDF et le HTML recréés."""
-    from PIL import ImageDraw
+    Le violet vient de la reconstruction (reconstruction.illustrations_page) : ces zones ne
+    sont pas traduites mais recopiées telles quelles dans le PDF et le HTML recréés.
+    Une demi-page ignorée est voilée de gris."""
+    from PIL import Image, ImageDraw
 
-    from app.services.reconstruction import detecter_illustrations   # import local : reconstruction importe ce module
-    mise = analyser_mise_en_page(image, double_page)
-    illustrations = detecter_illustrations(image)
+    geo = geometrie_page(image, double_page, reglage)
+    mise, illustrations = geo["mise"], geo["illustrations"]
     img = image.convert("RGB").copy()
+    for moitie in mise["moities"]:
+        if moitie["mode"] == "ignorer":
+            zone = img.crop((moitie["x0"], 0, moitie["x1"], mise["h"]))
+            img.paste(Image.blend(zone, Image.new("RGB", zone.size, (128, 128, 128)), 0.6), (moitie["x0"], 0))
     d = ImageDraw.Draw(img)
     if mise["gouttiere"] is not None:
         d.line([(mise["gouttiere"], 0), (mise["gouttiere"], mise["h"])], fill=(220, 0, 0), width=3)
@@ -506,14 +607,23 @@ def nombre_de_pages(chemin_pdf: str) -> int:
         doc.close()
 
 
-def apercu_pdf(chemin_pdf: str, page: int, double_page: bool | None = None) -> bytes:
+def _image_de_page(chemin_pdf: str, page: int):
     doc = _ouvrir_pdf(chemin_pdf)
     try:
         if not 1 <= page <= doc.page_count:
             raise ScanColonnesEchec(f"Page {page} hors du document ({doc.page_count} pages).")
-        return apercu_page(rendre_page(doc, page), double_page)
+        return rendre_page(doc, page)
     finally:
         doc.close()
+
+
+def apercu_pdf(chemin_pdf: str, page: int, double_page: bool | None = None) -> bytes:
+    return apercu_page(_image_de_page(chemin_pdf, page), double_page, reglage_page(chemin_pdf, page))
+
+
+def geometrie_pdf(chemin_pdf: str, page: int, double_page: bool | None = None) -> dict:
+    reglage = reglage_page(chemin_pdf, page)
+    return geometrie_publique(geometrie_page(_image_de_page(chemin_pdf, page), double_page, reglage), reglage)
 
 
 def chemins_sortie(chemin_pdf: str) -> dict:
@@ -522,7 +632,86 @@ def chemins_sortie(chemin_pdf: str) -> dict:
         "markdown": f"{base}_scan_colonnes.md",
         "pages": f"{base}_scan_colonnes_pages",
         "etat": f"{base}_scan_colonnes.state.json",
+        # Réglages faits à la main dans l'aperçu : un travail de l'utilisateur, jamais effacé par `reinitialiser`.
+        "reglages": f"{base}_scan_colonnes_regions.json",
     }
+
+
+# ── Réglages manuels par page (aperçu des régions) ───────────────────────────
+
+_VERROU_REGLAGES = threading.Lock()
+
+
+def _entier(v) -> int | None:
+    return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 100_000 else None
+
+
+def normaliser_reglage(brut) -> dict | None:
+    """
+    Réglage d'une page tel qu'il est enregistré, ou None s'il n'y a rien à retenir (tout en automatique) :
+      {"gouttiere": int | absent,
+       "moities": [{"mode": "auto"|"colonnes"|"image"|"ignorer", "colonnes": [[x0, x1], ...]}, ...],
+       "illustrations_retirees": [[x0, y0, x1, y1], ...]}
+    Les bornes sont validées contre la page au moment de l'appliquer (analyser_mise_en_page), pas ici.
+    """
+    if not isinstance(brut, dict):
+        return None
+    sortie: dict = {}
+    if (gx := _entier(brut.get("gouttiere"))) is not None:
+        sortie["gouttiere"] = gx
+    moities = []
+    for m in (brut.get("moities") or [])[:2] if isinstance(brut.get("moities"), list) else []:
+        m = m if isinstance(m, dict) else {}
+        mode = m.get("mode") if m.get("mode") in MODES_MOITIE else "auto"
+        entree: dict = {"mode": mode}
+        if mode == "colonnes":
+            cols = []
+            for c in (m.get("colonnes") or [])[:6]:
+                if isinstance(c, (list, tuple)) and len(c) == 2:
+                    a, b = _entier(c[0]), _entier(c[1])
+                    if a is not None and b is not None and b - a >= LARGEUR_MIN_COLONNE:
+                        cols.append([a, b])
+            if not cols:
+                entree = {"mode": "auto"}
+            else:
+                entree["colonnes"] = sorted(cols)
+        moities.append(entree)
+    if any(m["mode"] != "auto" for m in moities):
+        sortie["moities"] = moities
+    retirees = []
+    for r in (brut.get("illustrations_retirees") or [])[:50] if isinstance(brut.get("illustrations_retirees"), list) else []:
+        if isinstance(r, (list, tuple)) and len(r) == 4 and all(_entier(v) is not None for v in r):
+            retirees.append([int(v) for v in r])
+    if retirees:
+        sortie["illustrations_retirees"] = retirees
+    return sortie or None
+
+
+def lire_reglages(chemin_pdf: str) -> dict:
+    donnees = lire_json_tolerant(chemins_sortie(chemin_pdf)["reglages"])
+    pages = donnees.get("pages") if isinstance(donnees, dict) else None
+    return pages if isinstance(pages, dict) else {}
+
+
+def reglage_page(chemin_pdf: str, numero: int) -> dict | None:
+    return normaliser_reglage(lire_reglages(chemin_pdf).get(str(numero)))
+
+
+def enregistrer_reglage_page(chemin_pdf: str, numero: int, brut) -> dict | None:
+    """Enregistre (ou efface, si `brut` ne retient rien) le réglage manuel d'une page. Refusé pendant un
+    nettoyage : les pages pas encore traitées liraient un réglage que l'utilisateur n'a pas fini de poser."""
+    etat = lire_etat(chemin_pdf)
+    if etat and etat.get("statut") in ("en_attente", "en_cours"):
+        raise ScanColonnesEchec("Un nettoyage est en cours pour ce PDF : arrêtez-le avant de modifier les régions.")
+    reglage = normaliser_reglage(brut)
+    with _VERROU_REGLAGES:
+        pages = lire_reglages(chemin_pdf)
+        if reglage is None:
+            pages.pop(str(numero), None)
+        else:
+            pages[str(numero)] = reglage
+        ecrire_json_atomique(chemins_sortie(chemin_pdf)["reglages"], {"version": 1, "pages": pages})
+    return reglage
 
 
 def reinitialiser(chemin_pdf: str) -> list[str]:
@@ -613,15 +802,17 @@ def _traiter_et_ecrire_page(chemin_pdf: str, numero: int, dossier: str, langue: 
                             double_page: bool | None = None) -> dict:
     """Une page = une unité de reprise : son résultat est écrit atomiquement, et une page
     déjà présente n'est jamais refaite — SAUF si elle a été faite avec d'autres réglages
-    (langue, double page) : réutiliser ce résultat serait le servir pour la mauvaise demande."""
+    (langue, double page, régions posées à la main) : réutiliser ce résultat serait le servir pour la
+    mauvaise demande."""
     chemin = _chemin_page(dossier, numero)
-    reglages = {"langue": langue, "double_page": double_page, "algo": VERSION_ALGO}
+    manuel = reglage_page(chemin_pdf, numero)
+    reglages = {"langue": langue, "double_page": double_page, "algo": VERSION_ALGO, "regions": manuel}
     existant = lire_json_tolerant(chemin)
     if isinstance(existant, dict) and "blocs" in existant and existant.get("reglages") == reglages:
         return existant
     doc = _ouvrir_pdf(chemin_pdf)   # un handle par fil : PyMuPDF n'est pas thread-safe
     try:
-        resultat = traiter_page(rendre_page(doc, numero), langue, double_page)
+        resultat = traiter_page(rendre_page(doc, numero), langue, double_page, manuel)
     finally:
         doc.close()
     resultat["page"] = numero
