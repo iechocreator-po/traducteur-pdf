@@ -35,3 +35,15 @@
    sombre il serait illisible. */
 .ds-btn--primary,
 .ds-btn--primary:hover { color: var(--on-accent); }
+
+/* Boutons secondaires : le design system leur donne le fond de la carte (--surface), soit un blanc
+   sur blanc en mode clair (« Aperçu des régions » invisible, 07/11/2026). Fond --surface-2 et bordure
+   tirée du texte pour qu'ils se détachent dans les deux thèmes. :where() garde la spécificité d'une
+   seule classe : les styles visuels (styles-visuels.css, html[data-style] …) gardent la main. */
+.ds-btn:where(:not(.ds-btn--primary, .ds-btn--danger, .ds-btn--shine, .ds-btn--pulse, .ds-btn--orbit)) {
+  background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--text) 24%, transparent);
+}
+.ds-btn:where(:not(.ds-btn--primary, .ds-btn--danger, .ds-btn--shine, .ds-btn--pulse, .ds-btn--orbit)):hover {
+  background: color-mix(in srgb, var(--surface-2) 88%, var(--text));
+}

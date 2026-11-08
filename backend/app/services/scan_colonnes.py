@@ -450,11 +450,15 @@ def traiter_page(image, langue: str = "eng", double_page: bool | None = None) ->
 
 def apercu_page(image, double_page: bool | None = None) -> bytes:
     """PNG de la page avec les régions détectées (gouttière rouge, colonnes vertes,
-    encadrés bleus, titres orange) — c'est le moyen de repérer un mauvais découpage
-    AVANT de lancer un long traitement. Géométrie seule, aucun OCR sauf les candidats-titres
-    (non lancés ici : les bandes candidates sont dessinées en orange pointillé)."""
+    encadrés bleus, titres orange, illustrations violettes) — c'est le moyen de repérer un
+    mauvais découpage AVANT de lancer un long traitement. Géométrie seule, aucun OCR.
+    Le violet vient de la reconstruction (reconstruction.detecter_illustrations) : ces zones ne
+    sont pas traduites mais recopiées telles quelles dans le PDF et le HTML recréés."""
     from PIL import ImageDraw
+
+    from app.services.reconstruction import detecter_illustrations   # import local : reconstruction importe ce module
     mise = analyser_mise_en_page(image, double_page)
+    illustrations = detecter_illustrations(image)
     img = image.convert("RGB").copy()
     d = ImageDraw.Draw(img)
     if mise["gouttiere"] is not None:
@@ -469,6 +473,8 @@ def apercu_page(image, double_page: bool | None = None) -> bytes:
                 else:
                     for p, q in bandes_titres(gris[y0:y1, a:b]):
                         d.rectangle([a, y0 + p - 2, b, y0 + q + 2], outline=(240, 140, 0), width=2)
+    for x0, y0, x1, y1 in illustrations:
+        d.rectangle([x0 + 4, y0 + 4, x1 - 4, y1 - 4], outline=(170, 0, 200), width=5)
     tampon = io.BytesIO()
     img.save(tampon, format="PNG")
     return tampon.getvalue()

@@ -672,3 +672,34 @@ def test_routes_signature_refusent_flag_off_et_entrees_invalides(tmp_path, monke
     assert client.get("/api/signature/info", params={"chemin_pdf": pdf}).status_code == 403
     assert client.get("/api/signature/apercu", params={"chemin_pdf": pdf}).status_code == 403
     assert client.get("/api/signature/pdfs", params={"chemin_sortie": str(tmp_path / "x.md")}).status_code == 403
+
+
+# Texte pris pour une illustration (Cycle I, 08/11/2026) : un encadré de texte serré sur fond grisé assombrit la
+# page autant qu'une image ; il était recollé tel quel, en anglais, dans le PDF recréé.
+
+def _page_texte_sur_fond_grise():
+    img = Image.new("RGB", (1600, 1140), (250, 250, 248))
+    d = ImageDraw.Draw(img)
+    d.rectangle([60, 60, 780, 1080], fill=(205, 205, 200))      # encadré grisé
+    for y in range(80, 1060, 18):                                 # lignes serrées de « mots », ~20 % d'encre
+        for x in range(80, 760, 34):
+            d.rectangle([x, y, x + 22, y + 6], fill=(25, 25, 25))
+    return img
+
+
+def _page_dessin_au_trait():
+    img = Image.new("RGB", (1600, 1140), (250, 250, 248))
+    d = ImageDraw.Draw(img)
+    for i in range(0, 700, 9):                                    # hachures croisées : traits longs, connectés
+        d.line([(100 + i, 100), (100, 100 + i)], fill=(30, 30, 30), width=3)
+        d.line([(800 - i, 800), (800, 800 - i)], fill=(30, 30, 30), width=3)
+    return img
+
+
+def test_texte_sur_fond_grise_n_est_pas_une_illustration():
+    assert reconstruction.detecter_illustrations(_page_texte_sur_fond_grise()) == []
+
+
+def test_dessin_au_trait_sur_papier_blanc_reste_une_illustration():
+    rects = reconstruction.detecter_illustrations(_page_dessin_au_trait())
+    assert len(rects) == 1 and rects[0][0] < 140 and rects[0][2] > 760

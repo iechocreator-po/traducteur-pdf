@@ -33,7 +33,7 @@ from app.services import scan_colonnes
 from app.services.persistance import ecrire_binaire_atomique, ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
 
 SUFFIXE_SCAN = "_scan_colonnes"
-VERSION_CACHE = 3            # à incrémenter quand la détection change (invalide le cache)
+VERSION_CACHE = 4            # à incrémenter quand la détection change (invalide le cache)
 DPI_APERCU = 90              # scan d'origine embarqué dans le HTML (mode « Pages »)
 QUALITE_ILLUS = 85
 QUALITE_APERCU = 65
@@ -46,6 +46,12 @@ TAILLE_MIN_PT = 7.0
 PAS_TAILLE_PT = 0.5
 AIRE_MIN_ILLUS = 0.02        # fraction de la page en dessous de laquelle une zone n'est pas une illustration
 COTE_MIN_ILLUS = 0.08        # idem pour chaque côté (écarte l'ombre de reliure, haute mais étroite)
+# Texte pris pour une illustration (voir _ressemble_a_du_texte) : fond clair dominant + encre en petits morceaux.
+SEUIL_FOND_TEXTE = 150                  # ton dominant (0–255) au-dessus duquel la zone a un fond de papier
+ENCRE_TEXTE_MIN, ENCRE_TEXTE_MAX = 0.03, 0.40
+HAUTEUR_MAX_CARACTERE = 0.045           # fraction de la hauteur de page (gros numéros de section compris)
+LARGEUR_MAX_MOT = 0.09                  # fraction de la largeur de page
+PART_ENCRE_EN_PETITS_MORCEAUX = 0.6
 MARGE_HAUT, MARGE_BAS = 0.03, 0.93   # le texte n'est jamais coulé dans le titre courant / folio
 NB_MAX_SUITES = 200          # par page source ; au-delà, échec explicite plutôt qu'un texte coupé
 SEUIL_TITRE = 0.6            # ressemblance minimale pour rattacher un chapitre à un titre du scan
@@ -150,8 +156,41 @@ def detecter_illustrations(image) -> list[tuple[int, int, int, int]]:
             continue
         if x1 - x0 < COTE_MIN_ILLUS * w or y1 - y0 < COTE_MIN_ILLUS * h:
             continue
+        if _ressemble_a_du_texte(gris[y0:y1, x0:x1], w, h):
+            continue
         rects.append((int(x0), int(y0), int(x1), int(y1)))
     return sorted(rects, key=lambda r: (r[0] >= w // 2, r[1], r[0]))
+
+
+def _ressemble_a_du_texte(gris, largeur_page: int, hauteur_page: int) -> bool:
+    """
+    Une zone assez sombre pour passer le seuil d'illustration peut n'être que du texte serré, ou du texte
+    sur un fond grisé (encadrés, pages de règles). Mesuré sur le Cycle I (08/11/2026) : 18 zones sur 22
+    étaient du texte, recollé en anglais dans le PDF recréé. Une vraie illustration a un ton dominant
+    sombre ou moyen et presque pas d'encre franche ; un texte a un fond clair dominant, 10 à 16 % d'encre
+    nettement plus noire que ce fond, et cette encre est faite de petits morceaux (lettres, mots). Ce
+    dernier critère garde un dessin au trait sur papier blanc : ses traits longs sont connectés.
+    """
+    import cv2
+    import numpy as np
+
+    if gris.size == 0:
+        return False
+    hist = np.convolve(np.bincount(gris.ravel(), minlength=256), np.ones(9), "same")
+    fond = int(np.argmax(hist))
+    if fond < SEUIL_FOND_TEXTE:
+        return False
+    encre = (gris < fond - 80).astype(np.uint8)
+    part = float(encre.mean())
+    if not ENCRE_TEXTE_MIN <= part <= ENCRE_TEXTE_MAX:
+        return False
+    nb, _, stats, _ = cv2.connectedComponentsWithStats(encre, connectivity=8)
+    if nb <= 1:
+        return False
+    petits = ((stats[1:, cv2.CC_STAT_HEIGHT] <= HAUTEUR_MAX_CARACTERE * hauteur_page)
+              & (stats[1:, cv2.CC_STAT_WIDTH] <= LARGEUR_MAX_MOT * largeur_page))
+    aires = stats[1:, cv2.CC_STAT_AREA]
+    return float(aires[petits].sum()) / float(aires.sum()) >= PART_ENCRE_EN_PETITS_MORCEAUX
 
 
 def cadres_texte(mise: dict, illustrations: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:

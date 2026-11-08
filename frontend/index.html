@@ -10,8 +10,8 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/components.css?v=1">
-  <link rel="stylesheet" href="css/theme-toledo.css?v=1">
-  <link rel="stylesheet" href="css/style.css?v=35">
+  <link rel="stylesheet" href="css/theme-toledo.css?v=2">
+  <link rel="stylesheet" href="css/style.css?v=38">
   <link rel="stylesheet" href="css/styles-visuels.css?v=4">
   <link rel="stylesheet" href="css/commutateurs.css?v=2">
   <script>
@@ -72,7 +72,7 @@
             <div class="aide">
               <p>Affiche les outils techniques, masqués par défaut pour garder le flux simple. Une fois activé, vous obtenez :</p>
               <ul class="reglages-liste">
-                <li><strong>Laboratoire</strong> : état du système, glossaire, lecture audio et voix clonées, outils document, découpe d'un PDF, segmentation, scan multi-colonnes.</li>
+                <li><strong>Laboratoire</strong> : état du système, glossaire, lecture audio et voix clonées, outils document, découpe d'un PDF, segmentation, documents complexes (scans à colonnes).</li>
                 <li><strong>Nouveau document</strong> : ajout par chemin absolu et choix du moteur de conversion PDF.</li>
                 <li><strong>Bibliothèque</strong> : panneau Résumé &amp; Quiz, sélection de chapitres par cases à cocher, colonnes redimensionnables.</li>
               </ul>
@@ -218,7 +218,15 @@
           <button type="button" class="ds-btn" id="parcours-apercu-bouton">Aperçu des régions (page de départ)</button>
           <span class="aide" id="parcours-apercu-info"></span>
           <img id="parcours-apercu-image" class="scan-apercu" alt="Aperçu des régions détectées" hidden>
-          <p class="aide" id="parcours-apercu-legende" hidden><span class="scan-legende scan-vert">colonnes</span>, <span class="scan-legende scan-bleu">encadrés</span>, <span class="scan-legende scan-orange">candidats-titres</span> et gouttière <span class="scan-legende scan-rouge">rouge</span>. Vérifiez une page ou deux <em>avant</em> de lancer tout le document.</p>
+          <div class="aide" id="parcours-apercu-legende" hidden>
+          <ul class="scan-legende-liste">
+            <li><span class="scan-pastille scan-p-vert"></span><strong>Vert — colonne</strong> : une colonne de texte, lue de haut en bas avant de passer à la suivante.</li>
+            <li><span class="scan-pastille scan-p-bleu"></span><strong>Bleu — encadré</strong> : bloc sur fond blanc, plus clair que le papier (règle, encart), lu à part et rendu en citation.</li>
+            <li><span class="scan-pastille scan-p-orange"></span><strong>Orange — titre probable</strong> : ligne en gros caractères, qui devient un titre (et un chapitre) si l'OCR y lit un titre numéroté.</li>
+            <li><span class="scan-pastille scan-p-rouge"></span><strong>Rouge — gouttière</strong> : le pli d'une double page ; la page de gauche est lue en entier avant celle de droite.</li>
+            <li><span class="scan-pastille scan-p-violet"></span><strong>Violet — illustration</strong> : zone gardée comme image. Elle n'est pas traduite : elle est recopiée telle quelle dans le PDF et le HTML recréés. Du texte entouré de violet resterait dans sa langue d'origine.</li>
+          </ul>
+          <p>Vérifiez une page ou deux <em>avant</em> de lancer tout le document.</p></div>
         </div>
         <label class="scan-enchainer parcours-ocr-auto"><input type="checkbox" id="parcours-auto"><span>Traduire ensuite, automatiquement <span class="aide">(si le scan se termine sans page en erreur)</span></span></label>
       </div>
@@ -511,7 +519,7 @@
 
     <div class="labo-onglets" role="tablist" aria-label="Sections du Laboratoire">
       <button type="button" class="labo-onglet is-active" role="tab" data-labo-panneau="outils" aria-selected="true">Outils</button>
-      <button type="button" class="labo-onglet" role="tab" data-labo-panneau="scan" id="onglet-labo-scan" aria-selected="false" hidden>Scan multi-colonnes</button>
+      <button type="button" class="labo-onglet" role="tab" data-labo-panneau="scan" id="onglet-labo-scan" aria-selected="false" hidden>Documents complexes</button>
     </div>
 
     <div id="labo-panneau-outils" class="labo-panneau" role="tabpanel">
@@ -674,20 +682,25 @@
     
     </div>
 
-    <!-- Onglet « Scan multi-colonnes » (10/10/2026) : nettoie un PDF scanné dont la couche
+    <!-- Onglet « Documents complexes », ex-« Scan multi-colonnes » (10/10/2026) : nettoie un PDF scanné dont la couche
          texte OCR est mal ordonnée (colonnes, double page). Sans LLM. Piloté par le flag
          extraction_scan_colonnes. -->
     <div id="labo-panneau-scan" class="labo-panneau" role="tabpanel" hidden>
       <section class="ds-card carte" id="carte-scan-colonnes">
-        <h2>Scan multi-colonnes</h2>
+        <h2>Documents complexes</h2>
         <p class="aide">
-          Pour un PDF <strong>scanné</strong> à plusieurs colonnes (livre, double page) dont le
-          texte sort mélangé ou illisible : la couche texte du scan est ignorée et l'OCR
-          (Tesseract) est refait colonne par colonne, avec les encadrés en citations et les
-          titres numérotés en titres Markdown. Aucun LLM : tout est local et déterministe.
-          Le résultat est un <code>.md</code> écrit à côté du PDF, utilisable ensuite comme
-          n'importe quel document (analyse, traduction).
+          Pour un PDF <strong>scanné</strong> dont le texte sort mélangé ou illisible : livre en
+          double page, magazine ou manuel à plusieurs colonnes, encadrés. La couche texte du scan
+          est ignorée et l'OCR (Tesseract) est refait colonne par colonne, avec les encadrés en
+          citations et les titres numérotés en titres Markdown. Aucun LLM : tout est local et
+          déterministe.
         </p>
+        <ol class="aide scan-etapes">
+          <li>Choisissez le PDF.</li>
+          <li>« Aperçu des régions » : vérifiez sur quelques pages (‹ ›) que les colonnes sont bien repérées.</li>
+          <li>« Nettoyer le document » : un fichier <code>&lt;nom&gt;_scan_colonnes.md</code> est écrit à côté du PDF.</li>
+          <li>« Envoyer vers Nouveau document » pour le traduire, ou cochez « Traduire ensuite » avant de nettoyer.</li>
+        </ol>
         <div class="ligne-ajout">
           <input class="ds-input" type="text" id="scan-chemin" placeholder="/Users/.../livre-scanné.pdf">
           <input type="file" id="scan-fichier" accept=".pdf" hidden>
@@ -722,21 +735,43 @@
         </div>
 
         <label class="scan-enchainer"><input type="checkbox" id="scan-puis-traduire">
-          <span>Traduire ensuite, automatiquement <span class="aide">(langues et modèle réglés dans l'Accueil ; seulement si le scan se termine sans page en erreur)</span></span></label>
+          <span>Traduire ensuite, automatiquement
+            <span class="aide scan-explication">À la fin du nettoyage, s'il n'y a aucune page en erreur, le fichier
+            nettoyé passe dans « Nouveau document » et sa traduction démarre dès son analyse terminée, avec les
+            langues et le modèle réglés dans l'Accueil au moment où vous lancez le nettoyage. Le PDF brut quitte
+            le lot. Gardez cette page ouverte pendant le nettoyage : après un rechargement, passez par le bouton
+            « Envoyer vers Nouveau document ».</span></span></label>
         <div class="ligne-ajout">
-          <button id="bouton-scan-apercu" class="ds-btn">Aperçu des régions (page de départ)</button>
+          <button id="bouton-scan-apercu" class="ds-btn">Aperçu des régions</button>
           <button id="bouton-scan-lancer" class="ds-btn ds-btn--primary">Nettoyer le document</button>
         </div>
         <p class="aide">
-          L'aperçu est instantané et ne lance aucun OCR : <span class="scan-legende scan-vert">colonnes</span>,
-          <span class="scan-legende scan-bleu">encadrés</span>,
-          <span class="scan-legende scan-orange">candidats-titres</span> et gouttière
-          <span class="scan-legende scan-rouge">rouge</span>. Vérifie-le sur une page ou deux
-          <em>avant</em> de lancer tout le document. Une page déjà traitée n'est jamais refaite.
+          <strong>Aperçu des régions</strong> : instantané, sans OCR, il montre ce que l'outil va lire sur une
+          page, à partir de la page de départ (légende des couleurs sous l'image). Feuilletez avec ‹ › <em>avant</em> de lancer.<br>
+          <strong>Nettoyer le document</strong> : refait l'OCR des pages choisies (un travail de la file
+          d'attente : quelques secondes par page) et écrit le <code>.md</code> à côté du PDF. Une page déjà
+          traitée avec les mêmes réglages n'est jamais refaite.
         </p>
-        <img id="scan-apercu-image" class="scan-apercu" alt="Aperçu des régions détectées" hidden>
         <div id="scan-progression" class="outil-resultat"></div>
         <div id="scan-resultat" class="outil-resultat"></div>
+        <div id="scan-apercu-bloc" class="scan-apercu-bloc" hidden>
+          <div class="scan-apercu-nav">
+            <button type="button" class="ds-btn ds-btn--sm" id="scan-apercu-prec" aria-label="Page précédente">‹</button>
+            <label for="scan-apercu-page">Page</label>
+            <input class="ds-input scan-apercu-page" type="number" id="scan-apercu-page" min="1" value="1">
+            <span id="scan-apercu-total" class="aide"></span>
+            <button type="button" class="ds-btn ds-btn--sm" id="scan-apercu-suiv" aria-label="Page suivante">›</button>
+            <span id="scan-apercu-statut" class="aide"></span>
+          </div>
+          <img id="scan-apercu-image" class="scan-apercu" alt="Aperçu des régions détectées" hidden>
+          <ul class="scan-legende-liste">
+            <li><span class="scan-pastille scan-p-vert"></span><strong>Vert — colonne</strong> : une colonne de texte, lue de haut en bas avant de passer à la suivante.</li>
+            <li><span class="scan-pastille scan-p-bleu"></span><strong>Bleu — encadré</strong> : bloc sur fond blanc, plus clair que le papier (règle, encart), lu à part et rendu en citation.</li>
+            <li><span class="scan-pastille scan-p-orange"></span><strong>Orange — titre probable</strong> : ligne en gros caractères, qui devient un titre (et un chapitre) si l'OCR y lit un titre numéroté.</li>
+            <li><span class="scan-pastille scan-p-rouge"></span><strong>Rouge — gouttière</strong> : le pli d'une double page ; la page de gauche est lue en entier avant celle de droite.</li>
+            <li><span class="scan-pastille scan-p-violet"></span><strong>Violet — illustration</strong> : zone gardée comme image. Elle n'est pas traduite : elle est recopiée telle quelle dans le PDF et le HTML recréés. Du texte entouré de violet resterait dans sa langue d'origine.</li>
+          </ul>
+        </div>
       </section>
     </div>
   </main>
@@ -822,19 +857,19 @@
   </dialog>
 
   <script src="js/commun.js?v=11"></script>
-  <script src="js/module-import.js?v=18"></script>
+  <script src="js/module-import.js?v=19"></script>
   <script src="js/module-bibliotheque.js?v=12"></script>
   <script src="js/bibliotheque-exports.js?v=3"></script>
   <script src="js/module-laboratoire.js?v=11"></script>
   <script src="js/module-chronique.js?v=1"></script>
   <script src="js/module-anticipation.js?v=3"></script>
-  <script src="js/labo-scan-colonnes.js?v=9"></script>
+  <script src="js/labo-scan-colonnes.js?v=10"></script>
   <script src="js/labo-decoupe.js?v=1"></script>
   <script src="js/ui-ids.js?v=2"></script>
   <script src="js/reglages.js?v=4"></script>
   <script src="js/reglages-styles.js?v=2"></script>
   <script src="js/commutateurs.js?v=2"></script>
-  <script src="js/parcours.js?v=9"></script>
+  <script src="js/parcours.js?v=10"></script>
   <script>initUiIds(); rendreListeCartesLab(); // en dernier : numérote les cartes déjà en place (js/ui-ids.js), puis affiche leurs repères dans la liste des Réglages</script>
 </body>
 </html>

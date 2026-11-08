@@ -1,4 +1,4 @@
-// Laboratoire › onglet « Scan multi-colonnes » (10/10/2026).
+// Laboratoire › onglet « Documents complexes », ex-« Scan multi-colonnes » (10/10/2026).
 // Nettoie un PDF scanné dont la couche texte OCR est mal ordonnée : l'OCR est refait
 // colonne par colonne côté backend (services/scan_colonnes.py). Aucun LLM.
 // Le traitement est un job de la file d'attente (comme la traduction) : on le suit
@@ -32,6 +32,8 @@ document.addEventListener("flags-charges", () => {
 // ── Fichier : chemin saisi ou import par navigateur ─────────────────────────
 
 let scanTimer = null;
+let scanNbPages = null;     // nombre de pages du PDF choisi (borne de la navigation de l'aperçu)
+let scanSuiviActif = false; // un scan a été vu actif par cette page : à sa fin, on fait défiler jusqu'au résultat
 
 $("bouton-scan-parcourir").addEventListener("click", () => $("scan-fichier").click());
 
@@ -65,13 +67,16 @@ $("scan-chemin").addEventListener("change", () => {
 async function chargerInfoScan(chemin) {
   const info = $("scan-info");
   info.textContent = "";
+  scanNbPages = null;
+  $("scan-apercu-bloc").hidden = true;    // l'aperçu affiché était celui d'un autre PDF
   try {
     const d = await apiGet(`/labo/scan-colonnes/info?chemin_pdf=${encodeURIComponent(chemin)}`, API_TIMEOUT_LONG_MS);
     if (!d.tesseract) {
       info.textContent = "⚠ Tesseract n'est pas installé : brew install tesseract.";
       return;
     }
-    info.textContent = `${d.pages} page(s). Astuce : essaie d'abord quelques pages (ex. 1 à 3) avant tout le document.`;
+    scanNbPages = d.pages;
+    info.textContent = `${d.pages} page(s). Astuce : essayez d'abord quelques pages (ex. 1 à 3) avant tout le document.`;
     $("scan-page-fin").max = d.pages;
     const select = $("scan-langue");
     const noms = { eng: "Anglais", fra: "Français", spa: "Espagnol", deu: "Allemand", ita: "Italien", por: "Portugais" };
@@ -110,11 +115,34 @@ async function chargerApercuScan(chemin, page, doublePage, img, zone) {
   }
 }
 
-$("bouton-scan-apercu").addEventListener("click", () => {
+// Aperçu du Laboratoire : zone à lui (sous le résultat, qui reste visible) et navigation ‹ › page par page.
+// Les boutons sont désactivés pendant un calcul : une réponse lente ne peut pas écraser une page plus récente.
+async function afficherApercuLabo(page) {
   const chemin = $("scan-chemin").value.trim();
-  if (!chemin) { alert("Indique d'abord le chemin du PDF, ou utilise Parcourir…"); return; }
-  chargerApercuScan(chemin, parseInt($("scan-page-debut").value, 10) || 1, $("scan-double-page").value,
-                    $("scan-apercu-image"), $("scan-resultat"));
+  if (!chemin) { alert("Indiquez d'abord le chemin du PDF, ou utilisez Parcourir…"); return; }
+  const max = scanNbPages || Infinity;
+  page = Math.min(Math.max(1, page || 1), max);
+  $("scan-apercu-page").value = page;
+  if (scanNbPages) { $("scan-apercu-page").max = scanNbPages; $("scan-apercu-total").textContent = `sur ${scanNbPages}`; }
+  $("scan-apercu-bloc").hidden = false;
+  const nav = [$("scan-apercu-prec"), $("scan-apercu-suiv"), $("scan-apercu-page")];
+  nav.forEach(el => { el.disabled = true; });
+  await chargerApercuScan(chemin, page, $("scan-double-page").value, $("scan-apercu-image"), $("scan-apercu-statut"));
+  nav.forEach(el => { el.disabled = false; });
+  $("scan-apercu-prec").disabled = page <= 1;
+  $("scan-apercu-suiv").disabled = page >= max;
+}
+
+$("bouton-scan-apercu").addEventListener("click", () =>
+  afficherApercuLabo(parseInt($("scan-page-debut").value, 10) || 1));
+$("scan-apercu-prec").addEventListener("click", () =>
+  afficherApercuLabo((parseInt($("scan-apercu-page").value, 10) || 1) - 1));
+$("scan-apercu-suiv").addEventListener("click", () =>
+  afficherApercuLabo((parseInt($("scan-apercu-page").value, 10) || 1) + 1));
+$("scan-apercu-page").addEventListener("change", () =>
+  afficherApercuLabo(parseInt($("scan-apercu-page").value, 10) || 1));
+$("scan-double-page").addEventListener("change", () => {
+  if (!$("scan-apercu-bloc").hidden) afficherApercuLabo(parseInt($("scan-apercu-page").value, 10) || 1);
 });
 
 // ── Lancement et suivi du job ────────────────────────────────────────────────
@@ -212,10 +240,16 @@ async function suivreScan(chemin) {
     rendreProgressionScan(etat);
     if (etat && ["en_attente", "en_cours"].includes(etat.statut)) {
       enchainerScanTermine(etat);       // note que ce scan est actif
+      scanSuiviActif = true;
       scanTimer = setTimeout(() => suivreScan(chemin), 3000);
       return;
     }
     if (etat) rendreResultatScan(etat);
+    // Le résultat (et son bouton « Envoyer ») apparaît sous les réglages : on l'amène à l'écran.
+    if (etat && scanSuiviActif && !$("scan-resultat").hidden) {
+      $("scan-resultat").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    scanSuiviActif = false;
     $("bouton-scan-lancer").disabled = false;
   } catch (e) {
     // backend momentanément injoignable : on réessaie plutôt que d'afficher un faux « terminé »
@@ -229,7 +263,7 @@ async function suivreScan(chemin) {
 // lancé depuis l'Accueil, le Laboratoire est masqué et l'appelant doit pouvoir l'afficher.
 async function lancerScan() {
   const chemin = $("scan-chemin").value.trim();
-  if (!chemin) { alert("Indique d'abord le chemin du PDF, ou utilise Parcourir…"); return null; }
+  if (!chemin) { alert("Indiquez d'abord le chemin du PDF, ou utilisez Parcourir…"); return null; }
   const corps = { chemin_pdf: chemin, langue_ocr: $("scan-langue").value || "eng", double_page: $("scan-double-page").value };
   const debut = parseInt($("scan-page-debut").value, 10);
   const fin = parseInt($("scan-page-fin").value, 10);

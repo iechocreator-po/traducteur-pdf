@@ -134,7 +134,7 @@ function parcoursNettoyerCalculer() {
     if (lot.some((f) => f.chemin === sortieScan)) {
       return { pas, titre, detail: "Fichier nettoyé envoyé au lot : réglez langues et modèle dans « Réglages du lot », puis lancez la traduction.", action: null, progression, ocr };
     }
-    detail = `✅ ${scanEtat.titres} titre(s) détecté(s)${rep ? `, ${rep} réparation(s) automatique(s) à vérifier (Laboratoire › Scan multi-colonnes)` : ""}. Relisez le fichier, puis lancez sa traduction (langues et modèle : réglages du lot, plus bas).`;
+    detail = `✅ ${scanEtat.titres} titre(s) détecté(s)${rep ? `, ${rep} réparation(s) automatique(s) à vérifier (Laboratoire › Documents complexes)` : ""}. Relisez le fichier, puis lancez sa traduction (langues et modèle : réglages du lot, plus bas).`;
     action = { texte: "Traduire le fichier nettoyé", fn: parcoursEnvoyerScan };
   } else {
     detail = "Le fichier nettoyé est dans l'Accueil : suivez sa traduction dans « Vos traductions ».";
@@ -249,7 +249,7 @@ function parcoursCalculer() {
       detail = `« ${nomDoc} » n'est pas terminé (${(doc.statut || "").replace("_", " ")}) : reprenez-le depuis « Vos traductions ».`;
     }
   } else if (cle === "nettoyer") {
-    detail = "Scan à colonnes ou double page : « Scan multi-colonnes ». Texte brut sans titres : « Segmentation automatique ». Les deux sont dans le Laboratoire ; dans le scan, cochez « Traduire ensuite » pour enchaîner sans intervention.";
+    detail = "Scan à colonnes ou double page : « Documents complexes ». Texte brut sans titres : « Segmentation automatique ». Les deux sont dans le Laboratoire ; dans le scan, cochez « Traduire ensuite » pour enchaîner sans intervention.";
     action = exigeAvance("Ouvrir le Laboratoire", () => activerModule("laboratoire"));
   } else if (cle === "lire") {
     detail = doc ? `« ${nomDoc} » est traduit : lisez-le chapitre par chapitre, ou comparez avec l'original.` : "";

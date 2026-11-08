@@ -134,10 +134,16 @@
       && item.chapitresCoches.size < item.listeChapitres.length;
   }
 
+  // Aucun titre détecté (ex. Markdown sorti du Scan multi-colonnes) : le moteur en fait un chapitre implicite
+  // « Document entier ». Il n'y a donc rien à cocher, et ce n'est pas « aucun chapitre coché ».
+  function sansChapitres(item) {
+    return item.listeChapitres != null && item.listeChapitres.length === 0;
+  }
+
   // Un fichier dont tous les chapitres sont décochés est exclu du lancement.
   function itemLancable(item) {
     if (item.stage !== "pret") return false;
-    return item.listeChapitres == null || item.chapitresCoches.size > 0;
+    return item.listeChapitres == null || sansChapitres(item) || item.chapitresCoches.size > 0;
   }
 
   async function chargerChapitresItem(item) {
@@ -303,6 +309,7 @@
     toggle.type = "button";
     toggle.className = "bouton-lien";
     const resume = item.listeChapitres == null ? ""
+      : sansChapitres(item) ? " (document entier)"
       : selectionPartielle(item) ? ` (${item.chapitresCoches.size}/${item.listeChapitres.length} sélectionnés)`
       : item.chapitresCoches.size === 0 ? " (aucun)"
       : " (tous)";
@@ -319,7 +326,7 @@
 
     const deja = item.chapitresDejaTraduits || new Set();
 
-    if (item.chapitresOuverts && item.listeChapitres != null) {
+    if (item.chapitresOuverts && item.listeChapitres != null && !sansChapitres(item)) {
       // « Tout » ne coche que les chapitres NON traduits (on ne retraduit pas
       // ce qui est déjà fait) ; « Aucun » vide la sélection.
       for (const [label, coche] of [["Tout", true], ["Aucun", false]]) {
@@ -343,6 +350,11 @@
         const aide = document.createElement("p");
         aide.className = "aide";
         aide.textContent = "⏳ Chargement des chapitres…";
+        bloc.appendChild(aide);
+      } else if (sansChapitres(item)) {
+        const aide = document.createElement("p");
+        aide.className = "aide";
+        aide.textContent = "Aucun titre détecté : le document sera traduit d'un seul tenant (« Document entier »).";
         bloc.appendChild(aide);
       } else if (item.listeChapitres != null) {
         const liste = document.createElement("div");
@@ -450,7 +462,8 @@
         const morceaux = [];
         if (item.qualite) morceaux.push(`Extraction : ${libelleExtraction(item.qualite)}`);
         if (item.eta != null) morceaux.push(`≈ ${formaterDuree(item.eta)}`);
-        if (item.chapitres != null) morceaux.push(`${item.chapitres} chapitre${item.chapitres > 1 ? "s" : ""}`);
+        if (item.chapitres === 0) morceaux.push("aucun titre : document entier");
+        else if (item.chapitres != null) morceaux.push(`${item.chapitres} chapitre${item.chapitres > 1 ? "s" : ""}`);
         info.textContent = morceaux.join("   ·   ");
         ligne.appendChild(info);
         if (item.stage === "probleme" && item.recommandation) {
