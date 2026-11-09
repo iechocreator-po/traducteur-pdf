@@ -166,6 +166,7 @@ function reglageInitial(geo) {
   const moities = geo.moities.map((m, i) => (r.moities && r.moities.length === geo.moities.length && r.moities[i])
     || { mode: "auto" });
   return { gouttiere: r.gouttiere, moities, illustrations_retirees: [...(r.illustrations_retirees || [])],
+           detections_retirees: [...(r.detections_retirees || [])],
            zones: (r.zones || []).map(z => ({ type: z.type, rect: [...z.rect] })) };
 }
 
@@ -186,7 +187,7 @@ function afficherEditeurRegions(chemin, page, geo) {
   editeurRegions = { chemin, page, geo, reglage: reglageInitial(geo), selection: garder, outil: null };
   if (garder && garder.source === "zone" && !editeurRegions.reglage.zones[garder.index]) editeurRegions.selection = null;
   if (garder && garder.source === "detectee"
-      && !geo.illustrations.some(r => r.every((v, k) => v === garder.rect[k]))) editeurRegions.selection = null;
+      && !zonesAffichees().some(z => memeRef(z.ref, garder))) editeurRegions.selection = null;
   // Menus de mode
   const modes = $("scan-regions-modes");
   modes.innerHTML = "";
@@ -349,9 +350,10 @@ function dessinerPoignees() {
   dessinerZones(svg);
 }
 
-// ── Zones (niveau 3) : illustrations détectées et zones dessinées à la main ──
+// ── Zones (niveau 3) : illustrations, titres et encadrés détectés, et zones dessinées à la main ──
 // Une zone détectée qu'on recadre ou dont on change le type devient une zone manuelle : la détection est
-// retirée (illustrations_retirees) et la zone ajoutée à reglage.zones. Le backend fait le reste.
+// retirée (illustrations_retirees, ou detections_retirees pour un titre ou un encadré) et la zone ajoutée à
+// reglage.zones. Supprimer une détection la retire seulement : son contenu est lu comme du texte courant.
 
 const TYPES_ZONE = [
   ["illustration", "Illustration", "violet", "recopiée telle quelle, jamais lue"],
@@ -367,19 +369,24 @@ let selectionEnAttente = null;      // sélection à rétablir après le rendu q
 
 const libelleType = (type) => (TYPES_ZONE.find(t => t[0] === type) || [type, type])[1];
 
-// Zones affichées : [{ source: "zone", index } | { source: "detectee", rect }, type, rect]
+// Zones affichées : { ref: { source: "zone", index } | { source: "detectee", genre, rect }, type, rect }.
+// `genre` d'une détection : illustration, titre ou texte (un encadré).
 function zonesAffichees() {
   const { geo, reglage } = editeurRegions;
-  const detectees = geo.illustrations.filter(([x0, , x1]) => {
+  const illustrations = geo.illustrations.filter(([x0, , x1]) => {
     const m = geo.moities.find(mm => mm.x0 <= (x0 + x1) / 2 && (x0 + x1) / 2 < mm.x1);
     return !(m && m.mode === "image");      // l'encre d'une demi-page « image » : c'est le menu qui la règle
-  }).map(r => ({ ref: { source: "detectee", rect: r }, type: "illustration", rect: r }));
+  }).map(r => ({ ref: { source: "detectee", genre: "illustration", rect: r }, type: "illustration", rect: r }));
+  const textes = (geo.detections || []).map(d =>
+    ({ ref: { source: "detectee", genre: d.type, rect: d.rect }, type: d.type, rect: d.rect }));
   const manuelles = reglage.zones.map((z, index) => ({ ref: { source: "zone", index }, type: z.type, rect: z.rect }));
-  return [...detectees, ...manuelles];
+  return [...illustrations, ...textes, ...manuelles];
 }
 
 const memeRef = (a, b) => !!a && !!b && a.source === b.source
-  && (a.source === "zone" ? a.index === b.index : a.rect.every((v, k) => v === b.rect[k]));
+  && (a.source === "zone" ? a.index === b.index : a.genre === b.genre && a.rect.every((v, k) => v === b.rect[k]));
+
+const NOMS_DETECTION = { illustration: "Illustration détectée", titre: "Titre détecté", texte: "Encadré détecté" };
 
 function versImageXY(svg, e) {
   const r = svg.getBoundingClientRect(), { largeur, hauteur } = editeurRegions.geo;
@@ -394,9 +401,9 @@ const rectNormal = ([x0, y0, x1, y1]) =>
 function modifierZone(ref, { rect, type, supprimer = false }) {
   const { reglage } = editeurRegions;
   if (ref.source === "detectee") {
-    reglage.illustrations_retirees.push([...ref.rect]);
+    reglage[ref.genre === "illustration" ? "illustrations_retirees" : "detections_retirees"].push([...ref.rect]);
     if (supprimer) { editeurRegions.selection = null; enregistrerRegions(reglage); return; }
-    reglage.zones.push({ type: type || "illustration", rect: rect || [...ref.rect] });
+    reglage.zones.push({ type: type || ref.genre, rect: rect || [...ref.rect] });
     editeurRegions.selection = { source: "zone", index: reglage.zones.length - 1 };
   } else if (supprimer) {
     reglage.zones.splice(ref.index, 1);
@@ -422,7 +429,7 @@ function dessinerZones(svg) {
     const choisie = memeRef(ref, selection);
     const manuelle = ref.source === "zone";
     const g = elementSvg("g", { class: `scan-zone${choisie ? " choisie" : ""}`, tabindex: "0", role: "button",
-      "aria-label": `${manuelle ? "Zone" : "Illustration détectée"} « ${libelleType(type)} »${choisie ? ", sélectionnée" : ""}. `
+      "aria-label": `${manuelle ? `Zone « ${libelleType(type)} »` : NOMS_DETECTION[ref.genre]}${choisie ? ", sélectionnée" : ""}. `
         + "Flèches : déplacer ; Suppr : supprimer." }, svg);
     const cadre = elementSvg("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, fill: couleur,
       "fill-opacity": manuelle ? 0.18 : 0.04, stroke: couleur, "stroke-width": choisie ? 8 : 5,
@@ -475,15 +482,19 @@ function dessinerZones(svg) {
       clearTimeout(minuteur);      // comme les lignes : enregistré après une courte pause
       minuteur = setTimeout(() => { editeurRegions.selection = ref; modifierZone(ref, { rect: courant }); }, 700);
     });
-    // × : supprimer (une illustration détectée retirée est lue comme du texte, comme avant)
-    const b = elementSvg("g", { class: "scan-retirer", tabindex: "-1", "aria-hidden": "true" }, g);
-    elementSvg("title", {}, b).textContent = manuelle ? "Supprimer cette zone" : "Retirer cette illustration (son contenu sera lu comme du texte)";
-    elementSvg("circle", { cx: x1 - 26, cy: y0 + 26, r: 20, fill: "white", stroke: couleur, "stroke-width": 5 }, b);
-    const t = elementSvg("text", { x: x1 - 26, y: y0 + 26, "text-anchor": "middle", "dominant-baseline": "central",
-                                   "font-size": 30, "font-weight": 700, fill: couleur }, b);
-    t.textContent = "×";
-    b.addEventListener("pointerdown", (e) => { e.stopPropagation(); });
-    b.addEventListener("click", (e) => { e.stopPropagation(); modifierZone(ref, { supprimer: true }); });
+    // × : supprimer (une détection retirée est lue comme du texte courant). Sur une détection, seulement une fois
+    // sélectionnée : une page compte souvent une vingtaine de titres candidats.
+    if (choisie || manuelle) {
+      const b = elementSvg("g", { class: "scan-retirer", tabindex: "-1", "aria-hidden": "true" }, g);
+      elementSvg("title", {}, b).textContent = manuelle ? "Supprimer cette zone"
+        : `Retirer : ${NOMS_DETECTION[ref.genre].toLowerCase()} (son contenu sera lu comme du texte courant)`;
+      elementSvg("circle", { cx: x1 - 26, cy: y0 + 26, r: 20, fill: "white", stroke: couleur, "stroke-width": 5 }, b);
+      const t = elementSvg("text", { x: x1 - 26, y: y0 + 26, "text-anchor": "middle", "dominant-baseline": "central",
+                                     "font-size": 30, "font-weight": 700, fill: couleur }, b);
+      t.textContent = "×";
+      b.addEventListener("pointerdown", (e) => { e.stopPropagation(); });
+      b.addEventListener("click", (e) => { e.stopPropagation(); modifierZone(ref, { supprimer: true }); });
+    }
     if (choisie) poigneesCoins(svg, ref, rect, couleur);
   });
   // Mode dessin : un calque sur toute la page capte le glisser qui crée la zone.
@@ -589,7 +600,7 @@ function majPanneauZone() {
   panneau.hidden = !zone;
   if (!zone) return;
   $("scan-zone-type").value = zone.type;
-  $("scan-zone-libelle").textContent = zone.ref.source === "zone" ? "Zone sélectionnée :" : "Illustration détectée :";
+  $("scan-zone-libelle").textContent = zone.ref.source === "zone" ? "Zone sélectionnée :" : `${NOMS_DETECTION[zone.ref.genre]} :`;
 }
 
 $("scan-zone-type").addEventListener("change", (e) => {

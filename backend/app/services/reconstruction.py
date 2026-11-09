@@ -193,15 +193,6 @@ def _ressemble_a_du_texte(gris, largeur_page: int, hauteur_page: int) -> bool:
     return float(aires[petits].sum()) / float(aires.sum()) >= PART_ENCRE_EN_PETITS_MORCEAUX
 
 
-def _meme_zone(r, q) -> bool:
-    """Deux rectangles désignent la même zone s'ils se recouvrent à plus de moitié (intersection / union)."""
-    ix = max(0, min(r[2], q[2]) - max(r[0], q[0]))
-    iy = max(0, min(r[3], q[3]) - max(r[1], q[1]))
-    inter = ix * iy
-    union = (r[2] - r[0]) * (r[3] - r[1]) + (q[2] - q[0]) * (q[3] - q[1]) - inter
-    return union > 0 and inter / union >= 0.5
-
-
 def _cadre_encre(gris, x0: int, x1: int) -> tuple[int, int, int, int]:
     """Rectangle de l'encre d'une demi-page (le papier vide autour n'est pas une illustration)."""
     zone = gris[:, x0:x1] < 200
@@ -221,7 +212,7 @@ def illustrations_page(image, mise: dict, reglage: dict | None = None) -> list[t
     """
     rects = detecter_illustrations(image)
     retirees = (reglage or {}).get("illustrations_retirees") or []
-    rects = [r for r in rects if not any(_meme_zone(r, q) for q in retirees)]
+    rects = [r for r in rects if not any(scan_colonnes.meme_zone(r, q) for q in retirees)]
     zones = mise.get("zones") or []
 
     def dans_une_zone(r) -> bool:

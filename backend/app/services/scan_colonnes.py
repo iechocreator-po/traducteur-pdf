@@ -441,11 +441,13 @@ def blocs_vers_markdown(blocs: list[tuple[str, str]]) -> str:
 
 # ── Une page ─────────────────────────────────────────────────────────────────
 
-def _decouper_titres(gris_segment, image_segment, langue: str):
+def _decouper_titres(gris_segment, image_segment, langue: str, origine: tuple[int, int] = (0, 0),
+                     retirees: list | None = None):
     """[(type, y0, y1, texte)] — un candidat n'est retenu que si son OCR ressemble à un
-    titre numéroté ; les rejets restent dans le corps du texte."""
+    titre numéroté ; les rejets restent dans le corps du texte. `origine` : (x, y) du segment dans la page,
+    pour reconnaître les titres que l'utilisateur a retirés (`retirees`, voir detections_retirees)."""
     sortie, y = [], 0
-    for a, b in bandes_titres(gris_segment):
+    for a, b in _bandes_retenues(gris_segment, origine[0], origine[0] + image_segment.width, origine[1], retirees):
         a2, b2 = max(a - 3, 0), min(b + 3, len(gris_segment))
         t, conf = ocr_titre(image_segment.crop((0, a2, image_segment.width, b2)), langue)
         if not _RE_TITRE.match(t) or len(t) > 60 or conf < CONFIANCE_MIN_TITRE:
@@ -457,6 +459,49 @@ def _decouper_titres(gris_segment, image_segment, langue: str):
     if y < len(gris_segment):
         sortie.append(("texte", y, len(gris_segment), ""))
     return sortie or [("texte", 0, len(gris_segment), "")]
+
+
+def meme_zone(r, q) -> bool:
+    """Deux rectangles désignent la même zone s'ils se recouvrent à plus de moitié (intersection / union) : une
+    détection retirée est reconnue même si un réglage voisin l'a décalée de quelques pixels."""
+    ix = max(0, min(r[2], q[2]) - max(r[0], q[0]))
+    iy = max(0, min(r[3], q[3]) - max(r[1], q[1]))
+    inter = ix * iy
+    union = (r[2] - r[0]) * (r[3] - r[1]) + (q[2] - q[0]) * (q[3] - q[1]) - inter
+    return union > 0 and inter / union >= 0.5
+
+
+def _retiree(rect, retirees: list | None) -> bool:
+    return bool(retirees) and any(meme_zone(rect, q) for q in retirees)
+
+
+def _segments_lus(gris, a: int, b: int, retirees: list | None):
+    """decouper_segments d'une colonne, où un encadré que l'utilisateur a retiré redevient du texte courant."""
+    for genre, y0, y1 in decouper_segments(gris[:, a:b]):
+        if genre == "encadre" and _retiree([a, y0, b, y1], retirees):
+            genre = "texte"
+        yield genre, y0, y1
+
+
+def _bandes_retenues(gris_segment, a: int, b: int, y0: int, retirees: list | None) -> list[tuple[int, int]]:
+    """bandes_titres d'un segment (coordonnées du segment), moins les titres que l'utilisateur a retirés."""
+    return [(p, q) for p, q in bandes_titres(gris_segment) if not _retiree([a, y0 + p - 3, b, y0 + q + 3], retirees)]
+
+
+def detections_texte(mise: dict, gris, retirees: list | None = None) -> list[dict]:
+    """Titres candidats (orange) et encadrés (bleus) de la détection, en coordonnées de la page : ce que l'aperçu
+    entoure, et ce que l'éditeur rend modifiable. `gris` : la page où les zones dessinées sont déjà blanchies.
+    Un encadré est présenté comme une zone « texte » (lu à part, en paragraphes)."""
+    sortie = []
+    for moitie in mise["moities"]:
+        for a, b in moitie["colonnes"]:
+            for genre, y0, y1 in _segments_lus(gris, a, b, retirees):
+                if genre == "encadre":
+                    sortie.append({"type": "texte", "rect": [a, y0, b, y1]})
+                    continue
+                for p, q in _bandes_retenues(gris[y0:y1, a:b], a, b, y0, retirees):
+                    sortie.append({"type": "titre", "rect": [a, max(y0 + p - 3, 0), b, y0 + q + 3]})
+    return sortie
 
 
 def analyser_mise_en_page(image, double_page: bool | None = None, reglage: dict | None = None) -> dict:
@@ -521,14 +566,15 @@ def traiter_page(image, langue: str = "eng", double_page: bool | None = None, re
     zones = mise["zones"]
     gris, image_lue = (_masquer_zones(mise["gris"], image, zones) if zones else (mise["gris"], image))
     h = mise["h"]
+    retirees = (reglage or {}).get("detections_retirees")
     blocs, avert = [], []      # blocs : (clé d'ordre de lecture, type, texte)
     for mi, moitie in enumerate(mise["moities"]):
         avert += moitie["alertes"]
         for ci, (a, b) in enumerate(moitie["colonnes"]):
-            for genre, y0, y1 in decouper_segments(gris[:, a:b]):
+            for genre, y0, y1 in _segments_lus(gris, a, b, retirees):
                 if y1 - y0 < 25:
                     continue
-                sous = (_decouper_titres(gris[y0:y1, a:b], image_lue.crop((a, y0, b, y1)), langue)
+                sous = (_decouper_titres(gris[y0:y1, a:b], image_lue.crop((a, y0, b, y1)), langue, (a, y0), retirees)
                         if genre == "texte" else [("encadre", 0, y1 - y0, "")])
                 for sk, s0, s1, ttxt in sous:
                     if s1 - s0 < 8:
@@ -615,9 +661,11 @@ def geometrie_page(image, double_page: bool | None = None, reglage: dict | None 
     (lignes déplaçables). Coordonnées en pixels du rendu à DPI_RENDU."""
     from app.services.reconstruction import illustrations_page   # import local : reconstruction importe ce module
     mise = analyser_mise_en_page(image, double_page, reglage)
+    gris = _masquer_zones(mise["gris"], image, mise["zones"])[0] if mise["zones"] else mise["gris"]
     return {
         "mise": mise,
         "illustrations": illustrations_page(image, mise, reglage),
+        "detections": detections_texte(mise, gris, (reglage or {}).get("detections_retirees")),
     }
 
 
@@ -633,6 +681,7 @@ def geometrie_publique(geo: dict, reglage: dict | None) -> dict:
         "moities": [{k: m[k] for k in ("x0", "x1", "mode", "pleine_largeur", "alertes")}
                     | {"colonnes": [list(c) for c in m["colonnes"]]} for m in mise["moities"]],
         "illustrations": [list(r) for r in geo["illustrations"] if list(r) not in manuelles],
+        "detections": geo.get("detections", []),
         "zones": zones,
         "reglage": reglage,
     }
@@ -649,7 +698,8 @@ def apercu_page(image, double_page: bool | None = None, reglage: dict | None = N
     Le violet vient de la reconstruction (reconstruction.illustrations_page) : ces zones ne
     sont pas traduites mais recopiées telles quelles dans le PDF et le HTML recréés.
     Une demi-page ignorée est voilée de gris ; les zones dessinées à la main sont pleines, de la couleur de leur type.
-    `edition` : l'éditeur du Laboratoire dessine lui-même illustrations et zones (déplaçables) : elles sont omises."""
+    `edition` : l'éditeur du Laboratoire dessine lui-même illustrations, titres et encadrés détectés et zones
+    (déplaçables) : ils sont omis."""
     from PIL import Image, ImageDraw
 
     geo = geometrie_page(image, double_page, reglage)
@@ -673,16 +723,15 @@ def apercu_page(image, double_page: bool | None = None, reglage: dict | None = N
             d.rectangle(z["rect"], outline=COULEURS_ZONES[z["type"]], width=5)
     if mise["gouttiere"] is not None:
         d.line([(mise["gouttiere"], 0), (mise["gouttiere"], mise["h"])], fill=(220, 0, 0), width=3)
-    gris = _masquer_zones(mise["gris"], image, zones)[0] if zones else mise["gris"]
     for moitie in mise["moities"]:
         for a, b in moitie["colonnes"]:
             d.rectangle([a, 0, b, mise["h"] - 1], outline=(0, 160, 0), width=2)
-            for genre, y0, y1 in decouper_segments(gris[:, a:b]):
-                if genre == "encadre":
-                    d.rectangle([a + 2, y0, b - 2, y1], outline=(0, 90, 220), width=3)
-                else:
-                    for p, q in bandes_titres(gris[y0:y1, a:b]):
-                        d.rectangle([a, y0 + p - 2, b, y0 + q + 2], outline=(240, 140, 0), width=2)
+    for det in ([] if edition else geo["detections"]):
+        x0, y0, x1, y1 = det["rect"]
+        if det["type"] == "texte":
+            d.rectangle([x0 + 2, y0, x1 - 2, y1], outline=(0, 90, 220), width=3)
+        else:
+            d.rectangle(det["rect"], outline=(240, 140, 0), width=2)
     for x0, y0, x1, y1 in illustrations:
         d.rectangle([x0 + 4, y0 + 4, x1 - 4, y1 - 4], outline=(170, 0, 200), width=5)
     tampon = io.BytesIO()
@@ -761,6 +810,7 @@ def normaliser_reglage(brut) -> dict | None:
       {"gouttiere": int | absent,
        "moities": [{"mode": "auto"|"colonnes"|"image"|"ignorer", "colonnes": [[x0, x1], ...]}, ...],
        "illustrations_retirees": [[x0, y0, x1, y1], ...],
+       "detections_retirees": [[x0, y0, x1, y1], ...],   # titres et encadrés détectés : lus comme texte courant
        "zones": [{"type": TYPES_ZONE, "rect": [x0, y0, x1, y1]}, ...]}   # dessinées à la main, dans l'ordre
     Les bornes sont validées contre la page au moment de l'appliquer, pas ici (une zone hors page est rognée).
     """
@@ -788,12 +838,13 @@ def normaliser_reglage(brut) -> dict | None:
         moities.append(entree)
     if any(m["mode"] != "auto" for m in moities):
         sortie["moities"] = moities
-    retirees = []
-    for r in (brut.get("illustrations_retirees") or [])[:50] if isinstance(brut.get("illustrations_retirees"), list) else []:
-        if isinstance(r, (list, tuple)) and len(r) == 4 and all(_entier(v) is not None for v in r):
-            retirees.append([int(v) for v in r])
-    if retirees:
-        sortie["illustrations_retirees"] = retirees
+    for cle in ("illustrations_retirees", "detections_retirees"):
+        retirees = []
+        for r in (brut.get(cle) or [])[:50] if isinstance(brut.get(cle), list) else []:
+            if isinstance(r, (list, tuple)) and len(r) == 4 and all(_entier(v) is not None for v in r):
+                retirees.append([int(v) for v in r])
+        if retirees:
+            sortie[cle] = retirees
     zones = []
     for z in (brut.get("zones") or [])[:NB_MAX_ZONES] if isinstance(brut.get("zones"), list) else []:
         if not isinstance(z, dict) or z.get("type") not in TYPES_ZONE:

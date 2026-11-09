@@ -377,3 +377,75 @@ def test_zone_texte_en_tableau_une_rangee_par_paragraphe(monkeypatch):
     blocs = S.traiter_page(img, "eng", False, {"zones": [{"type": "texte", "rect": [cols[0][0], 50, cols[2][1], 120]}]})["blocs"]
     assert blocs == [("para", "1-3 1-2 Fated"), ("para", "4-6 3-4 Plight")]
     assert not S._ressemble_a_un_tableau([ligne("Une phrase de prose normale", 0, 300, 0), ligne("et sa suite", 0, 300, 20)])
+
+
+# ── Titres et encadrés détectés, modifiables dans l'éditeur ──────────────────
+
+def _page_titre_et_encadre():
+    """3 colonnes ; un gros titre dans la 1re (y ≈ 300) et un encadré blanc dans la 2e (y 500–620)."""
+    img, cols = page_synthetique()
+    a, b = cols[0]
+    d = ImageDraw.Draw(img)
+    d.rectangle([a, 290, b, 335], fill=PAPIER)
+    d.rectangle([a, 300, a + 30, 322], fill=10)
+    d.rectangle([a + 40, 306, b - 20, 318], fill=10)
+    a2, b2 = cols[1]
+    d.rectangle([a2 - 8, 500, b2 + 8, 620], fill=255)
+    return img, cols
+
+
+def _detection(dets, type_, x, y):
+    return next(dt for dt in dets if dt["type"] == type_ and abs(dt["rect"][0] - x) <= 12 and abs(dt["rect"][1] - y) <= 12)
+
+
+def test_titre_et_encadre_detectes_exposes_a_l_editeur():
+    img, cols = _page_titre_et_encadre()
+    geo = S.geometrie_publique(S.geometrie_page(img, double_page=False), None)
+    _detection(geo["detections"], "titre", cols[0][0], 297)
+    _detection(geo["detections"], "texte", cols[1][0], 500)      # un encadré : présenté comme une zone « texte »
+    json.dumps(geo)                                                # sérialisable tel quel
+
+
+def test_titre_et_encadre_retires_lus_comme_texte_courant(monkeypatch):
+    img, cols = _page_titre_et_encadre()
+    dets = S.geometrie_page(img, double_page=False)["detections"]
+    titre = _detection(dets, "titre", cols[0][0], 297)["rect"]
+    encadre = _detection(dets, "texte", cols[1][0], 500)["rect"]
+    titres_ocr = []
+    monkeypatch.setattr(S, "ocr_titre", lambda image, langue: (titres_ocr.append(image.size) or "1 The Ship", 95.0))
+    monkeypatch.setattr(S, "ocr_lignes", _ocr_factice([]))
+    avant = S.traiter_page(img, "eng", double_page=False)["blocs"]
+    assert ("titre", "1 The Ship") in avant and any(k == "encadre" for k, _ in avant)
+    titres_ocr.clear()
+    reglage = S.normaliser_reglage({"detections_retirees": [titre, encadre]})
+    apres = S.traiter_page(img, "eng", double_page=False, reglage=reglage)["blocs"]
+    assert ("titre", "1 The Ship") not in apres and not any(k == "encadre" for k, _ in apres)
+    assert not titres_ocr                                          # le titre retiré n'est même plus essayé
+    restantes = S.geometrie_page(img, double_page=False, reglage=reglage)["detections"]
+    assert not any(R.scan_colonnes.meme_zone(dt["rect"], q) for dt in restantes for q in (titre, encadre))
+
+
+def test_titre_detecte_recadre_en_zone_manuelle(monkeypatch):
+    """Ce que fait l'éditeur : la détection retirée, une zone « titre » à sa place, plus large."""
+    img, cols = _page_titre_et_encadre()
+    titre = _detection(S.geometrie_page(img, double_page=False)["detections"], "titre", cols[0][0], 297)["rect"]
+    monkeypatch.setattr(S, "ocr_titre", lambda image, langue: ("1 The Ship", 95.0))
+    monkeypatch.setattr(S, "ocr_lignes", _ocr_factice([]))
+    zone = [titre[0], titre[1] - 10, titre[2], titre[3] + 10]
+    reglage = S.normaliser_reglage({"detections_retirees": [titre], "zones": [{"type": "titre", "rect": zone}]})
+    blocs = S.traiter_page(img, "eng", double_page=False, reglage=reglage)["blocs"]
+    assert ("titre", "1 The Ship") not in blocs
+    assert ("titre", f"Lu{zone[2] - zone[0]}x{zone[3] - zone[1]} depuis {zone[1]} mots") in blocs
+
+
+def test_apercu_en_edition_omet_titres_et_encadres():
+    img, _ = _page_titre_et_encadre()
+    orange = (240, 140, 0)
+    pixels = lambda png: set(Image.open(__import__("io").BytesIO(png)).convert("RGB").getdata())   # noqa: E731
+    assert orange in pixels(S.apercu_page(img, double_page=False))
+    assert orange not in pixels(S.apercu_page(img, double_page=False, edition=True))
+
+
+def test_normaliser_detections_retirees():
+    r = S.normaliser_reglage({"detections_retirees": [[1, 2, 3, 4], "x", [1, 2, 3], [1, 2, 3, True]]})
+    assert r == {"detections_retirees": [[1, 2, 3, 4]]}
