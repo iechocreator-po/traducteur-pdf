@@ -449,3 +449,108 @@ def test_apercu_en_edition_omet_titres_et_encadres():
 def test_normaliser_detections_retirees():
     r = S.normaliser_reglage({"detections_retirees": [[1, 2, 3, 4], "x", [1, 2, 3], [1, 2, 3, True]]})
     assert r == {"detections_retirees": [[1, 2, 3, 4]]}
+
+
+# ── Revue du 09/11/2026 : seuils et replis que les tests laissaient passer ───
+
+def _motif(fond, encre, pas, cote, taille=400):
+    """Zone `taille`² de ton `fond`, semée de carrés `cote`² de ton `encre` tous les `pas` px (des « lettres »)."""
+    g = np.full((taille, taille), fond, dtype=np.uint8)
+    for y in range(0, taille, pas):
+        for x in range(0, taille, pas):
+            g[y:y + cote, x:x + cote] = encre
+    return g
+
+
+def test_texte_reconnu_sur_papier_blanc():
+    assert R._ressemble_a_du_texte(_motif(255, 0, 18, 6), 1000, 1400)      # ≈ 11 % d'encre en petits morceaux
+
+
+def test_photo_a_fond_sombre_reste_une_illustration():
+    """Même semis, mais ton dominant 100 : ce n'est pas un fond de papier (SEUIL_FOND_TEXTE)."""
+    assert not R._ressemble_a_du_texte(_motif(100, 0, 18, 6), 1000, 1400)
+
+
+def test_zone_presque_vide_reste_une_illustration():
+    """≈ 1 % d'encre : sous ENCRE_TEXTE_MIN, ce n'est pas un paragraphe."""
+    assert not R._ressemble_a_du_texte(_motif(255, 0, 60, 6), 1000, 1400)
+
+
+def test_dessin_au_trait_sur_papier_blanc_reste_une_illustration():
+    """≈ 10 % d'encre, mais en traits longs connectés : sans la règle des petits morceaux, il disparaissait du PDF."""
+    g = np.full((400, 400), 255, dtype=np.uint8)
+    for y in range(0, 400, 30):
+        g[y:y + 3, :] = 0
+    g[:, 200:203] = 0
+    assert not R._ressemble_a_du_texte(g, 1000, 1400)
+
+
+def test_illustration_dans_une_demi_page_ignoree_n_est_pas_recopiee(monkeypatch):
+    img, _ = _double_page()
+    monkeypatch.setattr(R, "detecter_illustrations", lambda image: [(100, 100, 400, 400), (900, 100, 1200, 400)])
+    reglage = {"moities": [{"mode": "ignorer"}, {"mode": "auto"}]}
+    mise = S.analyser_mise_en_page(img, double_page=True, reglage=reglage)
+    assert R.illustrations_page(img, mise, reglage) == [(900, 100, 1200, 400)]
+
+
+def test_route_reglage_refusee_pendant_un_nettoyage_en_attente(tmp_path):
+    pdf = _pdf(tmp_path)
+    sorties = S.chemins_sortie(pdf)
+    S._sauvegarder_etat({"job_id": "reg-2", "statut": "en_attente", "chemin_etat": sorties["etat"]})
+    S.enregistrer_job("reg-2")
+    try:
+        r = client.put("/api/labo/scan-colonnes/reglage-page",
+                       json={"chemin_pdf": pdf, "page": 1, "reglage": {"moities": [{"mode": "ignorer"}]}})
+    finally:
+        S.supprimer_job_registre("reg-2")
+    assert r.status_code == 409
+    assert not os.path.exists(sorties["reglages"])
+
+
+def _tsv(lignes):
+    """Sortie TSV de Tesseract : une ligne OCR par (texte, confiance), un mot par champ."""
+    rangs = ["level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext"]
+    for n, (texte, conf) in enumerate(lignes):
+        for k, m in enumerate(texte.split()):
+            rangs.append(f"5\t1\t1\t1\t{n + 1}\t{k + 1}\t{k * 120}\t{n * 60}\t100\t40\t{conf}\t{m}")
+    return "\n".join(rangs)
+
+
+def test_ocr_d_une_zone_texte_garde_chiffres_et_lignes_moins_sures(monkeypatch):
+    """psm 4 dans une zone ; une ligne de chiffres sûre et une ligne de mots à 45 de confiance y sont gardées,
+    écartées dans une colonne (bruit d'illustration, CONFIANCE_MIN_LIGNE)."""
+    psms = []
+    sortie = _tsv([("1-3 1-2", 90), ("Fated Plight", 45)])
+    monkeypatch.setattr(S, "_tesseract", lambda image, psm, langue, tsv=False: psms.append(psm) or sortie)
+    img = Image.new("L", (400, 200), 255)
+    zone = [" ".join(m["txt"] for m in L["mots"]) for L in S.ocr_lignes(img, "eng", zone=True)]
+    colonne = [" ".join(m["txt"] for m in L["mots"]) for L in S.ocr_lignes(img, "eng")]
+    assert zone == ["1-3 1-2", "Fated Plight"] and colonne == []
+    assert psms == [4, 6]
+
+
+def test_lignes_de_chiffres_filtrees_hors_zone_seulement():
+    lignes = [ligne("1-3 1-2", 0, 300, 10)]
+    assert S.lignes_vers_blocs(lignes, 300, 1000, filtrer=False) == [("para", "1-3 1-2")]
+    assert S.lignes_vers_blocs(lignes, 300, 1000) == []
+
+
+def test_zone_dans_une_gouttiere_lue_avant_la_colonne_suivante():
+    mise = {"moities": [{"x0": 0, "x1": 500, "colonnes": [[50, 200], [300, 450]]},
+                        {"x0": 500, "x1": 1000, "colonnes": [[550, 950]]}]}
+    assert S._cle_zone(mise, [210, 40, 290, 90]) == (0, 1, 40)        # entre les colonnes 1 et 2
+    assert S._cle_zone(mise, [460, 40, 490, 90]) == (0, 2, 40)        # à droite de la dernière colonne
+    assert S._cle_zone(mise, [1100, 40, 1300, 90])[0] == 1            # centre hors des demi-pages : la dernière
+
+
+def test_reconstruction_lit_les_regions_du_scan_pas_celles_retouchees_depuis(tmp_path):
+    """Une illustration posée APRÈS le scan n'a pas changé le texte traduit : la recopier en plus doublerait la page."""
+    pdf = _pdf(tmp_path)
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    (pages / "page-0001.json").write_text(json.dumps({"blocs": [], "reglages": {"regions": None}}))
+    S.enregistrer_reglage_page(pdf, 1, {"zones": [{"type": "illustration", "rect": [40, 40, 240, 240]}]})
+    assert R._regions_du_scan(pdf, str(pages), 1) is None
+    assert R._regions_du_scan(pdf, str(pages), 2) == S.reglage_page(pdf, 2)           # pas lue par le scan : repli
+    page = R.preparer_geometrie(pdf, str(tmp_path / "illus"), [1], False, str(pages))["pages"]["1"]
+    assert not any(i["rect"] == [40, 40, 240, 240] for i in page["illustrations"])

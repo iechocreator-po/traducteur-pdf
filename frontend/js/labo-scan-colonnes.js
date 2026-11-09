@@ -181,8 +181,11 @@ function valeurMode(m) {
 
 function afficherEditeurRegions(chemin, page, geo) {
   // La sélection survit à l'enregistrement qui a provoqué ce rendu (même page du même PDF).
-  const garder = editeurRegions === null && selectionEnAttente && selectionEnAttente.chemin === chemin
-    && selectionEnAttente.page === page ? selectionEnAttente.selection : null;
+  // Le focus clavier aussi : le SVG a été masqué pendant le recalcul, l'élément focalisé est déjà perdu.
+  const memePage = editeurRegions === null && selectionEnAttente && selectionEnAttente.chemin === chemin
+    && selectionEnAttente.page === page;
+  const garder = memePage ? selectionEnAttente.selection : null;
+  const focusAvant = memePage ? selectionEnAttente.focus : null;
   selectionEnAttente = null;
   editeurRegions = { chemin, page, geo, reglage: reglageInitial(geo), selection: garder, outil: null };
   if (garder && garder.source === "zone" && !editeurRegions.reglage.zones[garder.index]) editeurRegions.selection = null;
@@ -219,7 +222,7 @@ function afficherEditeurRegions(chemin, page, geo) {
   $("scan-regions-aide").hidden = false;
   construireOutilsZones();
   $("scan-apercu-svg").classList.remove("dessin");
-  dessinerPoignees();
+  dessinerPoignees(focusAvant);
 }
 
 function changerModeMoitie(i, valeur) {
@@ -242,7 +245,7 @@ function changerModeMoitie(i, valeur) {
 
 async function enregistrerRegions(reglage) {
   const { chemin, page, selection } = editeurRegions;
-  selectionEnAttente = { chemin, page, selection: selection || null };
+  selectionEnAttente = { chemin, page, selection: selection || null, focus: cleDuFocus($("scan-apercu-svg")) };
   $("scan-regions-etat").textContent = "⏳ Enregistrement…";
   document.querySelectorAll("#scan-regions select, #scan-regions button").forEach(el => { el.disabled = true; });
   try {
@@ -276,7 +279,7 @@ function elementSvg(nom, attributs, parent) {
 function poignee(svg, x, couleur, libelle, bornes, valider) {
   const { hauteur } = editeurRegions.geo;
   const g = elementSvg("g", { class: "scan-poignee", tabindex: "0", role: "slider", "aria-label": libelle,
-                              "aria-valuenow": String(x) }, svg);
+                              "aria-valuenow": String(x), "data-cle": `p:${libelle}` }, svg);
   const zone = elementSvg("line", { class: "zone", x1: x, x2: x, y1: 0, y2: hauteur, "stroke-width": 36 }, g);
   const trait = elementSvg("line", { x1: x, x2: x, y1: 0, y2: hauteur, stroke: couleur, "stroke-width": 3,
                                      "stroke-dasharray": "14 10" }, g);
@@ -315,9 +318,28 @@ function poignee(svg, x, couleur, libelle, bornes, valider) {
   });
 }
 
-function dessinerPoignees() {
+// Vider le SVG détruit l'élément qui a le focus : il retomberait sur <body> et les flèches feraient défiler la page
+// au lieu de déplacer la zone (l'aide promet « Tab, Entrée, puis ← ↑ → ↓ »). On le rend donc, après le rendu, à
+// l'élément de même clé, ou à la zone sélectionnée (une détection retouchée devient une zone manuelle : autre clé).
+const cleRef = (ref) => ref.source === "zone" ? `z:${ref.index}` : `d:${ref.genre}:${ref.rect.join(",")}`;
+
+function rendreFocus(svg, cle) {
+  if (!cle) return;
+  const { selection } = editeurRegions;
+  const cible = [...svg.querySelectorAll("[data-cle]")].find(el => el.getAttribute("data-cle") === cle)
+    || (selection && [...svg.querySelectorAll("[data-cle]")].find(el => el.getAttribute("data-cle") === cleRef(selection)));
+  if (cible) cible.focus({ preventScroll: true });
+}
+
+const cleDuFocus = (svg) => {
+  const actif = document.activeElement;
+  return actif && svg.contains(actif) ? actif.getAttribute("data-cle") : null;
+};
+
+function dessinerPoignees(focusAvant = null) {
   const { geo, reglage } = editeurRegions;
   const svg = $("scan-apercu-svg");
+  const cleFocus = cleDuFocus(svg) || focusAvant;
   svg.innerHTML = "";
   svg.setAttribute("viewBox", `0 0 ${geo.largeur} ${geo.hauteur}`);
   svg.setAttribute("preserveAspectRatio", "none");
@@ -348,6 +370,7 @@ function dessinerPoignees() {
     });
   });
   dessinerZones(svg);
+  rendreFocus(svg, cleFocus);
 }
 
 // ── Zones (niveau 3) : illustrations, titres et encadrés détectés, et zones dessinées à la main ──
@@ -430,7 +453,7 @@ function dessinerZones(svg) {
     const manuelle = ref.source === "zone";
     const g = elementSvg("g", { class: `scan-zone${choisie ? " choisie" : ""}`, tabindex: "0", role: "button",
       "aria-label": `${manuelle ? `Zone « ${libelleType(type)} »` : NOMS_DETECTION[ref.genre]}${choisie ? ", sélectionnée" : ""}. `
-        + "Flèches : déplacer ; Suppr : supprimer." }, svg);
+        + "Flèches : déplacer ; Suppr : supprimer.", "data-cle": cleRef(ref) }, svg);
     const cadre = elementSvg("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, fill: couleur,
       "fill-opacity": manuelle ? 0.18 : 0.04, stroke: couleur, "stroke-width": choisie ? 8 : 5,
       "stroke-dasharray": manuelle ? "" : "18 10" }, g);

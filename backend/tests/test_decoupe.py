@@ -324,3 +324,42 @@ def test_route_flag_off(client, tmp_path, monkeypatch):
 def test_flag_actif_par_defaut():
     from app.config.feature_flags import FLAGS_PAR_DEFAUT
     assert FLAGS_PAR_DEFAUT["decoupe_pdf"] is True
+
+
+# ── Revue du 09/11/2026 : une section commence au milieu d'un chapitre ───────
+
+def test_section_qui_commence_au_milieu_d_un_chapitre_ne_perd_pas_ses_premieres_pages(tmp_path):
+    """Chapitres aux pages 1, 2 et 5, découpe par 3 : la page 4 (fin du chapitre 2) précède le premier signet de
+    la section 2. Elle n'appartenait à aucun chapitre, donc n'était jamais traduite, sans erreur."""
+    from app.services.pdf_extractor import chapitres_avec_contenu
+    src = str(tmp_path / "livre.pdf")
+    titres = {1: "Chapter One Alpha", 2: "Chapter Two Bravo", 5: "Chapter Three Charlie"}
+    doc = pymupdf.open()
+    for p in range(1, 7):
+        pg = doc.new_page()
+        y = 72
+        if p in titres:
+            pg.insert_text((72, y), titres[p], fontsize=24)
+            y += 40
+        pg.insert_text((72, y), f"Body text of page {p} marker PAGE{p}MARK lorem ipsum.", fontsize=11)
+    doc.set_toc([[1, titres[n], n] for n in sorted(titres)])
+    doc.save(src)
+    doc.close()
+    for section in decoupe.decouper(src, 3)["sections"]:
+        chapitres = chapitres_avec_contenu(section["chemin"])
+        tout = " ".join(c["contenu"] for c in chapitres)
+        debut, fin = section["page_debut"], section["page_fin"]
+        assert all(f"PAGE{p}MARK" in tout for p in range(debut, fin + 1)), section["nom"]
+    assert [c["index"] for c in chapitres] == [0]                     # index inchangés : rien d'inséré
+
+
+def test_preambule_rattache_au_premier_chapitre_sans_l_en_tete(tmp_path):
+    from app.services.pdf_extractor import chapitres_avec_contenu
+    md = tmp_path / "doc.md"
+    md.write_text("<!-- extracteur : test -->\n\nFin du chapitre précédent.\n\n# Chapitre 3\n\nCorps.\n")
+    premier = chapitres_avec_contenu(str(md))[0]
+    assert premier["contenu"].startswith("Fin du chapitre précédent.") and "# Chapitre 3" in premier["contenu"]
+    assert "extracteur" not in premier["contenu"]
+    seul_en_tete = tmp_path / "propre.md"
+    seul_en_tete.write_text("<!-- extracteur : test -->\n\n# Chapitre 1\n\nCorps.\n")
+    assert chapitres_avec_contenu(str(seul_en_tete))[0]["contenu"].startswith("# Chapitre 1")

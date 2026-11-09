@@ -623,12 +623,43 @@ def chapitres_avec_contenu(chemin: str, extracteur: str = "pymupdf4llm") -> list
     Retourne tous les chapitres d'un PDF ou Markdown avec leur contenu.
     Priorité aux signets PDF (mêmes index que la route /chapitres), reliés au
     Markdown par titre ; fallback sur les titres Markdown.
+
+    Le texte qui précède le premier chapitre n'appartient à aucun chapitre : il n'était jamais traduit, sans
+    erreur. Une section de N pages (Laboratoire › Découper) commence presque toujours au milieu d'un chapitre,
+    ce qui perdait ses premières pages. Ce préambule est donc rattaché au début du premier chapitre (celui qui
+    porte du contenu et commence le plus tôt) : les index ne bougent pas (sélection, reprise et
+    `chapitres_traduits` en dépendent), rien n'est perdu. Les commentaires et lignes vides de tête (en-tête
+    `<!-- extracteur -->`) ne comptent pas. Un document traduit (marqueurs du moteur) n'est pas concerné.
     """
+    texte = _lire_source(chemin, extracteur)
+    depuis_marqueurs = chapitres_depuis_marqueurs(texte)
+    if depuis_marqueurs:
+        return depuis_marqueurs
+    chapitres_md = _extraire_chapitres(texte)
     toc_pdf = extraire_toc_pdf(chemin) if chemin.lower().endswith(".pdf") else None
-    chapitres_md = identifier_chapitres(chemin, extracteur)
-    if toc_pdf:
-        return relier_toc_a_markdown(toc_pdf, chapitres_md)
-    return chapitres_md
+    chapitres = relier_toc_a_markdown(toc_pdf, chapitres_md) if toc_pdf else chapitres_md
+    return _rattacher_preambule(chapitres, texte)
+
+
+_RE_LIGNE_COMMENTAIRE = re.compile(r"^\s*<!--.*-->\s*$")
+
+
+def _rattacher_preambule(chapitres: list[dict], texte: str) -> list[dict]:
+    """Rattache au premier chapitre le texte réel qui le précède (voir chapitres_avec_contenu)."""
+    portes = [c for c in chapitres if c["contenu"].strip()]
+    if not portes:
+        return chapitres
+    premier = min(portes, key=lambda c: c["ligne_debut"])
+    lignes = texte.splitlines()
+    debut = next((i for i in range(min(premier["ligne_debut"], len(lignes)))
+                  if lignes[i].strip() and not _RE_LIGNE_COMMENTAIRE.match(lignes[i])), None)
+    if debut is None:
+        return chapitres
+    preambule = "\n".join(lignes[debut:premier["ligne_debut"]]).rstrip("\n")
+    return [
+        {**c, "contenu": preambule + "\n\n" + c["contenu"], "ligne_debut": debut} if c is premier else c
+        for c in chapitres
+    ]
 
 
 def _extraire_chapitres(texte: str) -> list[dict]:

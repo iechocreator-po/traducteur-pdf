@@ -268,10 +268,26 @@ def _couleur_papier(image) -> list[int]:
     return [int(v) for v in np.median(clair, axis=0)]
 
 
-def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_page: bool | None = None) -> dict:
+def _regions_du_scan(chemin_pdf: str, dossier_pages: str | None, numero: int) -> dict | None:
+    """
+    Régions avec lesquelles le scan a LU la page (`page-NNNN.json` › reglages › regions), pas celles en vigueur :
+    une région retouchée après le scan n'a pas changé le texte traduit. La relire ferait recopier en image une
+    demi-page dont le texte traduit est aussi coulé dans les cadres (contenu en double, sans erreur).
+    Sans résultat de scan pour la page (ou sans dossier), repli sur le réglage en vigueur.
+    """
+    if dossier_pages:
+        d = lire_json_tolerant(os.path.join(dossier_pages, f"page-{numero:04d}.json"))
+        if isinstance(d, dict) and isinstance(d.get("reglages"), dict) and "regions" in d["reglages"]:
+            return d["reglages"]["regions"]
+    return scan_colonnes.reglage_page(chemin_pdf, numero)
+
+
+def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_page: bool | None = None,
+                       dossier_pages: str | None = None) -> dict:
     """
     Géométrie + images de chaque page, en cache (une page déjà faite n'est jamais refaite tant que le PDF,
     VERSION_CACHE et le réglage `double_page` du scan n'ont pas changé). Retourne le manifeste {page: {...}}.
+    Les régions sont celles du scan qui a produit le texte (`_regions_du_scan`).
     """
     manifeste_chemin = os.path.join(dossier, "manifeste.json")
     signature = {"version": VERSION_CACHE, "mtime": os.path.getmtime(chemin_pdf), "dpi": scan_colonnes.DPI_RENDU,
@@ -279,8 +295,8 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_p
     manifeste = lire_json_tolerant(manifeste_chemin)
     if not isinstance(manifeste, dict) or manifeste.get("signature") != signature:
         manifeste = {"signature": signature, "pages": {}}
-    # Une page dont les régions ont été retouchées à la main depuis est refaite (le reste du cache tient).
-    manuels = {n: scan_colonnes.reglage_page(chemin_pdf, n) for n in pages}
+    # Une page relue par le scan avec d'autres régions est refaite (le reste du cache tient).
+    manuels = {n: _regions_du_scan(chemin_pdf, dossier_pages, n) for n in pages}
     a_faire = [n for n in pages if str(n) not in manifeste["pages"]
                or manifeste["pages"][str(n)].get("regions") != manuels[n]]
     if a_faire:
@@ -541,7 +557,8 @@ def generer_pdf(chemin_traduit: str) -> dict:
 
     loc = localiser(chemin_traduit)
     _exiger_traduction_a_jour(loc, chemin_traduit)
-    manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"], loc["double_page"])
+    manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"], loc["double_page"],
+                                   loc["dossier_pages"])
     with open(chemin_traduit, encoding="utf-8") as f:
         par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read(), titres_source(loc["source_md"]))
 
@@ -645,7 +662,8 @@ def generer_html(chemin_traduit: str, titre: str | None = None) -> dict:
     """Écrit `<traduction>_interactif.html` (autonome : images en data-URI). Retourne {chemin, pages, illustrations, octets}."""
     loc = localiser(chemin_traduit)
     _exiger_traduction_a_jour(loc, chemin_traduit)
-    manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"], loc["double_page"])
+    manifeste = preparer_geometrie(loc["pdf"], loc["dossier_illus"], loc["pages"], loc["double_page"],
+                                   loc["dossier_pages"])
     with open(chemin_traduit, encoding="utf-8") as f:
         par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read(), titres_source(loc["source_md"]))
 
