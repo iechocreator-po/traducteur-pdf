@@ -64,7 +64,7 @@ def test_schedule_batch_planifie_plusieurs_fichiers(tmp_path, monkeypatch):
 
     reponse = client.post("/api/schedule/batch", json={
         "chemins": [str(doc1), str(doc2)],
-        "executer_a": "2030-01-01T23:00:00",
+        "executer_a": "2030-01-01T23:00:00Z",
     })
     assert reponse.status_code == 200
     jobs = reponse.json()["jobs"]
@@ -81,7 +81,7 @@ def test_schedule_batch_fichier_introuvable(tmp_path, monkeypatch):
 
     reponse = client.post("/api/schedule/batch", json={
         "chemins": ["/chemin/inexistant.pdf"],
-        "executer_a": "2030-01-01T23:00:00",
+        "executer_a": "2030-01-01T23:00:00Z",
     })
     assert reponse.status_code == 404
 
@@ -89,7 +89,7 @@ def test_schedule_batch_fichier_introuvable(tmp_path, monkeypatch):
 def test_schedule_batch_liste_vide_refusee():
     reponse = client.post("/api/schedule/batch", json={
         "chemins": [],
-        "executer_a": "2030-01-01T23:00:00",
+        "executer_a": "2030-01-01T23:00:00Z",
     })
     assert reponse.status_code == 422
 

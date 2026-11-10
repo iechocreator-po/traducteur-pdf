@@ -201,7 +201,8 @@ $("bouton-verifier-reprise").addEventListener("click", async () => {
   if (!chemin) return;
   const zone = $("outil-resultat");
   try {
-    const etat = await apiPost("/check-resume", corpsSource(chemin));
+    // Le modèle du menu : c'est avec lui que « Reprendre » relancera (piège 5 : sans lui, l'état d'un autre modèle).
+    const etat = await apiPost("/check-resume", corpsSource(chemin, { modele_ollama: $("modele").value }));
     if (etat && etat.derniere_section_completee > 0 && etat.statut !== "termine") {
       $("reprise-progression").textContent = `section ${etat.derniere_section_completee}/${etat.total_sections}`;
       $("bouton-reprendre").hidden = false;

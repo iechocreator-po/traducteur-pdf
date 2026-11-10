@@ -98,16 +98,19 @@ def migrer(appliquer: bool) -> int:
             continue
         nom = os.path.basename(sortie)
 
-        deja = store.lire_chapitres(sortie)
-        if deja:
+        # « Déjà migré » = le store a TOUS les chapitres du .md, pas « au moins un » : la double écriture
+        # (phase 9) remplit le store pour tout chapitre traduit depuis, et un document à moitié présent était
+        # ignoré pour toujours, comme une migration coupée en route (audit api, 10/11/2026). On complète.
+        deja = {c["index_chapitre"] for c in store.lire_chapitres(sortie)}
+        chapitres = decouper_chapitres(sortie)
+        if deja and all(c["index"] in deja for c in chapitres):
             print(f"  ─ {nom}\n      déjà dans le store ({len(deja)} chapitre(s)) — ignoré")
             continue
-
-        chapitres = decouper_chapitres(sortie)
+        chapitres = [c for c in chapitres if c["index"] not in deja]
         etat = charger_etat(sortie)
         cache = charger_cache(sortie) if os.path.exists(chemin_fichier_cache(sortie)) else {}
 
-        print(f"  ─ {nom}")
+        print(f"  ─ {nom}" + (f"  (complète : {len(deja)} chapitre(s) déjà dans le store)" if deja else ""))
         print(f"      chapitres : {len(chapitres)}   cache : {len(cache)} morceau(x)"
               f"   état : {'oui' if etat else 'absent'}")
         if not chapitres:

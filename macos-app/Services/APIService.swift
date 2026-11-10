@@ -16,9 +16,11 @@ actor APIService {
         try await get("modeles")
     }
 
-    func checkResume(cheminPdf: String? = nil, cheminMd: String? = nil) async throws -> EtatJob? {
+    /// `modele` : l'état de CE modèle (piège 5). Sans lui, le backend renvoie celui du premier modèle trouvé.
+    func checkResume(cheminPdf: String? = nil, cheminMd: String? = nil, modele: String? = nil) async throws -> EtatJob? {
         var body: [String: String] = [:]
         if let md = cheminMd { body["chemin_md"] = md } else if let pdf = cheminPdf { body["chemin_pdf"] = pdf }
+        if let modele, !modele.isEmpty { body["modele_ollama"] = modele }
         let data = try await post("check-resume", body: body)
         if data.isEmpty || data == Data("null".utf8) { return nil }
         return try decoder.decode(EtatJob.self, from: data)

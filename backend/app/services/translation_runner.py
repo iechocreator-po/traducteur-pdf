@@ -73,13 +73,38 @@ SECONDES_PAR_CHUNK_ESTIME = 20
 
 # Statuts depuis lesquels une reprise (resume=true) est acceptée. ANNULE et
 # ERREUR y figurent : une sortie propre (aucun placeholder) jusqu'aux chapitres
-# terminés permet de reprendre là où on en était.
+# terminés permet de reprendre là où on en était. EN_ATTENTE aussi : un état resté
+# en file sans job vivant (le cas actif est refusé par soumettre_traduction) partait
+# sinon dans la branche « neuf », qui réécrit l'en-tête et efface la traduction.
 STATUTS_REPRENABLES = (
+    StatutJob.EN_ATTENTE,
     StatutJob.EN_PAUSE,
     StatutJob.EN_COURS,
     StatutJob.ERREUR,
     StatutJob.ANNULE,
 )
+
+
+class SelectionInvalide(ValueError):
+    """Chapitres demandés vides ou absents du document (422 côté API)."""
+
+
+def _verifier_selection(chapitres_selectionnes: list[int] | None, tous_index: set[int]) -> None:
+    if chapitres_selectionnes is None:
+        return
+    if not chapitres_selectionnes:
+        raise SelectionInvalide("Aucun chapitre choisi : omettez la sélection pour traduire tout le document.")
+    inconnus = sorted(set(chapitres_selectionnes) - tous_index)
+    if inconnus:
+        raise SelectionInvalide(f"Chapitre(s) absent(s) du document : {inconnus}.")
+
+
+def verifier_selection_document(source_path: str, extracteur: str, chapitres_selectionnes: list[int] | None) -> None:
+    """Même contrôle que le lancement, pour une planification (piège 11 : valider à la création, pas la nuit)."""
+    if chapitres_selectionnes is None:
+        return
+    tous_chapitres, _ = _chapitres_ou_implicite(source_path, extracteur)
+    _verifier_selection(chapitres_selectionnes, {c["index"] for c in tous_chapitres})
 
 
 class AnnulationDemandee(Exception):
@@ -740,6 +765,14 @@ def demarrer_traduction(
     """
     output_path = build_output_path(source_path, modele)
 
+    # Sélection vérifiée AVANT tout effet (registre, en-tête) : des index inconnus donnaient un job de 0 morceau,
+    # fini `termine`, qui écrasait la sortie par son en-tête (audit api, 10/11/2026). La reprise suit la
+    # sélection persistée, pas celle de la requête.
+    tous_chapitres, implicite = _chapitres_ou_implicite(source_path, extracteur)
+    tous_index = {c["index"] for c in tous_chapitres}
+    if not resume:
+        _verifier_selection(chapitres_selectionnes, tous_index)
+
     # Registre de la Bibliothèque — le statut réel reste lu depuis le .state.json
     from app.services.bibliotheque import enregistrer_document
     enregistrer_document(
@@ -762,8 +795,6 @@ def demarrer_traduction(
     except Exception as e:  # noqa: BLE001
         print(f"[traduction] enregistrement store ignoré : {e}", flush=True)
 
-    tous_chapitres, implicite = _chapitres_ou_implicite(source_path, extracteur)
-    tous_index = {c["index"] for c in tous_chapitres}
     # Modèle transmis : l'état consulté est celui de CE modèle, jamais celui d'un
     # autre (voir _trouver_etat_existant).
     existing = _trouver_etat_existant(source_path, modele)
@@ -922,5 +953,6 @@ def lire_statut(job_id: str, chemin: str) -> EtatJob | None:
     return _trouver_etat_existant(chemin)
 
 
-def check_resume(chemin: str) -> EtatJob | None:
-    return _trouver_etat_existant(chemin)
+def check_resume(chemin: str, modele: str = "") -> EtatJob | None:
+    """État reprenable de CE modèle (piège 5) ; sans modèle, le premier trouvé (ancien comportement)."""
+    return _trouver_etat_existant(chemin, modele)

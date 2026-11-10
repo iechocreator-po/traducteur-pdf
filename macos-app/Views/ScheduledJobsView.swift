@@ -75,8 +75,8 @@ struct ScheduledJobsView: View {
                 let chemin = job.cheminPdf
                 let estMd = chemin.lowercased().hasSuffix(".md")
                 let etat = estMd
-                    ? try? await APIService.shared.checkResume(cheminMd: chemin)
-                    : try? await APIService.shared.checkResume(cheminPdf: chemin)
+                    ? try? await APIService.shared.checkResume(cheminMd: chemin, modele: job.modeleOllama)
+                    : try? await APIService.shared.checkResume(cheminPdf: chemin, modele: job.modeleOllama)
                 etatsReels[job.id] = libelleEtatReel(etat.flatMap { $0 })
             }
         }

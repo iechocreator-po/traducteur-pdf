@@ -104,9 +104,17 @@ def soumettre_traduction(
     )
 
     # ── Idempotence (⑧) ──────────────────────────────────────────────────────
-    # Une reprise explicite n'est jamais un doublon : l'utilisateur DEMANDE de
-    # relancer un job existant.
-    if not resume:
+    # Une reprise explicite n'est pas un doublon : l'utilisateur DEMANDE de relancer un job arrêté. Mais une
+    # seconde reprise pendant que la première tourne (double clic, deux clients) l'est : elle repartait de
+    # l'état déjà `en_attente` et réécrivait l'en-tête, ce qui effaçait la traduction (audit api, 10/11/2026).
+    if resume:
+        from app.services.job_manager import job_actif
+        from app.services.translation_runner import _trouver_etat_existant
+
+        etat = _trouver_etat_existant(source_path, modele)
+        if etat is not None and etat.statut in _STATUTS_ACTIFS and job_actif(etat.job_id):
+            return etat.job_id, True
+    else:
         job_id_existant = _job_actif_pour(cle)
         if job_id_existant:
             etat = charger_etat(build_output_path(source_path, modele))

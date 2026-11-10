@@ -18,7 +18,6 @@ Usage :
 """
 
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -91,7 +90,12 @@ def verifier() -> int:
         with open(sortie, encoding="utf-8") as f:
             reel = f.read()
 
-        if attendu == reel:
+        # Dans les DEUX sens : un chapitre du fichier absent du store est une perte du store, même si tout ce que
+        # le store contient se retrouve dans le fichier (le message « aucune perte » le cachait).
+        dans_store = {c["index_chapitre"] for c in store.lire_chapitres(sortie)}
+        absents = sorted({int(m.group(1)) for m in _RE_MARQUEUR_CHAPITRE.finditer(reel)} - dans_store)
+
+        if attendu == reel and not absents:
             print(f"  ✅ {nom} : identique octet pour octet ({len(reel)} car.)")
             ok += 1
         else:
@@ -114,17 +118,25 @@ def verifier() -> int:
             # 90 % — seul un chapitre dont le texte est introuvable l'est.
             chapitres = store.lire_chapitres(sortie)
             manquants = [c["index_chapitre"] for c in chapitres if c["contenu"] not in reel]
+            if absents:
+                print(f"      ⚠️  CHAPITRE(S) ABSENT(S) DU STORE : {absents} — relancer "
+                      "migrer_vers_store.py --appliquer pour les compléter.")
             if manquants:
                 print(f"      ⚠️  CONTENU MANQUANT — chapitre(s) introuvables tel "
                       f"quel dans le fichier réel : {manquants}")
-            else:
+            elif not absents:
                 print("      contenu de TOUS les chapitres retrouvé tel quel dans "
                       "le fichier réel — écart de mise en forme uniquement (espaces/"
                       "sauts de ligne), aucune perte de contenu.")
             echecs += 1
 
     print(f"\n{ok} identique(s), {echecs} divergence(s), {ignores} ignoré(s)")
-    return 1 if echecs else 0
+    if echecs:
+        return 1
+    if documents and ok == 0:
+        print("⚠️  Rien n'a été vérifié (tous les documents ignorés) : ce n'est pas une réussite.")
+        return 2
+    return 0
 
 
 if __name__ == "__main__":

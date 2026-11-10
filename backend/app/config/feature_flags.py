@@ -7,7 +7,8 @@ Ordre de priorité (bas → haut) :
    console bilbao (feature-factory), committé dans le repo (voir la clé
    "flags"). C'est le contrat d'intégration portfolio : bilbao émet ce fichier,
    JP le committe, et le produit l'honore ici ;
-3. feature_flags.json (même dossier que ce module) — override local de dev ;
+3. feature_flags.json (même dossier que ce module) — override local de dev, JAMAIS
+   versionné (.gitignore) : committé, il masquait bilbao sur toutes les machines ;
 4. variables d'environnement FEATURE_<NOM> — override ponctuel (CI, tests).
 """
 
@@ -76,40 +77,54 @@ EXTRACTEURS_PDF = [
 EXTRACTEUR_PAR_DEFAUT = "pymupdf4llm"
 
 
+def _seulement_booleens(flags) -> dict[str, bool]:
+    """Un flag n'est qu'un booléen JSON. `"false"` (chaîne) était lu comme VRAI par `_exiger_flag` alors que
+    /feature-flags l'affichait faux : l'interface masquait la fonction, la route restait ouverte."""
+    if not isinstance(flags, dict):
+        return {}
+    return {k: v for k, v in flags.items() if isinstance(k, str) and isinstance(v, bool)}
+
+
+def _lire_json_tolerant(chemin: Path):
+    """Fichier absent ou invalide → None, jamais d'erreur : un JSON tronqué faisait répondre 500 à toutes les
+    routes gardées par un flag, et casser l'extraction (est_active est appelé par pdf_extractor)."""
+    if not chemin.exists():
+        return None
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return None
+
+
 def _flags_bilbao() -> dict:
     """
     Flags gérés par bilbao (bilbao.features.json à la racine du repo). On ne lit
     que la clé "flags" ({str: bool}) ; les métadonnées (genere_par, produit…)
     sont ignorées. Fichier absent ou invalide → dict vide (jamais d'erreur).
     """
-    if not CHEMIN_FLAGS_BILBAO.exists():
-        return {}
-    try:
-        with open(CHEMIN_FLAGS_BILBAO, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        flags = data.get("flags", {})
-        return flags if isinstance(flags, dict) else {}
-    except (json.JSONDecodeError, OSError):
-        return {}
+    data = _lire_json_tolerant(CHEMIN_FLAGS_BILBAO)
+    return _seulement_booleens(data.get("flags") if isinstance(data, dict) else None)
+
+
+VALEURS_VRAIES_ENV = ("1", "true", "yes", "on")
 
 
 def charger_flags() -> dict[str, bool]:
     """
     Fusionne les feature flags selon l'ordre de priorité documenté en tête de
     module : défauts < artefact bilbao < feature_flags.json local < env FEATURE_*.
+    Seules les valeurs booléennes comptent ; un fichier invalide est ignoré.
     """
     flags = dict(FLAGS_PAR_DEFAUT)
 
     flags.update(_flags_bilbao())
-
-    if CHEMIN_FLAGS_DEFAUT.exists():
-        with open(CHEMIN_FLAGS_DEFAUT, "r", encoding="utf-8") as f:
-            flags.update(json.load(f))
+    flags.update(_seulement_booleens(_lire_json_tolerant(CHEMIN_FLAGS_DEFAUT)))
 
     for nom in flags:
         env_var = f"FEATURE_{nom.upper()}"
         if env_var in os.environ:
-            flags[nom] = os.environ[env_var].lower() in ("1", "true", "yes")
+            flags[nom] = os.environ[env_var].strip().lower() in VALEURS_VRAIES_ENV
 
     return flags
 

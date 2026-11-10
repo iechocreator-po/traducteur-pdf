@@ -21,11 +21,19 @@ EXTENSIONS_IMAGE = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
 # Origines autorisées à écrire via multipart (POST /upload). Doit rester alignée
 # sur la CORS allowlist de main.py — partagée ici pour éviter la dérive.
+# Pas de "null" : c'est l'origine de TOUTE iframe sandbox de n'importe quel site, pas seulement de file://.
+# L'accepter laissait une page tierce piloter l'API et lire ses réponses (audit api, 10/11/2026). Le frontend
+# se sert en http://localhost:5500 ; le client Swift et curl n'envoient pas d'Origin.
 ORIGINES_LOCALES = (
     "http://localhost:5500",
     "http://127.0.0.1:5500",
-    "null",
 )
+
+# Hôtes acceptés dans l'en-tête Host (garde contre le DNS rebinding : après rebinding, un site tiers devient
+# « même origine » mais garde son propre nom dans Host). "testserver" est l'hôte du TestClient de FastAPI.
+HOTES_LOCAUX = ("localhost", "127.0.0.1", "testserver")
+
+METHODES_SURES = ("GET", "HEAD", "OPTIONS")
 
 
 def verifier_origine_upload(origin: str | None) -> None:
@@ -33,8 +41,8 @@ def verifier_origine_upload(origin: str | None) -> None:
     multipart/form-data est CORS-safelisted : un <form> sur un site tiers peut
     POSTer /upload SANS préflight (le middleware CORS n'ajoute que des en-têtes
     de réponse, il ne bloque pas la requête). On refuse donc explicitement une
-    Origin présente mais hors allowlist. Absente (curl, Swift, file://→"null")
-    = accepté, comme le reste de l'API.
+    Origin présente mais hors allowlist. Absente (curl, Swift) = accepté, comme le
+    reste de l'API. main.py applique la même règle à toute requête qui écrit.
     """
     if origin is not None and origin not in ORIGINES_LOCALES:
         raise HTTPException(status_code=403, detail="Origine non autorisée.")

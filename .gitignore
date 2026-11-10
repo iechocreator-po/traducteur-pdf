@@ -50,3 +50,6 @@ backend/uploads/
 /backend/toledo.db
 /backend/toledo.db-wal
 /backend/toledo.db-shm
+
+# Override local des feature flags (jamais versionné : il masquerait bilbao)
+/backend/app/config/feature_flags.json

@@ -154,8 +154,8 @@ final class ImportViewModel: ObservableObject {
     private func pollLot() async {
         for fichier in lot where fichier.stage == .lance {
             let etat = estMarkdown(fichier.chemin)
-                ? try? await APIService.shared.checkResume(cheminMd: fichier.chemin)
-                : try? await APIService.shared.checkResume(cheminPdf: fichier.chemin)
+                ? try? await APIService.shared.checkResume(cheminMd: fichier.chemin, modele: fichier.modeleUtilise)
+                : try? await APIService.shared.checkResume(cheminPdf: fichier.chemin, modele: fichier.modeleUtilise)
             guard let etat else { continue }
             maj(fichier.id) {
                 $0.statutJob = etat.statut

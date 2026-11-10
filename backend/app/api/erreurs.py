@@ -26,6 +26,8 @@ On conserve donc `detail` — le frontend web actuel le lit — et on AJOUTE `er
 from fastapi import HTTPException
 from pydantic import BaseModel
 
+from app.models.schemas import Langue
+
 
 class ErreurAPI(BaseModel):
     """Corps normalisé d'une erreur de l'API."""
@@ -79,6 +81,15 @@ def source_invalide(message: str) -> ErreurMetier:
         code="source_invalide",
         message=message,
         remediation="Vérifiez le chemin du fichier (absolu, .pdf ou .md).",
+    )
+
+
+def langue_invalide(message: str) -> ErreurMetier:
+    return ErreurMetier(
+        status_code=422,
+        code="langue_invalide",
+        message=message,
+        remediation="Langues acceptées : " + ", ".join(langue.value for langue in Langue) + ".",
     )
 
 

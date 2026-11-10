@@ -303,8 +303,8 @@ struct OutilsDocumentView: View {
         Task {
             defer { enCours = false }
             let etat = estMarkdown(cheminNet)
-                ? try? await APIService.shared.checkResume(cheminMd: cheminNet)
-                : try? await APIService.shared.checkResume(cheminPdf: cheminNet)
+                ? try? await APIService.shared.checkResume(cheminMd: cheminNet, modele: env.modeleChoisi)
+                : try? await APIService.shared.checkResume(cheminPdf: cheminNet, modele: env.modeleChoisi)
             if let etat, etat.derniereSectionCompletee > 0, etat.statut != "termine" {
                 repriseDisponible = "section \(etat.derniereSectionCompletee)/\(etat.totalSections)"
                 resultat = "⏸ Job interrompu trouvé — \(etat.derniereSectionCompletee)/\(etat.totalSections) sections déjà traduites."

@@ -4,31 +4,29 @@
   {
    "id": "audit-code",
    "featureId": null,
-   "titre": "Audit du code : ≈ 16 % du code actuel audité, ≈ 28 % relu en comptant les revues, cinq zones à auditer",
+   "titre": "Audit du code : ≈ 25 % du code actuel audité, ≈ 44 % relu en comptant les revues, quatre zones à auditer",
    "description": "Taille de toledo, zones auditées avec les défauts trouvés, constats de chaque revue et ce qui reste à faire par priorité (skill commune /revue-code). Une revue ne lit que le code ajouté : elle ne vaut pas un audit.",
    "onglet": "Tous",
    "statut": "planifiee",
-   "date": "2026-11-07",
+   "date": "2026-11-10",
    "page": "docs/audit-code.html",
    "libelleBouton": "Ouvrir le rapport",
    "epingle": true,
    "derniereRevue": {
-    "date": "2026-11-07",
-    "statut": "constats_ouverts",
-    "portee": "Revue /revue-code des correctifs du 6/11 (6ff59e6..f15b451)",
-    "resultat": "9 constats à 80 ou plus : 7 corrigés, 2 ouverts (test intermittent, tests de l'enchaînement). 465 tests en local, CI au vert. Ni livre scanné réel, ni Ollama. La revue précédente (ff6a5de..6ff59e6, 36 constats) est entièrement fermée.",
+    "date": "2026-11-09",
+    "statut": "corrigee",
+    "portee": "Revue /revue-code de Découper un PDF et Documents complexes (272f826..603cd8c)",
+    "resultat": "4 constats à 80 ou plus, tous corrigés (#513 à #516) : pages perdues en tête de section découpée, régions retouchées relues par le PDF mis en page, focus clavier de l'éditeur, 27 mutations non détectées par les tests. 552 tests et ruff au vert, focus essayé dans le navigateur. Ni Ollama, ni livre réel. Deux entrées de la revue du 7/11 restent ouvertes (#508, #509).",
     "commits": [
-     "f15b451",
-     "c808565"
+     "603cd8c",
+     "ea467f6"
     ]
    },
    "dernierAudit": {
-    "date": "2026-10-26",
-    "portee": "Audit /revue-code de la zone « moteur » (traduction et persistance, ≈ 3 000 lignes) ; cinq zones restent à auditer",
-    "resultat": "Constats retenus relus dans le code et corrigés.",
-    "commits": [
-     "9a69822"
-    ]
+    "date": "2026-11-10",
+    "portee": "Audit /revue-code de la zone « api » (routes, validation, config, modèles, main, scripts, ≈ 2 200 lignes) ; quatre zones restent à auditer",
+    "resultat": "9 constats à 80 ou plus, tous corrigés le jour même (#517 à #525) : double « Reprendre » qui effaçait une traduction (92), garde du serveur local (origine null, POST simples, Host), démarrage dans un lifespan, flags booléens et tolérants, sélection vide refusée, validation à la création, migration, /check-resume par modèle. 584 tests et ruff au vert, gardes essayées sur le vrai backend. Pas de build Xcode.",
+    "commits": []
    }
   },
   {
@@ -76,6 +74,35 @@
    "statut": "maquette",
    "date": "2026-10-11",
    "page": "docs/maquettes-flux/maquette-1-plan-et-fiche.html"
+  },
+  {
+   "id": "documents-complexes",
+   "featureId": 512,
+   "titre": "Documents complexes : régions réglées à la main, page par page (livré)",
+   "description": "Ex-Scan multi-colonnes. Dans l'aperçu : mode de chaque demi-page, gouttière et bords de colonnes déplaçables, zones dessinées (illustration, titre, texte, ne pas traduire, ignorer), titres et encadrés détectés modifiables. Au clavier comme à la souris.",
+   "onglet": "Laboratoire",
+   "statut": "livree",
+   "date": "2026-11-08",
+   "commits": [
+    "8895e04",
+    "2581fc7",
+    "bab9fdf",
+    "603cd8c",
+    "ea467f6"
+   ]
+  },
+  {
+   "id": "decouper-pdf",
+   "featureId": 511,
+   "titre": "Découper un PDF en sections de N pages (livré)",
+   "description": "Laboratoire › Découper : un gros PDF devient des sections importables dans le lot, signets conservés. Une section qui commence au milieu d'un chapitre garde ses premières pages à la traduction (correctif du 9/11).",
+   "onglet": "Laboratoire",
+   "statut": "livree",
+   "date": "2026-11-07",
+   "commits": [
+    "6524d8f",
+    "ea467f6"
+   ]
   },
   {
    "id": "objectif-etapes",

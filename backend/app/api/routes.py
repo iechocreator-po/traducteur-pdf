@@ -4,9 +4,10 @@ métier — elle valide les entrées et délègue aux services/agents.
 """
 
 import os
+from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from app.config.feature_flags import charger_flags, EXTRACTEURS_PDF, EXTRACTEUR_PAR_DEFAUT
 from app.models.schemas import DemandeTraduction, EtatJob, EtatJobEtude, ResultatAnalyse
@@ -14,6 +15,18 @@ from app.services.translator import lister_modeles_disponibles
 from app.api.validation import EXTENSIONS_IMAGE, resoudre_source, valider_chemin_source
 
 router = APIRouter()
+
+
+def _verifier_extracteur(valeur: str) -> str:
+    """Un extracteur inconnu finissait en 500 (« Extracteur inconnu » avalé par un `except Exception`)."""
+    connus = [e["id"] for e in EXTRACTEURS_PDF]
+    if valeur not in connus:
+        raise ValueError(f"Extracteur inconnu : {valeur!r} (attendu : {', '.join(connus)}).")
+    return valeur
+
+
+# Validé par Pydantic (422) sur toutes les requêtes qui en portent un.
+Extracteur = Annotated[str, AfterValidator(_verifier_extracteur)]
 
 
 @router.get("/health")
@@ -65,7 +78,7 @@ async def uploader_document(request: Request, fichier: UploadFile = File(...)) -
 
 class ConvertRequest(BaseModel):
     chemin_pdf: str
-    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    extracteur_pdf: Extracteur = EXTRACTEUR_PAR_DEFAUT
 
 
 @router.post("/convert")
@@ -101,6 +114,8 @@ def servir_image(chemin: str):
 class ResumeCheckRequest(BaseModel):
     chemin_pdf: str | None = None
     chemin_md: str | None = None
+    # Sans lui, l'état d'un modèle arbitraire (premier .state.json trouvé) : piège 5.
+    modele_ollama: str = ""
 
     @model_validator(mode="after")
     def valider_source(self):
@@ -112,7 +127,7 @@ class ResumeCheckRequest(BaseModel):
 class ChapitresRequest(BaseModel):
     chemin_pdf: str | None = None
     chemin_md: str | None = None
-    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    extracteur_pdf: Extracteur = EXTRACTEUR_PAR_DEFAUT
 
     @model_validator(mode="after")
     def valider_source(self):
@@ -158,7 +173,7 @@ class ChapitreContenuRequest(BaseModel):
     chemin_pdf: str | None = None
     chemin_md: str | None = None
     index: int
-    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    extracteur_pdf: Extracteur = EXTRACTEUR_PAR_DEFAUT
 
     @model_validator(mode="after")
     def valider_source(self):
@@ -246,7 +261,7 @@ def manifester_interet(req: InteretRequest) -> dict:
 @router.post("/check-resume", response_model=EtatJob | None)
 def check_resume(req: ResumeCheckRequest) -> EtatJob | None:
     from app.services.translation_runner import check_resume as _check
-    return _check(req.chemin_md or req.chemin_pdf)
+    return _check(req.chemin_md or req.chemin_pdf, req.modele_ollama)
 
 
 class TranslateRequest(BaseModel):
@@ -255,7 +270,7 @@ class TranslateRequest(BaseModel):
     langue_source: str = "anglais"
     langue_cible: str = "français"
     modele_ollama: str = "llama3.1"
-    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    extracteur_pdf: Extracteur = EXTRACTEUR_PAR_DEFAUT
     resume: bool = False
     estimation_temps_total: float | None = None
     chapitres_selectionnes: list[int] | None = None
@@ -276,31 +291,34 @@ def translate(req: TranslateRequest) -> dict:
     """Starts or resumes a translation job (from PDF or Markdown) in background. Returns job_id and output path."""
     chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
 
-    from app.api.erreurs import source_invalide
+    from app.api.erreurs import langue_invalide
     from app.models.schemas import Langue
     from app.services.soumission import soumettre_traduction
-    from app.services.translation_runner import build_output_path
+    from app.services.translation_runner import SelectionInvalide, build_output_path
 
     try:
         langue_source = Langue(req.langue_source)
         langue_cible = Langue(req.langue_cible)
     except ValueError as e:
-        raise source_invalide(str(e))
+        raise langue_invalide(str(e))
 
     # Point d'entrée UNIQUE (principe cible ⑨) : le preflight Ollama et la clé
     # d'idempotence vivent dans `soumettre_traduction`, que le planificateur
     # emprunte aussi. Ne jamais rappeler `demarrer_traduction` directement ici —
     # c'est ainsi que le planificateur avait fini par contourner le garde (F9).
-    job_id, deja_soumis = soumettre_traduction(
-        source_path=chemin_source,
-        langue_source=langue_source,
-        langue_cible=langue_cible,
-        modele=req.modele_ollama,
-        extracteur=req.extracteur_pdf,
-        resume=req.resume,
-        estimation_temps_total=req.estimation_temps_total,
-        chapitres_selectionnes=req.chapitres_selectionnes,
-    )
+    try:
+        job_id, deja_soumis = soumettre_traduction(
+            source_path=chemin_source,
+            langue_source=langue_source,
+            langue_cible=langue_cible,
+            modele=req.modele_ollama,
+            extracteur=req.extracteur_pdf,
+            resume=req.resume,
+            estimation_temps_total=req.estimation_temps_total,
+            chapitres_selectionnes=req.chapitres_selectionnes,
+        )
+    except SelectionInvalide as e:
+        raise HTTPException(status_code=422, detail=str(e))
     chemin_sortie = build_output_path(chemin_source, req.modele_ollama)
 
     # Qualité observée à l'analyse (feature 320) : le frontend la connaît, le
@@ -355,7 +373,7 @@ class ScheduleRequest(BaseModel):
     langue_source: str = "anglais"
     langue_cible: str = "français"
     modele_ollama: str = "llama3.1"
-    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    extracteur_pdf: Extracteur = EXTRACTEUR_PAR_DEFAUT
     executer_a: str  # ISO 8601 datetime
     chapitres_selectionnes: list[int] | None = None
 
@@ -364,6 +382,29 @@ class ScheduleRequest(BaseModel):
         if not self.chemin_pdf and not self.chemin_md:
             raise ValueError("chemin_pdf ou chemin_md est requis.")
         return self
+
+
+def _valider_planification(executer_a: str, modele: str):
+    """
+    Piège 11 : tout ce qui vient de l'API est validé à la création, jamais à l'échéance de nuit. Date avec fuseau
+    (une date naïve était lue comme UTC, 5 h d'écart à Montréal) et pas déjà passée (elle partait aussitôt, ou
+    expirait au tick suivant) ; modèle installé, si Ollama répond (sinon on ne peut pas le savoir : accepté, et
+    le preflight tranchera à l'échéance). Retourne la date.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    try:
+        date = datetime.fromisoformat(executer_a)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Format de date invalide (attendu ISO 8601).")
+    if date.tzinfo is None:
+        raise HTTPException(status_code=422, detail="Date sans fuseau horaire : attendu ISO 8601 avec Z ou ±hh:mm.")
+    if date < datetime.now(timezone.utc) - timedelta(minutes=1):
+        raise HTTPException(status_code=422, detail="Date déjà passée : choisissez une heure à venir.")
+    installes = lister_modeles_disponibles()
+    if installes and modele not in installes and f"{modele}:latest" not in installes:
+        raise HTTPException(status_code=422, detail=f"Modèle Ollama non installé : {modele!r}.")
+    return date
 
 
 def _valider_langues_planifiees(langue_source: str, langue_cible: str) -> None:
@@ -382,14 +423,15 @@ def creer_job_planifie(req: ScheduleRequest) -> dict:
     chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
 
     _valider_langues_planifiees(req.langue_source, req.langue_cible)
+    executer_a = _valider_planification(req.executer_a, req.modele_ollama)
 
-    from datetime import datetime
     from app.services.scheduler import planifier_job
+    from app.services.translation_runner import SelectionInvalide, verifier_selection_document
 
     try:
-        executer_a = datetime.fromisoformat(req.executer_a)
-    except ValueError:
-        raise HTTPException(status_code=422, detail="Format de date invalide (attendu ISO 8601).")
+        verifier_selection_document(chemin_source, req.extracteur_pdf, req.chapitres_selectionnes)
+    except SelectionInvalide as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
     job = planifier_job(
         chemin_source=chemin_source,
@@ -408,7 +450,7 @@ class ScheduleBatchRequest(BaseModel):
     langue_source: str = "anglais"
     langue_cible: str = "français"
     modele_ollama: str = "llama3.1"
-    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    extracteur_pdf: Extracteur = EXTRACTEUR_PAR_DEFAUT
     executer_a: str  # ISO 8601 datetime
 
     @model_validator(mode="after")
@@ -425,16 +467,13 @@ def creer_jobs_planifies(req: ScheduleBatchRequest) -> dict:
     La file d'attente séquentielle les traduira l'un après l'autre.
     """
     _valider_langues_planifiees(req.langue_source, req.langue_cible)
+    executer_a = _valider_planification(req.executer_a, req.modele_ollama)
 
-    from datetime import datetime
     from app.services.scheduler import planifier_job
 
-    try:
-        executer_a = datetime.fromisoformat(req.executer_a)
-    except ValueError:
-        raise HTTPException(status_code=422, detail="Format de date invalide (attendu ISO 8601).")
-
     chemins = [valider_chemin_source(c.strip()) for c in req.chemins if c.strip()]
+    if not chemins:
+        raise HTTPException(status_code=422, detail="Au moins un chemin de fichier est requis.")
 
     jobs = [
         planifier_job(
@@ -584,7 +623,7 @@ class EtudeRequest(BaseModel):
     chemin_md: str | None = None
     chapitres_selectionnes: list[int]
     modele_ollama: str = "llama3.1"
-    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    extracteur_pdf: Extracteur = EXTRACTEUR_PAR_DEFAUT
     langue_fiche: str = "français"
     # 0 (ou absent) = AUTOMATIQUE : le nombre est dérivé de la longueur du
     # chapitre. Cinq points fixes pour un chapitre de livre de 50 000 caractères
@@ -1196,7 +1235,7 @@ def analyser_document(demande: DemandeTraduction) -> ResultatAnalyse:
 class EstimationSegmentationRequest(BaseModel):
     chemin_pdf: str | None = None
     chemin_md: str | None = None
-    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    extracteur_pdf: Extracteur = EXTRACTEUR_PAR_DEFAUT
 
     @model_validator(mode="after")
     def valider_source(self):
@@ -1223,7 +1262,7 @@ def estimer_segmentation_document(req: EstimationSegmentationRequest) -> dict:
 class SegmentationRequest(BaseModel):
     chemin_pdf: str | None = None
     chemin_md: str | None = None
-    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    extracteur_pdf: Extracteur = EXTRACTEUR_PAR_DEFAUT
     modele_ollama: str = "llama3.1"
     cible_max_chapitres: int = 8
 
@@ -1261,7 +1300,7 @@ def tester_segmentation(req: SegmentationRequest) -> dict:
 class GenererSegmenteRequest(BaseModel):
     chemin_pdf: str | None = None
     chemin_md: str | None = None
-    extracteur_pdf: str = EXTRACTEUR_PAR_DEFAUT
+    extracteur_pdf: Extracteur = EXTRACTEUR_PAR_DEFAUT
     chapitres: list[dict]
 
     @model_validator(mode="after")
