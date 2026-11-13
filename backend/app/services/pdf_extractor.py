@@ -4,7 +4,6 @@ Logique pure, sans dépendance à une interface ou à Ollama — facile à teste
 """
 
 import base64
-import glob as _glob
 import os
 import re
 import shutil
@@ -283,6 +282,26 @@ def _est_tag_image(ligne: str) -> bool:
     return bool(re.match(r"^!\[.*\]\(.*\)\s*$", ligne.strip()))
 
 
+def _paragraphes_insecables(bloc: str) -> list[str]:
+    """Paragraphes d'un bloc (séparés par une ligne vide), un bloc de code fencé comptant pour UN paragraphe même
+    s'il contient des lignes vides. Un tableau n'a pas de ligne vide : il est déjà un seul paragraphe."""
+    morceaux: list[str] = []
+    courant: list[str] = []
+    dans_code = False
+    for paragraphe in bloc.split("\n\n"):
+        courant.append(paragraphe)
+        for ligne in paragraphe.splitlines():
+            if ligne.strip().startswith("```"):
+                dans_code = not dans_code
+        if not dans_code:
+            if "\n\n".join(courant).strip():
+                morceaux.append("\n\n".join(courant))
+            courant = []
+    if courant and "\n\n".join(courant).strip():
+        morceaux.append("\n\n".join(courant))      # bloc de code jamais refermé : gardé entier
+    return morceaux
+
+
 def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
     """
     Découpe le Markdown en chunks en respectant les frontières structurelles :
@@ -313,27 +332,18 @@ def decouper_en_chunks(texte: str, taille_max: int = 3000) -> list[str]:
     if bloc_courant:
         blocs.append("\n".join(bloc_courant))
 
-    # Sous-découpe les blocs trop gros sur les frontières de paragraphes,
-    # sauf s'ils contiennent du code ou un tableau (jamais coupés).
+    # Sous-découpe les blocs trop gros sur les frontières de paragraphes. Seuls le CODE (```) et les TABLEAUX (|)
+    # doivent rester entiers : c'est le PARAGRAPHE qui les contient qui est insécable, pas toute la section.
+    # Tester le bloc entier gardait une section de 15 k caractères en un seul morceau pour une table de trois
+    # lignes (audit extraction, 13/11/2026) : la régression du 2026-07-23, corrigée alors pour les images, revenait
+    # par les tableaux (45 k chars / ~13 k tokens → contexte Ollama 32k → stall mémoire). Un tag image occupe une
+    # ligne isolée ; l'étape de fusion ci-dessous le garde collé à son paragraphe voisin.
     blocs_affines: list[str] = []
     for bloc in blocs:
-        # Seuls le CODE (```) et les TABLEAUX (|) doivent rester entiers : les
-        # sous-découper casserait leur structure. Un tag image, lui, occupe une
-        # ligne isolée (![](...)) — le découpage par paragraphes (\n\n) ne le
-        # coupe jamais en deux, donc un bloc qui en contient PEUT être sous-
-        # découpé. L'inclure ici gardait tout chapitre illustré en UN SEUL
-        # morceau géant (45 k chars / ~13 k tokens → contexte Ollama 32k →
-        # stall mémoire). Régression corrigée le 2026-07-23. L'étape de fusion
-        # ci-dessous garde quand même le tag image collé à son paragraphe voisin.
-        contient_code_ou_tableau = "```" in bloc or any(
-            ligne.strip().startswith("|") for ligne in bloc.splitlines()
-        )
-        if len(bloc) <= taille_max or contient_code_ou_tableau:
+        if len(bloc) <= taille_max:
             blocs_affines.append(bloc)
-            continue
-        for paragraphe in bloc.split("\n\n"):
-            if paragraphe.strip():
-                blocs_affines.append(paragraphe)
+        else:
+            blocs_affines.extend(_paragraphes_insecables(bloc))
     blocs = blocs_affines
 
     # Fusionne les blocs jusqu'à taille_max, sans jamais couper un tableau
@@ -503,23 +513,30 @@ def convertir_et_sauvegarder(chemin_pdf: str, extracteur: str = "pymupdf4llm") -
     cliquables du PDF). Retourne (chemin_sortie, contenu_md_brut).
     Partagée par POST /convert et la persistance automatique de _lire_source().
     """
+    from app.services.persistance import ecrire_texte_atomique
+
     contenu_md = extraire_texte(chemin_pdf, extracteur)
+    chemin_sortie = chemin_converti(chemin_pdf, extracteur)
+    morceaux = [f"<!-- extracteur : {extracteur} -->\n\n", contenu_md]
+    # Annexe les liens cliquables du PDF (souvent perdus par l'extraction texte)
+    try:
+        uniques = list(dict.fromkeys(extraire_urls(chemin_pdf)))
+        if uniques:
+            morceaux.append("\n\n---\n\n## Liens du document original\n\n")
+            morceaux.extend(f"- <{url}>\n" for url in uniques)
+    except Exception:
+        pass  # Non critique — la conversion reste valide sans l'annexe
+    # Atomique (piège 6) : ce fichier est relu tel quel comme cache de l'extraction. Écrit en plusieurs fois, un
+    # arrêt laissait un fichier tronqué retraduit indéfiniment, et une lecture concurrente le voyait sans annexe.
+    ecrire_texte_atomique(chemin_sortie, "".join(morceaux))
+    return chemin_sortie, contenu_md
+
+
+def chemin_converti(chemin_pdf: str, extracteur: str) -> str:
+    """Nom du `_converti` d'UN extracteur : la seule règle, pour l'écrire comme pour le relire."""
     base, _ = os.path.splitext(chemin_pdf)
     suffixe = extracteur[:2] if extracteur else ""
-    chemin_sortie = f"{base}_converti_{suffixe}.md" if suffixe else f"{base}_converti.md"
-    with open(chemin_sortie, "w", encoding="utf-8") as f:
-        f.write(f"<!-- extracteur : {extracteur} -->\n\n")
-        f.write(contenu_md)
-        # Annexe les liens cliquables du PDF (souvent perdus par l'extraction texte)
-        try:
-            uniques = list(dict.fromkeys(extraire_urls(chemin_pdf)))
-            if uniques:
-                f.write("\n\n---\n\n## Liens du document original\n\n")
-                for url in uniques:
-                    f.write(f"- <{url}>\n")
-        except Exception:
-            pass  # Non critique — la conversion reste valide sans l'annexe
-    return chemin_sortie, contenu_md
+    return f"{base}_converti_{suffixe}.md" if suffixe else f"{base}_converti.md"
 
 
 def _lire_source(chemin: str, extracteur: str) -> str:
@@ -527,10 +544,11 @@ def _lire_source(chemin: str, extracteur: str) -> str:
     if chemin.lower().endswith(".md"):
         with open(chemin, "r", encoding="utf-8") as f:
             return f.read()
-    base, _ = os.path.splitext(chemin)
-    candidats = _glob.glob(f"{_glob.escape(base)}_converti*.md")
-    if candidats:
-        with open(candidats[0], "r", encoding="utf-8") as f:
+    # Le `_converti` de l'extracteur DEMANDÉ, jamais « le premier trouvé » : avec deux conversions, l'ordre du glob
+    # servait le texte PyMuPDF à qui demandait Tesseract, sans le dire (audit extraction, 13/11/2026).
+    converti = chemin_converti(chemin, extracteur)
+    if os.path.isfile(converti):
+        with open(converti, "r", encoding="utf-8") as f:
             return f.read()
     if est_active("extraction_images_pdf"):
         # Persiste le .md (+ images) au premier appel, comme /convert le fait déjà
@@ -577,35 +595,64 @@ def relier_toc_a_markdown(toc: list[dict], chapitres_md: list[dict]) -> list[dic
     - appariement sur les **mots distinctifs** du titre (ignore « chapter », les
       nombres, les mots vides) ;
     - les headings Markdown sans mot distinctif (« * * * », « Notes ») sont ignorés ;
-    - progression **monotone** (chaque signet matche APRÈS le précédent), et à
-      égalité de recouvrement on préfère le heading au **contenu le plus long**
-      (le vrai chapitre, pas son entrée dans la table des matières).
-    Les signets sans correspondance conservent un contenu vide.
+    - progression **monotone** (chaque signet matche APRÈS le précédent) ; à égalité
+      de recouvrement, le PREMIER candidat dont le contenu fait au moins la moitié du
+      plus long : l'entrée d'une table des matières (quelques mots) perd toujours
+      contre le vrai chapitre, mais deux « Exercises » de taille voisine se relient
+      dans l'ordre (« le plus long » reliait le premier au dernier du livre et vidait
+      tous les signets entre les deux, audit extraction du 13/11/2026).
+
+    Aucun texte n'est perdu. Un signet sans mot distinctif (« Chapter 2 ») prend la
+    première section Markdown libre entre ses voisins reliés ;
+    toute section encore libre est ajoutée au chapitre relié qui la précède. Un contenu
+    vide était compté traduit par le moteur : le texte n'était jamais traduit, statut
+    `termine`.
     """
     mds = [
         {**c, "_mots": _mots_distinctifs(c["titre"])}
         for c in chapitres_md
     ]
 
-    chapitres_relies = []
+    # 1. Appariement par mots distinctifs, monotone.
+    positions: list[int | None] = []
     pos_min = 0  # index Markdown minimal autorisé (monotone)
     for entree in toc:
         mots_toc = _mots_distinctifs(entree["titre"])
-        meilleur = None
-        meilleur_pos = pos_min
-        meilleur_cle = (0, 0)  # (recouvrement, longueur contenu)
+        candidats = []
         for j in range(pos_min, len(mds)):
             chap_md = mds[j]
             if not chap_md["_mots"]:
                 continue  # heading sans mot distinctif (séparateurs, « Notes »…)
             recouvrement = len(mots_toc & chap_md["_mots"])
-            if recouvrement == 0:
-                continue
-            cle = (recouvrement, len(chap_md["contenu"]))
-            if cle > meilleur_cle:
-                meilleur, meilleur_pos, meilleur_cle = chap_md, j, cle
-        if meilleur is not None:
-            pos_min = meilleur_pos + 1  # le prochain signet matche plus loin
+            if recouvrement:
+                candidats.append((recouvrement, j))
+        choisi = None
+        if candidats:
+            meilleur_rec = max(r for r, _ in candidats)
+            ex_aequo = [j for r, j in candidats if r == meilleur_rec]
+            plus_long = max(len(mds[j]["contenu"]) for j in ex_aequo)
+            choisi = next(j for j in ex_aequo if len(mds[j]["contenu"]) * 2 >= plus_long)
+            pos_min = choisi + 1  # le prochain signet matche plus loin
+        positions.append(choisi)
+
+    def couvert(j: int, pris: list[int]) -> bool:
+        return any(mds[k]["ligne_debut"] <= mds[j]["ligne_debut"] < mds[k]["ligne_fin"] for k in pris)
+
+    # 2. Signet SANS MOT DISTINCTIF (« Chapter 2 » face à « CHAPTER TWO ») : la première section libre entre ses
+    # voisins reliés. Un signet qui a des mots distinctifs et ne les retrouve pas est absent du Markdown : il reste
+    # vide plutôt que de capter un séparateur (bug « Half-Title partout ») ; le texte voisin, lui, est gardé par
+    # le filet ci-dessous ou par le préambule.
+    for k, pos in enumerate(positions):
+        if pos is not None or _mots_distinctifs(toc[k]["titre"]):
+            continue
+        avant = max((p for p in positions[:k] if p is not None), default=-1)
+        apres = min((p for p in positions[k + 1:] if p is not None), default=len(mds))
+        pris = [p for p in positions if p is not None]
+        positions[k] = next((j for j in range(avant + 1, apres) if not couvert(j, pris)), None)
+
+    chapitres_relies = []
+    for entree, pos in zip(toc, positions):
+        meilleur = mds[pos] if pos is not None else None
         chapitres_relies.append({
             "index": entree["index"],
             "titre": entree["titre"],
@@ -615,6 +662,18 @@ def relier_toc_a_markdown(toc: list[dict], chapitres_md: list[dict]) -> list[dic
             "ligne_debut": meilleur["ligne_debut"] if meilleur else 0,
             "ligne_fin": meilleur["ligne_fin"] if meilleur else 0,
         })
+
+    # 3. Filet : une section que rien ne couvre rejoint le chapitre relié qui la précède.
+    pris = [p for p in positions if p is not None]
+    for j in range(len(mds)):
+        if couvert(j, pris):
+            continue
+        hote = max((c for c in chapitres_relies if c["contenu"] and c["ligne_debut"] <= mds[j]["ligne_debut"]),
+                   key=lambda c: c["ligne_debut"], default=None)
+        if hote is not None:
+            hote["contenu"] = hote["contenu"].rstrip("\n") + "\n\n" + mds[j]["contenu"]
+            hote["ligne_fin"] = max(hote["ligne_fin"], mds[j]["ligne_fin"])
+        pris.append(j)
     return chapitres_relies
 
 
@@ -672,8 +731,14 @@ def _extraire_chapitres(texte: str) -> list[dict]:
     lignes = texte.splitlines()
     debuts: list[tuple[int, int, str]] = []
 
+    dans_code = False
     for i, ligne in enumerate(lignes):
-        m = re.match(r"^(#{1,6})\s+(.+)", ligne)
+        # Un « # commentaire » dans un bloc de code n'est pas un titre : il créait un chapitre et coupait le bloc
+        # en deux (audit extraction, 13/11/2026). Même suivi que decouper_en_chunks.
+        if ligne.strip().startswith("```"):
+            dans_code = not dans_code
+            continue
+        m = None if dans_code else re.match(r"^(#{1,6})\s+(.+)", ligne)
         if m:
             debuts.append((i, len(m.group(1)), m.group(2).strip()))
 

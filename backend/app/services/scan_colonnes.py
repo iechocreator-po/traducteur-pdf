@@ -65,6 +65,8 @@ RATIO_DOUBLE_PAGE = 1.25   # largeur/hauteur au-delà duquel la page est une dou
 # d'un texte en colonnes. Mesuré sur le Cycle I : page titre 5/41, page avec grande illustration 7/20,
 # pages de texte ≥ 44/45. En dessous du seuil, la demi-page est lue en pleine largeur.
 PART_BANDES_TEXTE_MIN = 0.25
+GOUTTIERE_CENTRALE_MIN, GOUTTIERE_CENTRALE_MAX = 0.42, 0.58     # voir _gouttiere_centrale
+PART_MAX_ENCADRE = 0.95        # au-delà, la colonne n'a pas d'encadré : son papier est blanc (Cycle I : vrais encadrés jusqu'à 81 %, page blanche 100 %)
 # Encre clairsemée (numéros d'une table des matières) : invisible au 70ᵉ centile, visible au 85ᵉ.
 CENTILE_ENCRE_CLAIRSEMEE = 85
 LARGEUR_MIN_CLAIRSEMEE = 40    # px ; en dessous, c'est un trait ou une ombre
@@ -138,6 +140,17 @@ def detecter_gouttiere(gris) -> int:
     return bas + (plage[0] + plage[1]) // 2
 
 
+def _gouttiere_centrale(trou: tuple[int, int], largeur: int) -> bool:
+    """
+    Une seule gouttière intérieure ne vote que si elle tombe au MILIEU de la demi-page : c'est une page à deux
+    colonnes. Exiger deux gouttières (trois colonnes, le Cycle I) laissait une page simple à deux colonnes en
+    pleine largeur, lue en travers (audit extraction, 13/11/2026). Fenêtre étroite (42–58 %) : dans une page à
+    trois colonnes, les gouttières tombent vers 33 % et 66 %, et une illustration n'a pas de trou centré net.
+    """
+    milieu = (trou[0] + trou[1]) / 2
+    return GOUTTIERE_CENTRALE_MIN * largeur <= milieu <= GOUTTIERE_CENTRALE_MAX * largeur
+
+
 def detecter_colonnes(gris, x0: int, x1: int, bande: int = 50,
                       journal: list[str] | None = None) -> list[tuple[int, int]]:
     """
@@ -149,7 +162,7 @@ def detecter_colonnes(gris, x0: int, x1: int, bande: int = 50,
     """
     np = _numpy()
     h = gris.shape[0]
-    profils, examinees = [], 0
+    profils, deux_colonnes, examinees = [], [], 0
     for y in range(0, h - bande, bande // 2):
         d = (gris[y:y + bande, x0:x1] < 120).astype(float)
         if d.mean() > 0.30:
@@ -159,6 +172,13 @@ def detecter_colonnes(gris, x0: int, x1: int, bande: int = 50,
         trous = [r for r in plages(p < 0.01, 12) if r[0] > 20 and r[1] < len(p) - 20]
         if len(trous) >= 2:
             profils.append(p)
+        elif len(trous) == 1 and _gouttiere_centrale(trous[0], len(p)):
+            deux_colonnes.append(p)
+    # Les bandes à une seule gouttière centrale ne servent que si celles à deux gouttières ne suffisent pas : sur
+    # le Cycle I complet (61 pages), les mêler aux autres faisait sauter la colonne du milieu d'une demi-page à
+    # trois colonnes illustrée (p. 45). Une page qui votait déjà ne change pas.
+    if len(profils) < PART_BANDES_TEXTE_MIN * examinees and len(deux_colonnes) >= PART_BANDES_TEXTE_MIN * examinees:
+        profils = deux_colonnes
     if not profils:
         return []
     if len(profils) < PART_BANDES_TEXTE_MIN * examinees:
@@ -214,10 +234,16 @@ def decouper_segments(gris_colonne) -> list[tuple[str, int, int]]:
     """
     ('texte'|'encadre', y0, y1) selon le fond : papier ≈ 231, encadré blanc ≈ 255.
     Le fond est le 85ᵉ centile de chaque ligne, insensible à l'encre.
+    Une colonne « blanche » presque partout n'a pas d'encadré : c'est le PAPIER qui est blanc (scan binarisé,
+    blanchi). Le seuil seul en faisait un unique encadré rendu en citation, titres jamais cherchés (audit
+    extraction, 13/11/2026). Un seuil relatif au papier effaçait de vrais encadrés sur le Cycle I (p. 28, 38) :
+    on ne neutralise que le cas où la « boîte » couvre presque toute la colonne (PART_MAX_ENCADRE).
     """
     np = _numpy()
     fond = _lisser(np.percentile(gris_colonne, 85, axis=1), 5)
     boite = fond >= 248
+    if len(boite) and boite.mean() > PART_MAX_ENCADRE:
+        boite = np.zeros_like(boite)
     sortie, y = [], 0
     for a, b in plages(boite, 30):
         if a > y:

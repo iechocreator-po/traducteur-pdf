@@ -40,7 +40,6 @@ from app.config.settings import (
     CONTROLE_QUALITE_LONGUEUR_MIN,
 )
 from app.services.pdf_extractor import (
-    extraire_texte,
     decouper_en_chunks,
     compter_pages,
     extraire_urls,
@@ -488,15 +487,11 @@ def _lire_source_markdown(source_path: str, extracteur: str) -> str:
     - Si source_path est un .md : le lit directement.
     - Si c'est un PDF : cherche un _converti_*.md existant, sinon re-extrait.
     """
-    if source_path.lower().endswith(".md"):
-        with open(source_path, "r", encoding="utf-8") as f:
-            return f.read()
-    base, _ = os.path.splitext(source_path)
-    candidats = _glob.glob(f"{_glob.escape(base)}_converti*.md")
-    if candidats:
-        with open(candidats[0], "r", encoding="utf-8") as f:
-            return f.read()
-    return extraire_texte(source_path, extracteur)
+    # Une seule règle de lecture de la source (PC-28) : celle de pdf_extractor, qui choisit le `_converti` de
+    # l'extracteur demandé. Une copie locale prenait le premier trouvé.
+    from app.services.pdf_extractor import _lire_source
+
+    return _lire_source(source_path, extracteur)
 
 
 def _chapitres_ou_implicite(source_path: str, extracteur: str) -> tuple[list[dict], bool]:

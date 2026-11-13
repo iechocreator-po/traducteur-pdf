@@ -4,11 +4,11 @@
   {
    "id": "audit-code",
    "featureId": null,
-   "titre": "Audit du code : ≈ 25 % du code actuel audité, ≈ 44 % relu en comptant les revues, quatre zones à auditer",
+   "titre": "Audit du code : ≈ 37 % du code actuel audité, ≈ 53 % relu en comptant les revues, trois zones à auditer",
    "description": "Taille de toledo, zones auditées avec les défauts trouvés, constats de chaque revue et ce qui reste à faire par priorité (skill commune /revue-code). Une revue ne lit que le code ajouté : elle ne vaut pas un audit.",
    "onglet": "Tous",
    "statut": "planifiee",
-   "date": "2026-11-10",
+   "date": "2026-11-13",
    "page": "docs/audit-code.html",
    "libelleBouton": "Ouvrir le rapport",
    "epingle": true,
@@ -23,9 +23,9 @@
     ]
    },
    "dernierAudit": {
-    "date": "2026-11-10",
-    "portee": "Audit /revue-code de la zone « api » (routes, validation, config, modèles, main, scripts, ≈ 2 200 lignes) ; quatre zones restent à auditer",
-    "resultat": "9 constats à 80 ou plus, tous corrigés le jour même (#517 à #525) : double « Reprendre » qui effaçait une traduction (92), garde du serveur local (origine null, POST simples, Host), démarrage dans un lifespan, flags booléens et tolérants, sélection vide refusée, validation à la création, migration, /check-resume par modèle. 584 tests et ruff au vert, gardes essayées sur le vrai backend. Pas de build Xcode.",
+    "date": "2026-11-13",
+    "portee": "Audit /revue-code de la zone « extraction » (pdf_extractor, scan_colonnes, segmentation, uploads, 2 448 lignes) ; trois zones restent à auditer",
+    "resultat": "7 constats à 80 ou plus, tous corrigés le jour même (#530 à #536) : découpage bloqué par une table ou du code (90), signets vides comptés traduits (85), purge qui effaçait régions et Markdown segmenté (85), _converti par extracteur et atomique, # de code pris pour un chapitre, scan à deux colonnes et sur fond blanc. 601 tests au vert ; avant/après identique sur le corpus local, Cycle I : seule la page de titre change.",
     "commits": []
    }
   },

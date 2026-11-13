@@ -194,8 +194,17 @@ def enregistrer_flux(lire_morceau, nom_client: str | None) -> dict:
 
 
 def _dossier_a_du_travail(dossier: str) -> bool:
-    """Vrai si le dossier contient une traduction/conversion/découpe (donc à conserver)."""
-    for nom in os.listdir(dossier):
+    """
+    Vrai si le dossier contient autre chose que sa source (donc à conserver). Un upload n'écrit qu'UN fichier ;
+    tout le reste a été produit à côté : traduction, état, conversion, sections, mais aussi régions réglées à la
+    main, Markdown segmenté, fiches, images. Une liste de motifs en oubliait (les régions et le segmenté étaient
+    effacés au bout de 30 jours, audit extraction du 13/11/2026) : on ne purge plus que la source seule.
+    Les motifs restent pour le cas où la source aurait été retirée et seul le travail resterait.
+    """
+    noms = os.listdir(dossier)
+    if len(noms) > 1 or any(os.path.isdir(os.path.join(dossier, n)) for n in noms):
+        return True
+    for nom in noms:
         if re.search(r"_traduit.*\.md$", nom) or nom.endswith(".state.json") \
                 or re.search(r"_converti.*\.md$", nom) \
                 or re.search(r"_section_\d+_p\d+-\d+\.pdf$", nom):
@@ -208,7 +217,7 @@ def purger_uploads_anciens(references: set[str] | None = None) -> int:
     Purge conservatrice, appelée au démarrage. Supprime un dossier d'upload
     seulement s'il est ABANDONNÉ, c.-à-d. les trois conditions réunies :
       1. son fichier le plus récent est plus vieux que UPLOADS_RETENTION_JOURS ;
-      2. il ne contient aucune traduction/conversion produite ;
+      2. il ne contient que sa source (aucun travail produit à côté, voir _dossier_a_du_travail) ;
       3. sa source n'est référencée par aucune entrée du registre Bibliothèque.
     Les résidus .tmp/*.part (crash en cours d'upload) sont supprimés sans condition.
     Retourne le nombre de dossiers purgés.
