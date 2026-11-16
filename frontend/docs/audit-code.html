@@ -23,7 +23,7 @@
   td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
   .gros { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .barre { height: 12px; border-radius: 6px; background: var(--surface-2, var(--border)); overflow: hidden; margin: 6px 0; }
-  .barre > i { display: block; height: 100%; background: var(--accent); width: 37%; }
+  .barre > i { display: block; height: 100%; background: var(--accent); width: 46%; }
   ol { margin: 0; padding-left: 20px; }
   li { margin-bottom: 6px; }
   code { font-size: 12px; }
@@ -31,9 +31,24 @@
 </head>
 <body>
 <main>
-<div class="bandeau">Rapport · mis à jour le 13 novembre 2026</div>
+<div class="bandeau">Rapport · mis à jour le 16 novembre 2026</div>
 <h1>Audit du code de toledo : où en est-on ?</h1>
-<p class="muted">La skill commune <code>/revue-code</code> a tourné six fois : un audit de la zone « moteur » le 26 octobre (trois sous-agents, constats corrigés), une revue du code ajouté depuis, le 6 novembre (cinq passes, 36 constats, tous corrigés ; la parité macOS est un écart volontaire), puis une revue de ces correctifs le 7 novembre (9 constats, 7 corrigés, 2 ouverts), enfin une revue de Découper un PDF et de Documents complexes le 9 novembre (4 constats, tous corrigés), un audit de la zone « api » le 10 novembre (9 constats, tous corrigés), puis un audit de la zone « extraction » le 13 novembre (7 constats, tous corrigés). Une revue ne couvre que le code ajouté : trois zones restent à auditer. Les sections « sous le seuil » et « ce qui reste à faire » datent du 26 octobre.</p>
+<p class="muted">La skill commune <code>/revue-code</code> a tourné sept fois : un audit de la zone « moteur » le 26 octobre (trois sous-agents, constats corrigés), une revue du code ajouté depuis, le 6 novembre (cinq passes, 36 constats, tous corrigés ; la parité macOS est un écart volontaire), puis une revue de ces correctifs le 7 novembre (9 constats, 7 corrigés, 2 ouverts), enfin une revue de Découper un PDF et de Documents complexes le 9 novembre (4 constats, tous corrigés), un audit de la zone « api » le 10 novembre (9 constats, tous corrigés), un audit de la zone « extraction » le 13 novembre (7 constats, tous corrigés), puis un audit de la zone « etude-tts » le 15 novembre (5 constats, tous corrigés). Une revue ne couvre que le code ajouté : deux zones restent à auditer. Les sections « sous le seuil » et « ce qui reste à faire » datent du 26 octobre.</p>
+
+<section class="ds-card carte"><h2>Audit de la zone « etude-tts » du 15 novembre 2026</h2>
+<p><span class="gros">5</span> constats à 80 ou plus sur la fiche d'étude, le TTS, le clonage vocal, les stats, les métriques, le glossaire et les agents (12 fichiers, 2 035 lignes, passes A à E sans sous-agent) : <strong>tous corrigés</strong>. Après correctifs : pytest 609 passés (8 tests ajoutés, tous échouent sur l'ancien code). Regroupés en 5 entrées dans bilbao (#537 à #541), toutes livrées (commit <code>6ffe17c</code>).</p>
+<table>
+<tr><th class="n">Note</th><th>Constat</th><th>État</th><th class="n">bilbao</th></tr>
+<tr><td class="n">95</td><td>Voix clonée coupée par un arrêt du serveur : la récupération au démarrage cherchait le statut <code>en_traitement</code>, que personne n'écrit (le runner écrit <code>en_attente</code> puis <code>en_cours</code>) ; la voix restait « en cours » pour toujours et le Laboratoire la scrutait sans fin (<code>recuperation.py:91</code>). Statuts désormais partagés par une constante unique.</td><td>corrigé</td><td class="n">#537</td></tr>
+<tr><td class="n">80</td><td>Audio : le WAV s'écrivait directement au chemin final ; relancer avec la même voix puis annuler ou échouer détruisait l'audio complet précédent (<code>tts_runner.py:75</code>, piège 6). Écrit maintenant dans un <code>.part</code>, remplacé seulement à la fin.</td><td>corrigé</td><td class="n">#538</td></tr>
+<tr><td class="n">80</td><td>Audio : le nom libre d'une voix clonée entrait tel quel dans le nom du fichier ; « Papa/Maman » donnait une erreur 500, « ../x » écrivait hors du dossier du document (<code>tts_runner.py:30</code>). Seuls les caractères dangereux sont remplacés : les noms existants ne changent pas.</td><td>corrigé</td><td class="n">#539</td></tr>
+<tr><td class="n">80</td><td>Fiche d'étude et analyse : <code>num_ctx</code> non fixé, la fenêtre dépendait du réglage du serveur Ollama ; un chapitre long pouvait être coupé par le début sans signal (<code>etude.py:44</code>, <code>analysis_agent.py:39</code>, piège 9).</td><td>corrigé</td><td class="n">#540</td></tr>
+<tr><td class="n">80</td><td>Fiche d'étude : le Markdown était réécrit en entier sans écriture atomique après chaque étape ; un arrêt laissait un <code>.md</code> tronqué (<code>study_runner.py:201</code>, piège 6).</td><td>corrigé</td><td class="n">#541</td></tr>
+</table>
+<p class="muted" style="margin-top:8px">Sous le seuil, à surveiller : fiche <code>termine</code> avec des chapitres en échec, signalée par l'interface mais un chapitre vide disparaît sans mention du <code>.md</code> (70) ; <code>POST /etude</code> sans garde d'idempotence, deux envois rapprochés font travailler Ollama deux fois (65) ; estimation de durée des fiches faussée par les passages mis en pause, exposée par l'API seulement (60) ; analyse toujours faite avec <code>llama3.1</code> (50).</p>
+<p class="muted"><strong>Couverture de la zone :</strong> chaque service a son fichier de test ; <code>analysis_agent.analyser_pdf</code> n'a pas de test direct. <strong>Structure :</strong> aucun fichier au-delà de 1 000 lignes, plus longue fonction <code>_executer_etude</code> (≈ 130 lignes).</p>
+<p class="muted"><strong>Non vérifié :</strong> aucun appel Ollama réel (suffisance de <code>num_ctx</code> = 4 096 pour la condensation non mesurée) ; aucun moteur TTS ni OpenVoice réel ; scripts <code>openvoice_*.py</code> (venv 3.10) hors zone ; parité macOS de la fiche et du TTS. Après un échec, l'ancien audio reste sur le disque mais l'interface ne le propose qu'après une génération réussie.</p>
+</section>
 
 <section class="ds-card carte"><h2>Audit de la zone « extraction » du 13 novembre 2026</h2>
 <p><span class="gros">7</span> constats à 80 ou plus sur <code>pdf_extractor</code>, <code>scan_colonnes</code>, <code>segmentation</code> et <code>uploads</code> (4 fichiers, 2 448 lignes, trois sous-agents, passes A à E) : <strong>tous corrigés le jour même</strong>. Après correctifs : pytest 601 passés (17 tests ajoutés, dont 13 échouent sur l'ancien code), ruff sans erreur. Regroupés en 7 entrées dans bilbao (#530 à #536), toutes livrées.</p>
@@ -149,8 +164,8 @@
 <p class="muted" style="margin-top:8px">Mesuré le 9/11/2026 ; CSS et HTML non comptés. La suite pytest passe : 552 tests en local (389 au 26/10/2026), avec un test intermittent.</p></section>
 
 <section class="ds-card carte"><h2>Couverture des audits</h2>
-<div class="gros">≈ 37 % <span class="muted" style="font-weight:400">en audit complet · ≈ 53 % en comptant les revues</span></div><div class="barre"><i></i></div>
-<p class="muted">Audit complet : ≈ 7 650 lignes lues sur ≈ 20 900 (« moteur », ≈ 3 000 lignes, le 26/10 ; « api », ≈ 2 200, le 10/11 ; « extraction », ≈ 2 450, le 13/11). En comptant les ≈ 3 960 lignes ajoutées et relues par les revues (≈ 2 400 les 6 et 7/11, ≈ 1 560 le 9/11) : ≈ 11 100 lignes, sans compter deux fois le code du scan relu par la revue du 9/11 puis audité. Une revue ne lit que le diff, pas toute une zone : elle ne vaut pas un audit.</p>
+<div class="gros">≈ 46 % <span class="muted" style="font-weight:400">en audit complet · ≈ 63 % en comptant les revues</span></div><div class="barre"><i></i></div>
+<p class="muted">Audit complet : ≈ 9 700 lignes lues sur ≈ 20 900 (« moteur », ≈ 3 000 lignes, le 26/10 ; « api », ≈ 2 200, le 10/11 ; « extraction », ≈ 2 450, le 13/11 ; « etude-tts », ≈ 2 050, le 15/11). En comptant les ≈ 3 960 lignes ajoutées et relues par les revues (≈ 2 400 les 6 et 7/11, ≈ 1 560 le 9/11) : ≈ 13 100 lignes, sans compter deux fois le code du scan relu par la revue du 9/11 puis audité. Une revue ne lit que le diff, pas toute une zone : elle ne vaut pas un audit.</p>
 <table>
 <tr><th>Zone</th><th>État</th><th>Ce qui a été trouvé</th></tr>
 <tr><td><b>moteur</b> (translation_runner, translator, store, persistance, job_manager, cache, récupération, planificateur, soumission, énergie, bibliothèque)</td><td><span class="ds-badge ds-badge--success">fait</span></td>
@@ -158,7 +173,7 @@
 <tr><td>revue ff6a5de..6ff59e6 et revue de ses correctifs : reconstruction, signature, parcours, exports, Anticipation (≈ 2 400 lignes ajoutées), 6 et 7/11</td><td><span class="ds-badge ds-badge--accent">revue</span></td><td>36 puis 9 constats, voir plus haut. <code>reconstruction.py</code> et <code>signature.py</code> (≈ 970 lignes) n'appartiennent encore à aucune zone d'audit.</td></tr>
 <tr><td>revue 272f826..603cd8c : Découper un PDF, Documents complexes (≈ 1 560 lignes ajoutées), 9/11</td><td><span class="ds-badge ds-badge--accent">revue</span></td><td>4 constats, tous corrigés, voir plus haut. <code>reconstruction.py</code>, <code>signature.py</code> et <code>decoupe.py</code> (≈ 1 240 lignes) n'appartiennent encore à aucune zone d'audit.</td></tr>
 <tr><td><b>extraction</b> (pdf_extractor, scan_colonnes, segmentation, uploads, ≈ 2 450 lignes)</td><td><span class="ds-badge ds-badge--success">fait</span></td><td>7 constats à 80 ou plus, tous corrigés le 13/11 (#530 à #536), voir plus haut : tables et signets qui font perdre du texte, purge, <code>_converti</code>, deux cas de mise en page du scan. Segmentation sans aucun test.</td></tr>
-<tr><td>etude-tts (étude, TTS, clonage vocal, stats, ≈ 2 050 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
+<tr><td><b>etude-tts</b> (étude, TTS, clonage vocal, stats, ≈ 2 050 lignes)</td><td><span class="ds-badge ds-badge--success">fait</span></td><td>5 constats à 80 ou plus, tous corrigés le 15/11 (#537 à #541), voir plus haut : voix clonée bloquée « en cours », audio précédent détruit, nom de voix dans le chemin, <code>num_ctx</code>, fiche non atomique.</td></tr>
 <tr><td><b>api</b> (routes, validation, erreurs, config, modèles, main, scripts, ≈ 2 200 lignes)</td><td><span class="ds-badge ds-badge--success">fait</span></td><td>9 constats à 80 ou plus, tous corrigés le 10/11 (#517 à #525), voir plus haut : double reprise qui efface une traduction, garde du serveur local, effets de bord au démarrage, flags. 44 routes testées sur 59 avant correctifs.</td></tr>
 <tr><td>frontend (≈ 6 000 lignes de JS, 2 sous-agents)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
 <tr><td>macos (≈ 3 800 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
@@ -188,7 +203,7 @@
 <table>
 <tr><th>Priorité</th><th>Contenu</th></tr>
 <tr><td><b>1. Pertes de données possibles</b></td><td>Écriture atomique de l'en-tête ; ordre « écrire puis compter » pour les chapitres ; récupération au démarrage indépendante du registre ; verrou sur la soumission.</td></tr>
-<tr><td><b>2. Zones non auditées</b></td><td>etude-tts (≈ 2 050 lignes), frontend (≈ 6 000, 2 sous-agents), macos (≈ 3 800).</td></tr>
+<tr><td><b>2. Zones non auditées</b></td><td>frontend (≈ 6 000 lignes, 2 sous-agents), macos (≈ 3 800).</td></tr>
 <tr><td><b>3. Fiabilité de fond</b></td><td>Réessais espacés du planificateur ; contrôle qualité des textes courts ; ETA de reprise ; suppression propagée au store pour les morceaux et les chapitres.</td></tr>
 <tr><td><b>4. Décisions à prendre</b></td><td>Une traduction « possiblement en boucle » doit-elle rester un avertissement ou devenir un échec reprenable ? Persister l'extracteur dans l'état du document ?</td></tr>
 <tr><td><b>5. Dette de structure</b></td><td><code>_executer_traduction</code> (≈ 193 lignes) et <code>demarrer_traduction</code> (≈ 143 lignes) ; <code>translation_runner.py</code> mêle cinq responsabilités ; cache réécrit en entier après chaque morceau.</td></tr>
