@@ -221,3 +221,19 @@ def test_la_condensation_est_plafonnee_et_refuse_une_reponse_coupee(monkeypatch)
     with pytest.raises(etude.ReponseTronquee, match="plafond de 300 jetons"):
         etude.condenser_texte("texte long", "m", "français")
     assert envoye["options"]["num_predict"] == 300 and "format" not in envoye
+
+
+def test_les_appels_d_etude_fixent_num_ctx(monkeypatch):
+    """Piège 9 : la fenêtre de contexte ne dépend pas du réglage du serveur Ollama."""
+    from app.config.settings import OLLAMA_NUM_CTX
+
+    vus = []
+
+    def faux_post(url, json=None, timeout=None):
+        vus.append(json["options"])
+        return _ReponseHttp('{"points": ["A"]}' if json.get("format") else "Notes.")
+
+    monkeypatch.setattr(etude.requests, "post", faux_post)
+    etude.generer_points("texte", "llama3.1", "français", 1)
+    etude.condenser_texte("texte", "llama3.1", "français")
+    assert [o["num_ctx"] for o in vus] == [OLLAMA_NUM_CTX, OLLAMA_NUM_CTX]

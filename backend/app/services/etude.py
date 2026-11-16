@@ -12,7 +12,12 @@ import json
 import requests
 from pydantic import BaseModel, Field, ValidationError
 
-from app.config.settings import OLLAMA_NUM_PREDICT_CONDENSATION, OLLAMA_NUM_PREDICT_ETUDE, OLLAMA_TIMEOUT
+from app.config.settings import (
+    OLLAMA_NUM_CTX,
+    OLLAMA_NUM_PREDICT_CONDENSATION,
+    OLLAMA_NUM_PREDICT_ETUDE,
+    OLLAMA_TIMEOUT,
+)
 from app.models.schemas import QuestionEtude
 from app.services import metriques
 from app.services.translator import OLLAMA_URL
@@ -41,7 +46,11 @@ def _envoyer(modele: str, system: str, prompt: str, plafond: int | None, format_
     tronquée n'est jamais renvoyée comme si elle était complète : un JSON coupé échouerait plus loin
     avec un message trompeur, et des notes de condensation coupées appauvriraient la fiche en silence.
     """
-    options = {"temperature": 0.3}
+    # `num_ctx` explicite, comme la traduction : sans lui, la fenêtre dépend du serveur Ollama
+    # (version, OLLAMA_CONTEXT_LENGTH) et un chapitre de ETUDE_CONTEXTE_MAX caractères peut être
+    # coupé par le début sans aucun signal. Même valeur que la traduction : Ollama ne recharge
+    # pas le modèle entre un job de traduction et un job de fiche.
+    options = {"temperature": 0.3, "num_ctx": OLLAMA_NUM_CTX}
     if plafond:
         options["num_predict"] = plafond
     payload = {"model": modele, "system": system, "prompt": prompt, "stream": False, "options": options}

@@ -23,6 +23,15 @@ CHEMIN_REGISTRE = os.path.join(DOSSIER_VOIX_UTILISATEUR, "registre.json")
 
 _lock = threading.Lock()
 
+# Statuts d'une voix dont l'embedding n'est pas encore extrait. SOURCE UNIQUE :
+# `creer_voix` écrit le premier, `voix_clonage_runner` le second, et
+# `recuperation.recuperer_voix_en_cours` les relit au démarrage. Une chaîne
+# recopiée à la main avait divergé (« en_traitement ») : une voix coupée par un
+# arrêt du serveur restait « en cours » pour toujours dans le Laboratoire.
+STATUT_EN_ATTENTE = "en_attente"
+STATUT_EN_COURS = "en_cours"
+STATUTS_EN_TRAITEMENT = (STATUT_EN_ATTENTE, STATUT_EN_COURS)
+
 
 def _charger() -> list[dict]:
     data = lire_json_tolerant(CHEMIN_REGISTRE, defaut={})
@@ -94,7 +103,7 @@ def creer_voix(nom: str) -> dict:
             "cree_le": datetime.datetime.now().isoformat(),
             "chemin_echantillon": None,
             "chemin_embedding": None,
-            "statut": "en_attente",
+            "statut": STATUT_EN_ATTENTE,
             "erreur": None,
         }
         os.makedirs(chemin_dossier_voix(entree["id"]), exist_ok=True)

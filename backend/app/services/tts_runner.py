@@ -8,6 +8,7 @@ import datetime
 import glob as _glob
 from app.services.persistance import ecrire_json_atomique, lire_json_tolerant
 import os
+import re
 import time
 import uuid
 import wave
@@ -25,9 +26,34 @@ from app.services.job_manager import (
 TTS_CHUNK_TAILLE_MAX = 1200
 
 
+def _segment_de_nom(texte: str) -> str:
+    """
+    Rend un libellé sûr comme MORCEAU de nom de fichier.
+
+    Le nom d'une voix clonée est saisi librement dans le Laboratoire : « Papa/Maman »
+    produisait un chemin dans un dossier inexistant (erreur 500, aucun audio possible
+    avec cette voix) et « ../x » écrivait hors du dossier du document. On ne remplace
+    que ce qui est dangereux dans un chemin (séparateurs, deux-points, caractères de
+    contrôle) : lettres accentuées, espaces et parenthèses restent tels quels, donc
+    les noms des fichiers déjà produits ne changent pas.
+    """
+    return re.sub(r"[^\w .()-]", "-", texte, flags=re.UNICODE).strip() or "voix"
+
+
 def chemin_sortie_audio(chemin_md: str, moteur: str, voix: str) -> str:
     base, _ = os.path.splitext(chemin_md)
-    return f"{base}_audio_{moteur}_{voix}.wav"
+    return f"{base}_audio_{_segment_de_nom(moteur)}_{_segment_de_nom(voix)}.wav"
+
+
+def _chemin_partiel(chemin_wav: str) -> str:
+    return f"{chemin_wav}.part"
+
+
+def _retirer_partiel(chemin_wav: str) -> None:
+    try:
+        os.remove(_chemin_partiel(chemin_wav))
+    except FileNotFoundError:
+        pass
 
 
 def _chemin_etat(chemin_wav: str) -> str:
@@ -54,7 +80,15 @@ def lire_etat(chemin_md: str) -> dict | None:
 
 
 def _executer_generation(etat: dict, sections: list[str]) -> None:
-    """Exécuté par le worker de la file. Vérifie l'annulation entre chaque section."""
+    """
+    Exécuté par le worker de la file. Vérifie l'annulation entre chaque section.
+
+    ⚠️ Le WAV s'écrit dans `<sortie>.part` et ne remplace le fichier final qu'une
+    fois TOUTES les sections synthétisées. Écrit directement à sa place, il
+    écrasait dès la première section l'audio complet d'un passage précédent avec
+    la même voix : une annulation ou une erreur laissait alors un fichier partiel
+    que l'interface refuse de lire, et l'ancien audio était perdu.
+    """
     etat["statut"] = "en_cours"
     _sauvegarder_etat(etat)
     debut = time.time()
@@ -63,6 +97,8 @@ def _executer_generation(etat: dict, sections: list[str]) -> None:
     try:
         for i, section in enumerate(sections):
             if est_annule(etat["job_id"]):
+                wav = _fermer(wav)
+                _retirer_partiel(etat["chemin_sortie"])
                 etat["statut"] = "annule"
                 _sauvegarder_etat(etat)
                 return
@@ -72,7 +108,7 @@ def _executer_generation(etat: dict, sections: list[str]) -> None:
             )
 
             if wav is None:
-                wav = wave.open(etat["chemin_sortie"], "wb")
+                wav = wave.open(_chemin_partiel(etat["chemin_sortie"]), "wb")
                 wav.setnchannels(1)
                 wav.setsampwidth(2)
                 wav.setframerate(frequence)
@@ -82,17 +118,28 @@ def _executer_generation(etat: dict, sections: list[str]) -> None:
             etat["temps_ecoule_secondes"] = time.time() - debut
             _sauvegarder_etat(etat)
 
+        wav = _fermer(wav)   # écrit l'entête définitif avant le remplacement
+        if os.path.exists(_chemin_partiel(etat["chemin_sortie"])):
+            os.replace(_chemin_partiel(etat["chemin_sortie"]), etat["chemin_sortie"])
         etat["statut"] = "termine"
         etat["termine_a"] = datetime.datetime.now().isoformat()
         _sauvegarder_etat(etat)
     except Exception as e:
+        wav = _fermer(wav)
+        _retirer_partiel(etat["chemin_sortie"])
         etat["statut"] = "erreur"
         etat["erreur"] = str(e)
         _sauvegarder_etat(etat)
     finally:
-        if wav is not None:
-            wav.close()
+        _fermer(wav)
         supprimer_job_registre(etat["job_id"])
+
+
+def _fermer(wav):
+    """Ferme le WAV s'il est ouvert ; retourne toujours None (pour `wav = _fermer(wav)`)."""
+    if wav is not None:
+        wav.close()
+    return None
 
 
 def demarrer_generation_audio(chemin_md: str, moteur: str, voix: str, langue: str = "français") -> dict:

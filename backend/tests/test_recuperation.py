@@ -132,3 +132,31 @@ def test_recuperer_tout_isole_les_familles(document, monkeypatch):
     assert resultats["etude"] == 1
     # La traduction redevient reprenable, pas terminale.
     assert job_manager.charger_etat(sortie).statut == StatutJob.EN_PAUSE
+
+
+@pytest.mark.parametrize("statut", ["en_attente", "en_cours"])
+def test_une_voix_clonee_coupee_est_debloquee(statut):
+    """
+    Les statuts relus ici sont ceux qu'écrivent `creer_voix` et le runner. La
+    récupération cherchait « en_traitement », que personne n'écrit : une voix
+    coupée par un arrêt restait « en cours » pour toujours dans le Laboratoire.
+    """
+    from app.services import voix_clonees
+
+    voix = voix_clonees.creer_voix("Ma voix")
+    voix_clonees.mettre_a_jour_voix(voix["id"], statut=statut)
+
+    assert recuperation.recuperer_voix_en_cours() == 1
+    apres = voix_clonees.obtenir_voix(voix["id"])
+    assert apres["statut"] == "erreur"
+    assert apres["erreur"]
+
+
+def test_une_voix_clonee_prete_n_est_pas_touchee():
+    from app.services import voix_clonees
+
+    voix = voix_clonees.creer_voix("Prête")
+    voix_clonees.mettre_a_jour_voix(voix["id"], statut="termine")
+
+    assert recuperation.recuperer_voix_en_cours() == 0
+    assert voix_clonees.obtenir_voix(voix["id"])["statut"] == "termine"

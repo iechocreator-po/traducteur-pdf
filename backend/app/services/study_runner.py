@@ -198,8 +198,9 @@ def _rendre_markdown(etat: EtatJobEtude) -> None:
                 ]
         if chap.etape == "erreur":
             lignes += ["*(chapitre en erreur — fiche incomplète)*", ""]
-    with open(etat.chemin_sortie, "w", encoding="utf-8") as f:
-        f.write("\n".join(lignes))
+    # Atomique (piège 6) : la fiche est réécrite en entier après chaque étape ; un arrêt
+    # pendant un `open("w")` laissait un .md tronqué, lu tel quel par l'export.
+    ecrire_texte_atomique(etat.chemin_sortie, "\n".join(lignes))
 
 
 # ── Exécution du job ──────────────────────────────────────────────────────────

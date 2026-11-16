@@ -79,16 +79,16 @@ def recuperer_jobs_tts() -> int:
 
 def recuperer_voix_en_cours() -> int:
     """
-    Le clonage vocal : une voix restée `en_traitement` au démarrage ne sera
+    Le clonage vocal : une voix restée `en_attente` ou `en_cours` au démarrage ne sera
     jamais terminée (le sous-processus est mort avec le serveur). On la marque
     `erreur` pour qu'elle cesse d'apparaître comme « en cours » indéfiniment
     dans le Laboratoire.
     """
-    from app.services.voix_clonees import lister_voix, mettre_a_jour_voix
+    from app.services.voix_clonees import STATUTS_EN_TRAITEMENT, lister_voix, mettre_a_jour_voix
 
     recuperes = 0
     for voix in lister_voix():
-        if voix.get("statut") != "en_traitement":
+        if voix.get("statut") not in STATUTS_EN_TRAITEMENT:
             continue
         mettre_a_jour_voix(
             voix["id"],

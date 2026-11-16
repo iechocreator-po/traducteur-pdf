@@ -26,7 +26,7 @@ def venv_openvoice_disponible() -> bool:
 
 
 def _executer_extraction(id_voix: str) -> None:
-    voix_clonees.mettre_a_jour_voix(id_voix, statut="en_cours")
+    voix_clonees.mettre_a_jour_voix(id_voix, statut=voix_clonees.STATUT_EN_COURS)
     try:
         resultat = subprocess.run(
             [
