@@ -41,6 +41,7 @@
    "date": "2026-11-17",
    "page": "docs/cartographie-refonte.html",
    "libelleBouton": "Ouvrir la cartographie",
+   "epingle": true,
    "liens": [
     {
      "titre": "Artefact claude.ai : toledo, cartographie pour la refonte",
