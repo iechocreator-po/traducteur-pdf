@@ -32,6 +32,28 @@
    }
   },
   {
+   "id": "cartographie-refonte",
+   "featureId": null,
+   "titre": "Cartographie de la refonte : ce que toledo fait et comment les usages s'y rattachent",
+   "description": "Produit, architecture, les 60 routes, les fonctions de chaque onglet, une carte de douze usages et le plan de refonte autour du parcours par objectif. Mise à jour au 17/11/2026 (première version du 19/10) : parcours livré, Découper un PDF, Documents complexes, reconstruction, signature, onglet Anticipation, audits par zone.",
+   "onglet": "Tous",
+   "statut": "planifiee",
+   "date": "2026-11-17",
+   "page": "docs/cartographie-refonte.html",
+   "libelleBouton": "Ouvrir la cartographie",
+   "liens": [
+    {
+     "titre": "Artefact claude.ai : toledo, cartographie pour la refonte",
+     "url": "https://claude.ai/artifact/EUiR8cxwzyxDvdvFfyspdM",
+     "note": "même contenu, version partageable"
+    },
+    {
+     "titre": "Audit d'architecture : messagerie, durabilité, architecture cible",
+     "url": "https://claude.ai/artifact/XGCFAfMcDz5TucJjFda9wu"
+    }
+   ]
+  },
+  {
    "id": "test-intermittent",
    "featureId": 508,
    "titre": "Test intermittent de l'historique (test_stats)",

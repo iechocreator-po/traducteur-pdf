@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>toledo, cartographie de la refonte</title>
+<!-- Copie de l'artefact claude.ai « toledo, cartographie pour la refonte » (https://claude.ai/artifact/EUiR8cxwzyxDvdvFfyspdM),
+     ouverte dans la carte « cartographie-refonte » de l'onglet Anticipation. Polices système seulement (jamais de CDN). -->
+<style>
+:root {
+  --bg: #f4f7f6; --surface: #ffffff; --surface-2: #e9f0ee; --fg: #14201e; --fg-2: #4a5d59; --border: #cfdad7;
+  --accent: #0f766e; --accent-bg: #ccfbf1; --on-accent: #ffffff;
+  --ok: #15803d; --ok-bg: #dcfce7; --warn: #a16207; --warn-bg: #fef3c7; --bad: #b91c1c; --bad-bg: #fee2e2;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0d1716; --surface: #142120; --surface-2: #1c2e2c; --fg: #e3efed; --fg-2: #96aaa6; --border: #2a3f3c;
+  --accent: #2dd4bf; --accent-bg: #134e4a; --on-accent: #042f2e;
+  --ok: #4ade80; --ok-bg: #14341f; --warn: #fbbf24; --warn-bg: #3a2b0a; --bad: #f87171; --bad-bg: #401717; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0d1716; --surface: #142120; --surface-2: #1c2e2c; --fg: #e3efed; --fg-2: #96aaa6; --border: #2a3f3c;
+  --accent: #2dd4bf; --accent-bg: #134e4a; --on-accent: #042f2e;
+  --ok: #4ade80; --ok-bg: #14341f; --warn: #fbbf24; --warn-bg: #3a2b0a; --bad: #f87171; --bad-bg: #401717; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 var(--sans); padding: 0 16px 56px; }
+.wrap { max-width: 1040px; margin: 0 auto; }
+header.top { padding-block: 28px 14px; }
+.kicker { font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: clamp(24px, 4vw, 32px); line-height: 1.15; margin: 10px 0 8px; text-wrap: balance; font-weight: 700; }
+.lede { color: var(--fg-2); max-width: 66ch; margin: 0; }
+nav.tabs { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--border);
+  display: flex; gap: 4px; overflow-x: auto; padding-block: 8px; margin-bottom: 22px; }
+nav.tabs button { font: inherit; font-weight: 500; color: var(--fg-2); background: none; border: 1px solid transparent; border-radius: 8px; padding: 7px 13px; cursor: pointer; white-space: nowrap; }
+nav.tabs button:hover { color: var(--fg); background: var(--surface-2); }
+nav.tabs button[aria-selected="true"] { color: var(--on-accent); background: var(--accent); }
+button:focus-visible, a:focus-visible, summary:focus-visible, tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+a { color: var(--accent); }
+section.panel[hidden] { display: none; }
+h2 { font-size: 20px; margin: 0 0 6px; text-wrap: balance; }
+h3 { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--fg-2); margin: 0 0 10px; }
+p { margin: 0 0 12px; max-width: 72ch; }
+.sub { color: var(--fg-2); margin-bottom: 20px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
+.grid { display: grid; gap: 14px; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.stat b { display: block; font: 600 24px/1.1 var(--mono); font-variant-numeric: tabular-nums; color: var(--accent); }
+.stat span { font-size: 12px; color: var(--fg-2); }
+.stat em { display: block; font-style: normal; font-size: 11px; color: var(--fg-2); opacity: .8; }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+.pill { display: inline-block; font: 500 11px/1 var(--mono); padding: 4px 7px; border-radius: 6px; background: var(--surface-2); color: var(--fg-2); white-space: nowrap; }
+.pill.ok { background: var(--ok-bg); color: var(--ok); } .pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.bad { background: var(--bad-bg); color: var(--bad); } .pill.acc { background: var(--accent-bg); color: var(--accent); }
+.m-get { color: var(--ok); } .m-post { color: var(--accent); } .m-del { color: var(--bad); } .m-put { color: var(--warn); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-2); font-weight: 600; white-space: nowrap; }
+td.c, th.c { text-align: center; }
+.new { font: 600 10px/1 var(--mono); color: var(--accent); background: var(--accent-bg); border-radius: 4px; padding: 2px 5px; margin-left: 6px; vertical-align: 1px; }
+.layer { display: grid; gap: 8px; grid-template-columns: 150px 1fr; align-items: stretch; }
+.layer > .lab { font: 500 11px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-2); padding-top: 12px; }
+.boxes { display: flex; flex-wrap: wrap; gap: 8px; }
+.box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; min-width: 0; flex: 1 1 150px; }
+.box b { display: block; font-size: 13px; } .box small { color: var(--fg-2); font-size: 12px; display: block; }
+.box.ext { border-style: dashed; background: var(--surface-2); }
+.arrow { text-align: center; color: var(--accent); font: 500 12px var(--mono); padding: 6px 0 6px 150px; }
+@media (max-width: 640px) { .layer { grid-template-columns: 1fr; } .layer > .lab { padding-top: 0; } .arrow { padding-left: 0; } }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.chip { font: 500 12px var(--sans); border: 1px solid var(--border); background: var(--surface); color: var(--fg-2); border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.route td:first-child { white-space: nowrap; }
+.usage { cursor: pointer; }
+.usage:hover td { background: var(--surface-2); }
+.usage[aria-selected="true"] td { background: var(--accent-bg); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.dot.full { background: var(--accent); } .dot.part { background: linear-gradient(90deg, var(--accent) 50%, transparent 50%); border: 1.5px solid var(--accent); }
+.dot.none { border: 1.5px dashed var(--fg-2); opacity: .5; }
+.detail { margin-top: 14px; }
+.steps { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 12px; list-style: none; padding: 0; }
+.steps li { display: inline-flex; background: var(--surface-2); border-radius: 999px; padding: 5px 12px; font-size: 12px; font-weight: 500; }
+.steps li + li::before { content: "→"; color: var(--accent); margin-right: 8px; }
+ul.plain { margin: 0 0 12px; padding-left: 18px; } ul.plain li { margin-bottom: 4px; max-width: 70ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--fg-2); margin-bottom: 10px; }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.cols { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.col { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.col h4 { margin: 0 0 4px; font-size: 15px; } .col .why { font-size: 12px; color: var(--fg-2); margin-bottom: 10px; }
+.col ul { margin: 0; padding-left: 16px; font-size: 13px; } .col li { margin-bottom: 3px; }
+.q { border-left: 3px solid var(--warn); background: var(--warn-bg); padding: 10px 14px; border-radius: 0 8px 8px 0; margin-bottom: 8px; max-width: 72ch; }
+details { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
+summary { cursor: pointer; font-weight: 600; }
+.maj { border-left: 3px solid var(--accent); background: var(--accent-bg); padding: 10px 14px; border-radius: 0 8px 8px 0; margin-bottom: 18px; max-width: 80ch; }
+.maj ul { margin: 6px 0 0; padding-left: 18px; }
+@media (prefers-reduced-motion: no-preference) { nav.tabs button { transition: background .15s, color .15s; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">toledo · état des lieux au 17/11/2026 (première version : 19/10)</div>
+  <h1>Ce que toledo fait, et comment les usages s'y rattachent</h1>
+  <p class="lede">Produit, architecture, fonctions backend et frontend, puis une carte des usages pour planifier la refonte autour de la maquette 2 (« Que voulez-vous faire ? »), aujourd'hui livrée.</p>
+</header>
+
+<nav class="tabs" role="tablist" id="tabs">
+  <button role="tab" data-t="produit" aria-selected="true">Produit</button>
+  <button role="tab" data-t="archi" aria-selected="false">Architecture</button>
+  <button role="tab" data-t="back" aria-selected="false">Backend</button>
+  <button role="tab" data-t="front" aria-selected="false">Frontend</button>
+  <button role="tab" data-t="usages" aria-selected="false">Usages</button>
+  <button role="tab" data-t="refonte" aria-selected="false">Plan de refonte</button>
+  <button role="tab" data-t="audit" aria-selected="false">Lien avec les audits</button>
+</nav>
+
+<!-- PRODUIT -->
+<section class="panel" id="p-produit">
+  <h2>Le produit</h2>
+  <p class="sub">Lire, étudier et écouter un document dans sa langue sans qu'une seule donnée quitte la machine. Traduction par LLM local (Ollama), synthèse vocale locale, OCR local.</p>
+  <div class="maj"><b>Ce qui a changé depuis le 19/10</b>
+    <ul>
+      <li>Le parcours par objectif (maquette 2) est <b>livré</b> le 4/11, puis revu et corrigé jusqu'au 17/11.</li>
+      <li>Quatre fonctions nouvelles : <b>Découper un PDF</b> en sections de N pages, <b>Documents complexes</b> (ex-Scan multi-colonnes, régions réglées page par page), <b>document scanné recréé</b> avec ses illustrations (PDF mis en page ou HTML), <b>signature visuelle</b> d'un PDF.</li>
+      <li>Un cinquième onglet, <b>Anticipation</b> : ce qui est envisagé, construit ou livré, plus le rapport d'audit du code.</li>
+      <li>Audit <code>/revue-code</code> de cinq zones sur six (moteur, api, extraction, etude-tts, frontend) : tous les constats à 80 ou plus corrigés. Reste <code>macos</code>.</li>
+    </ul></div>
+  <div class="stats">
+    <div class="stat"><b>60</b><span>routes API</span><em>49 au 19/10</em></div>
+    <div class="stat"><b>5</b><span>onglets d'interface</span><em>+ Anticipation</em></div>
+    <div class="stat"><b>2</b><span>clients : web + macOS</span></div>
+    <div class="stat"><b>0</b><span>donnée envoyée au cloud</span></div>
+    <div class="stat"><b>616</b><span>tests pytest verts</span><em>320 au 19/10</em></div>
+  </div>
+  <div class="grid g2">
+    <div class="card"><h3>Ce qu'on peut faire</h3>
+      <ul class="plain">
+        <li>Choisir un objectif (Lire, Étudier, Écouter, Nettoyer) et suivre la barre d'étapes.</li>
+        <li>Importer un PDF ou un Markdown (navigateur ou chemin absolu), l'analyser (qualité, durée, chapitres).</li>
+        <li>Traduire par chapitres, avec file d'attente, pause, reprise, ajout de chapitres, planification.</li>
+        <li>Lire chapitre par chapitre, comparer l'original et la traduction, exporter en HTML.</li>
+        <li>Générer points clés et quiz par chapitre.</li>
+        <li>Écouter (Piper, Kokoro, voix clonée OpenVoice).</li>
+        <li>Nettoyer un document complexe (colonnes, encadrés, titres), page par page, avant traduction ; le recréer traduit avec ses illustrations.</li>
+        <li>Découper un PDF en sections, signer visuellement un PDF.</li>
+        <li>Mesurer durées et jetons, estimer les prochains traitements.</li>
+      </ul></div>
+    <div class="card"><h3>Principes qui tiennent le produit</h3>
+      <ul class="plain">
+        <li><b>Un seul moteur de traduction</b> : tout document est une liste de chapitres, le chapitre est l'unité d'écriture.</li>
+        <li><b>Le statut est honnête</b> : un chapitre échoué donne « erreur », jamais « terminé ».</li>
+        <li><b>« Non mesuré » est NULL</b>, jamais 0.</li>
+        <li><b>Les options suivent le document</b>, pas les menus affichés (rappel de l'audit frontend : deux reprises lisaient encore les menus).</li>
+        <li><b>Le PDF d'origine n'est jamais modifié</b> : découpe, signature et reconstruction écrivent une copie à côté.</li>
+        <li><b>Le backend n'a pas de logique côté interface</b> : les clients ne font que des appels HTTP.</li>
+      </ul></div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>Où en est la maquette 2 dans le code</h3>
+    <p><code>frontend/js/parcours.js</code> est commité et livré (4/11). L'Accueil propose Lire, Étudier, Écouter et Nettoyer, avec une barre d'étapes qui ne s'allume que sur un signal réel (<code>GET /bibliotheque</code>, <code>/etude/statut</code>, <code>/tts/statut</code>, statut du scan). Un objectif coupé par un flag n'est pas proposé (Nettoyer suit <code>extraction_scan_colonnes</code>, Étudier suit <code>mode_avance</code>). « Nettoyer » lance le scan par le même point d'entrée que le Laboratoire, peut l'arrêter, puis enchaîne la traduction. Le temps restant vient du rythme observé, sinon de l'estimation de l'analyse.</p>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section class="panel" id="p-archi" hidden>
+  <h2>Architecture</h2>
+  <p class="sub">Trois couches, un seul sens d'appel : les interfaces appellent l'API, l'API appelle les services, les services appellent les moteurs locaux.</p>
+  <div class="layer"><div class="lab">Interfaces</div><div class="boxes">
+    <div class="box"><b>Web</b><small>HTML/CSS/JS vanilla, sans build. 5 onglets + Réglages ⚙</small></div>
+    <div class="box"><b>macOS</b><small>Swift/SwiftUI, même design « Workflow », sans les fonctions d'après juillet</small></div></div></div>
+  <div class="arrow">↓ HTTP (JSON, multipart, SSE) ↓</div>
+  <div class="layer"><div class="lab">API · FastAPI</div><div class="boxes">
+    <div class="box"><b>routes.py</b><small>60 routes</small></div>
+    <div class="box"><b>validation.py</b><small>garde de chemin, allowlist .pdf/.md, origine</small></div>
+    <div class="box"><b>erreurs.py</b><small>erreurs typées {code, message, remediation}</small></div></div></div>
+  <div class="arrow">↓ appels Python ↓</div>
+  <div class="layer"><div class="lab">Services · déterministe</div><div class="boxes">
+    <div class="box"><b>soumission</b><small>point d'entrée unique : preflight + idempotence</small></div>
+    <div class="box"><b>translation_runner</b><small>moteur unifié, chapitres, reprise</small></div>
+    <div class="box"><b>pdf_extractor · uploads</b><small>extraction, découpe en morceaux, chapitres</small></div>
+    <div class="box"><b>job_manager · scheduler</b><small>file unique, planification</small></div>
+    <div class="box"><b>etude · study_runner</b><small>points clés, quiz</small></div>
+    <div class="box"><b>tts · voix_clonees</b><small>audio, clonage</small></div>
+    <div class="box"><b>scan_colonnes · segmentation</b><small>documents complexes, chapitres virtuels</small></div>
+    <div class="box"><b>reconstruction <span class="new">nouveau</span></b><small>document scanné recréé, PDF ou HTML</small></div>
+    <div class="box"><b>decoupe · signature <span class="new">nouveau</span></b><small>sections de N pages, copie _signe.pdf</small></div>
+    <div class="box"><b>stats · metriques</b><small>Chronique, estimation</small></div>
+    <div class="box"><b>recuperation · energie</b><small>reprise au démarrage, caffeinate</small></div></div></div>
+  <div class="arrow" style="padding-top:2px">↓ ↓</div>
+  <div class="layer"><div class="lab">Agents · piloté LLM</div><div class="boxes">
+    <div class="box"><b>analysis_agent</b><small>qualité, durée, structure d'un document</small></div>
+    <div class="box"><b>base_agent</b><small>socle commun</small></div></div></div>
+  <div class="arrow">↓ persistance ↓</div>
+  <div class="layer"><div class="lab">Stockage local</div><div class="boxes">
+    <div class="box"><b>store.py · SQLite (WAL)</b><small>état, registre, morceaux traduits, stats. Lu en priorité</small></div>
+    <div class="box"><b>JSON de secours</b><small>.state.json, .cache.json, bibliotheque.json, écrits en double, atomiquement</small></div>
+    <div class="box"><b>Fichiers à côté du source</b><small>_traduit_xx.md, fiches, images, sections, _signe.pdf, uploads/&lt;hash&gt;/</small></div></div></div>
+  <div class="arrow">↓ moteurs externes (processus séparés) ↓</div>
+  <div class="layer"><div class="lab">Moteurs locaux</div><div class="boxes">
+    <div class="box ext"><b>Ollama</b><small>traduction, fiches, analyse, segmentation</small></div>
+    <div class="box ext"><b>Tesseract</b><small>OCR, documents complexes</small></div>
+    <div class="box ext"><b>Piper · Kokoro</b><small>synthèse vocale</small></div>
+    <div class="box ext"><b>venv Python 3.10</b><small>OpenVoice V2 + MeloTTS, en sous-processus</small></div></div></div>
+
+  <div class="grid g2" style="margin-top:20px">
+    <div class="card"><h3>Pour la refonte, ce qui compte</h3>
+      <ul class="plain">
+        <li>Le backend est stable et audité : la refonte reste <b>surtout une affaire d'interface</b>.</li>
+        <li>Les traitements longs (traduction, étude, TTS, clonage, scan) passent par <b>une seule file</b> ; seul le planificateur a son propre thread. Découpe, signature et reconstruction sont synchrones.</li>
+        <li>L'interface se met à jour par polling de statut, plus un flux SSE (<code>/jobs/events</code>).</li>
+      </ul></div>
+    <div class="card"><h3>Contraintes à ne pas casser</h3>
+      <ul class="plain">
+        <li>Barre du haut sur une seule rangée (la Bibliothèque en calcule la hauteur), même avec cinq onglets.</li>
+        <li><code>chemin_sortie</code> reste un vrai chemin disque (images, reconstruction).</li>
+        <li>CSS/JS versionnés par <code>?v=N</code>.</li>
+        <li>Les deux clients : tout paramètre ajouté à une route se vérifie sur web <b>et</b> macOS.</li>
+        <li>Backend sans <code>--reload</code> : redémarrer après chaque modification.</li>
+      </ul></div>
+  </div>
+</section>
+
+<!-- BACKEND -->
+<section class="panel" id="p-back" hidden>
+  <h2>Fonctions backend</h2>
+  <p class="sub">Les 60 routes, regroupées par famille. « nouveau » marque les 11 routes apparues depuis le 19/10. Filtrez pour isoler une famille.</p>
+  <div class="filters" id="f-back"></div>
+  <div class="card scroll"><table class="route"><thead><tr><th>Route</th><th>Ce qu'elle fait</th><th>Famille</th></tr></thead><tbody id="t-back"></tbody></table></div>
+</section>
+
+<!-- FRONTEND -->
+<section class="panel" id="p-front" hidden>
+  <h2>Fonctions frontend</h2>
+  <p class="sub">Ce que l'utilisateur peut déclencher aujourd'hui, par onglet. « Avancé » signale ce qui n'apparaît qu'en mode avancé.</p>
+  <div class="legend"><span><i class="dot full"></i> web et macOS</span><span><i class="dot part"></i> web seulement</span></div>
+  <div class="grid g2" id="g-front"></div>
+</section>
+
+<!-- USAGES -->
+<section class="panel" id="p-usages" hidden>
+  <h2>Carte des usages</h2>
+  <p class="sub">Douze usages, croisés avec les onglets où ils se font aujourd'hui. Cliquez une ligne pour voir le chemin, les routes et les trous. Les quatre premiers sont les objectifs du parcours.</p>
+  <div class="legend"><span><i class="dot full"></i> usage principal de l'onglet</span><span><i class="dot part"></i> fait partie du chemin</span><span><i class="dot none"></i> absent</span></div>
+  <div class="card scroll"><table><thead><tr><th>Usage</th><th class="c">Accueil</th><th class="c">Biblio.</th><th class="c">Labo</th><th class="c">Chronique</th><th class="c">Réglages</th><th class="c">Parcours</th></tr></thead><tbody id="t-usages"></tbody></table></div>
+  <div class="card detail" id="d-usage"></div>
+</section>
+
+<!-- REFONTE -->
+<section class="panel" id="p-refonte" hidden>
+  <h2>Plan de refonte</h2>
+  <p class="sub">Proposition à discuter. Elle prolonge la maquette 2 : l'objectif en entrée, les outils gardés mais regroupés par intention.</p>
+  <div class="cols">
+    <div class="col"><h4>Accueil</h4><div class="why">« Que voulez-vous faire ? » · <span class="pill ok">livré</span></div>
+      <ul><li>4 objectifs</li><li>Document suivi + barre d'étapes + Pause</li><li>Réglages repliés (langues, modèle)</li><li>Reprendre un document en cours</li></ul></div>
+    <div class="col"><h4>Mes documents</h4><div class="why">Fusion de « Vos traductions » et Bibliothèque</div>
+      <ul><li>Une seule liste, tous les états</li><li>Lire, comparer, exporter, recréer, signer</li><li>Résumé, quiz, audio par chapitre</li><li>Pause, reprendre, ajouter des chapitres, supprimer</li></ul></div>
+    <div class="col"><h4>Outils</h4><div class="why">Ex-Laboratoire, groupé par tâche</div>
+      <ul><li>Préparer : documents complexes, découpe, segmentation, conversion</li><li>Voix : moteurs, clonage</li><li>Glossaire</li><li>Diagnostic : erreurs, état système</li></ul></div>
+    <div class="col"><h4>Chronique</h4><div class="why">Mesure</div>
+      <ul><li>Historique, vitesse par modèle</li><li>Estimateur branché sur l'Accueil</li></ul></div>
+    <div class="col"><h4>Anticipation</h4><div class="why">Ce qui vient · <span class="pill ok">livré</span></div>
+      <ul><li>Idées, maquettes, livraisons</li><li>Rapport d'audit épinglé</li><li>Cette cartographie</li></ul></div>
+  </div>
+
+  <h3 style="margin-top:22px">Écarts entre la maquette et l'existant</h3>
+  <div class="card scroll"><table><thead><tr><th>Sujet</th><th>Constat au 17/11</th><th>Proposition</th></tr></thead><tbody>
+    <tr><td>Étape « Préparer »</td><td><span class="pill ok">tranché</span> « Nettoyer » est un objectif propre (Importer → Analyser → Scan colonnes → Vérifier), avec Arrêter.</td><td>Proposer le nettoyage à l'import quand l'analyse détecte un document complexe.</td></tr>
+    <tr><td>Objectif « Écouter »</td><td><span class="pill warn">ouvert</span> Toujours Traduire puis Écouter. Le choix de voix et le clonage restent dans le Labo.</td><td>Mettre le choix de voix dans l'étape Écouter, le clonage dans Outils.</td></tr>
+    <tr><td>Usages sans objectif</td><td><span class="pill warn">ouvert</span> Planifier, comparer, structurer, glossaire, estimer, et maintenant découper, recréer, signer n'ont aucune entrée par objectif.</td><td>Les traiter comme actions d'un document ou options de l'objectif, pas comme objectifs.</td></tr>
+    <tr><td>Doublon de listes</td><td><span class="pill warn">ouvert</span> « Vos traductions » (Accueil) et la Bibliothèque montrent les mêmes documents.</td><td>Une seule liste « Mes documents ».</td></tr>
+    <tr><td>Annuler</td><td><span class="pill warn">à moitié</span> Le scan s'arrête depuis le parcours. La traduction n'a toujours que Pause.</td><td>Ajouter « Annuler » à la barre d'état pour la traduction.</td></tr>
+    <tr><td>Estimation</td><td><span class="pill warn">à moitié</span> Le parcours affiche un temps restant (rythme observé, sinon estimation de l'analyse). L'estimateur de la Chronique (<code>/stats/estimation</code>) n'est appelé que dans la Chronique.</td><td>Brancher l'estimateur sur l'Accueil, avant lancement.</td></tr>
+    <tr><td>Parité macOS</td><td><span class="pill bad">écart grandissant</span> Aucun fichier Swift ne parle de Chronique, parcours, documents complexes, découpe, signature, reconstruction ni Anticipation. Écart volontaire du 7/11 pour reconstruction, signature, parcours et Anticipation.</td><td>Décider le périmètre avant l'audit de la zone <code>macos</code>.</td></tr>
+  </tbody></table></div>
+
+  <h3 style="margin-top:22px">Questions ouvertes</h3>
+  <div class="q"><b>Mode avancé :</b> reste-t-il un interrupteur global, ou chaque outil avancé devient-il visible dans « Outils » sans mode ? (Étudier dépend encore de <code>mode_avance</code>.)</div>
+  <div class="q"><b>Plusieurs documents :</b> le parcours suit un seul « document suivi ». Faut-il un vrai lot par objectif, ou garder le lot actuel derrière « Nouveau document » ?</div>
+  <div class="q"><b>Parcours combinés :</b> étudier ET écouter le même document, est-ce deux objectifs enchaînés ou un cinquième objectif ?</div>
+  <div class="q"><b>Orchestration :</b> l'enchaînement Nettoyer → Traduire reste porté par la page. Le serveur doit-il le porter (job parent avec étapes) ?</div>
+  <div class="q"><b>macOS :</b> parité complète, ou web d'abord avec écart déclaré ?</div>
+
+  <h3 style="margin-top:22px">Ordre de travail suggéré</h3>
+  <details><summary>1. ✅ Valider la maquette 2 et terminer parcours.js</summary><p style="margin-top:8px">Livré le 4/11, revu le 6/11 et le 7/11, audité avec la zone frontend le 16/11. Restent : Annuler pour la traduction, tests de l'enchaînement scan vers traduction (carte « Tests de l'enchaînement » d'Anticipation).</p></details>
+  <details open><summary>2. Fusionner « Vos traductions » et la Bibliothèque</summary><p style="margin-top:8px">Le plus gros changement de navigation. Les routes ne changent pas. Les exports, la reconstruction et la signature (bandeau de lecture) suivent la fusion.</p></details>
+  <details><summary>3. Regrouper le Laboratoire en « Outils »</summary><p style="margin-top:8px">Il a grossi : documents complexes, découpe, segmentation, glossaire, voix, diagnostic. Le regrouper par tâche, sans mode avancé si la question ouverte le permet.</p></details>
+  <details><summary>4. Brancher la Chronique sur l'Accueil</summary><p style="margin-top:8px">Estimation avant lancement par <code>/stats/estimation</code> ; le temps restant pendant le traitement existe déjà.</p></details>
+  <details><summary>5. Parité macOS</summary><p style="margin-top:8px">Décider le périmètre, puis auditer la zone <code>macos</code>, la dernière qui reste. Vérifier les deux clients à chaque ajout de paramètre.</p></details>
+</section>
+
+<!-- AUDIT -->
+<section class="panel" id="p-audit" hidden>
+  <h2>Lien avec les audits</h2>
+  <p class="sub">Trois documents, trois questions. L'audit d'architecture (<a href="https://claude.ai/artifact/XGCFAfMcDz5TucJjFda9wu" target="_blank" rel="noopener">toledo — Messagerie, durabilité, architecture cible</a>) demande « le travail est-il conservé quoi qu'il arrive ? ». Le rapport d'audit du code (carte épinglée de l'onglet Anticipation) demande « le code fait-il ce qu'il dit ? ». Cette cartographie demande « qui fait quoi, et par où entre-t-on ? ».</p>
+
+  <h3>Ce que chaque élément de la refonte demande à l'architecture cible</h3>
+  <div class="card scroll"><table><thead><tr><th>Élément de la refonte</th><th>Principe de l'audit</th><th>Constat au 17/11</th></tr></thead><tbody>
+    <tr><td>Un objectif enchaîne des étapes (Nettoyer puis Traduire)</td><td>① modèle de job unique · ④ client sans état de job</td><td><span class="pill warn">à trancher</span> L'enchaînement est fait par la page (<code>parcours.js</code>). Page fermée entre les deux étapes : le scan se termine, la traduction ne part pas. Aucun travail perdu, mais « automatique » dépend d'un onglet ouvert.</td></tr>
+    <tr><td>« Document suivi » et objectif choisi</td><td>④ client sans état de job</td><td><span class="pill warn">à trancher</span> L'objectif et la cible du nettoyage sont dans le <code>localStorage</code> du navigateur, le « document suivi » est une heuristique (en marche, sinon le plus récent). Un second navigateur ou macOS ne les voit pas.</td></tr>
+    <tr><td>Bouton « Lancer » du parcours</td><td>⑧ soumission idempotente · ⑨ point d'entrée unique</td><td><span class="pill ok">conforme</span> Il passe par <code>POST /translate</code>, donc par <code>soumettre_traduction()</code>.</td></tr>
+    <tr><td>Étapes Résumé et Écouter allumées par signal</td><td>④ · ⑥ push serveur</td><td><span class="pill ok">compatible</span> Le parcours lit des statuts réels, par polling ; le flux SSE <code>/jobs/events</code> reste à brancher.</td></tr>
+    <tr><td>Objectif « Planifier »</td><td>⑩ énergie · ⑪ rattrapage · ⑫ santé</td><td><span class="pill warn">limite connue</span> Le réveil programmé du Mac reste bloqué faute de droits admin. L'écran dit que le Mac doit rester éveillé.</td></tr>
+    <tr><td>Bouton « Annuler »</td><td>machinerie d'annulation (F8)</td><td><span class="pill warn">à moitié</span> Branché pour le scan (<code>/labo/scan-colonnes/annuler</code>), pas pour la traduction.</td></tr>
+    <tr><td>Scan coupé par un redémarrage</td><td>même motif que F7</td><td><span class="pill ok">résolu</span> Un état <code>en_cours</code> sans job actif devient <code>annule</code> à la lecture du statut, donc reprenable. Fait à la lecture et non dans <code>recuperer_tout()</code> : un PDF nettoyé mais pas traduit n'est pas au registre.</td></tr>
+    <tr><td>Découpe, signature, reconstruction</td><td>hors audit</td><td><span class="pill ok">sans risque de durabilité</span> Synchrones, une copie écrite à côté du PDF d'origine, jamais modifié. 409 si la même découpe existe.</td></tr>
+  </tbody></table></div>
+
+  <h3 style="margin-top:22px">Audit du code par zone (/revue-code)</h3>
+  <div class="card scroll"><table><thead><tr><th>Zone</th><th>Date</th><th>Résultat</th></tr></thead><tbody>
+    <tr><td>moteur</td><td>26/10</td><td><span class="pill ok">corrigé</span> registre, ancien nom de sortie, langues du planificateur</td></tr>
+    <tr><td>api</td><td>10/11</td><td><span class="pill ok">corrigé</span> #517 à #525</td></tr>
+    <tr><td>extraction</td><td>13/11</td><td><span class="pill ok">corrigé</span> #530 à #536</td></tr>
+    <tr><td>etude-tts</td><td>15/11</td><td><span class="pill ok">corrigé</span> #537 à #541</td></tr>
+    <tr><td>frontend</td><td>16/11</td><td><span class="pill ok">corrigé le 17/11</span> 20 constats (#544 à #563), dont trois XSS</td></tr>
+    <tr><td>macos</td><td>—</td><td><span class="pill warn">à auditer</span> dernière zone</td></tr>
+  </tbody></table></div>
+
+  <h3 style="margin-top:22px">Écarts entre les documents</h3>
+  <div class="card scroll"><table><thead><tr><th>Sujet</th><th>Audit d'architecture</th><th>Cartographie au 17/11</th></tr></thead><tbody>
+    <tr><td>Nombre de routes</td><td>29, regroupées</td><td>60 décorateurs (41 au 28/7, 49 au 19/10)</td></tr>
+    <tr><td>Familles de jobs</td><td>5</td><td>6 avec le scan</td></tr>
+    <tr><td>Source de lecture</td><td>JSON, store en écriture double</td><td>Store prioritaire en lecture, JSON écrit en double pour toujours</td></tr>
+    <tr><td>Tests pytest</td><td>315 (18/8)</td><td>616</td></tr>
+    <tr><td>Parité macOS</td><td>Centré messagerie et reprise</td><td>Centré fonctions : la plupart des ajouts depuis juillet sont web seulement</td></tr>
+  </tbody></table></div>
+
+  <h3 style="margin-top:22px">Comment les assembler</h3>
+  <ul class="plain">
+    <li>L'audit d'architecture garde son rôle de référence de durabilité ; un addendum y reporterait la sixième famille, le décompte de routes, la lecture store-primaire et la parité.</li>
+    <li>Cette cartographie est la « partie 0 » (produit et usages) et vit dans l'onglet Anticipation, à côté du rapport d'audit du code.</li>
+    <li>Décision d'architecture à prendre avant de généraliser les parcours : le serveur porte-t-il l'enchaînement d'un objectif, ou la page reste-t-elle l'orchestrateur ?</li>
+  </ul>
+</section>
+</div>
+
+<script>
+// N = route apparue depuis le 19/10/2026.
+const ROUTES = [
+ ["GET","/health","État du backend","Système"],["GET","/modeles","Modèles Ollama installés","Système"],
+ ["GET","/feature-flags","Flags de fonctionnalités","Système"],["GET","/config/extracteurs","Extracteurs disponibles","Système"],
+ ["POST","/interet","Capture d'intérêt pour les fonctions à venir","Système"],
+ ["POST","/upload","Dépose un fichier, validé par contenu, rangé par hash","Import"],
+ ["POST","/analyser","Qualité, durée, structure d'un document (LLM)","Import"],
+ ["POST","/convert","Convertit un PDF en Markdown persistant","Import"],
+ ["POST","/chapitres","Liste les chapitres, avec bornes de lignes","Import"],
+ ["POST","/check-resume","Vérifie si un document peut être repris","Import"],
+ ["POST","/translate","Lance ou reprend une traduction (via soumission, preflight Ollama)","Traduction"],
+ ["POST","/job/{id}/pause","Met un job en pause","Traduction"],
+ ["GET","/jobs/events","Flux SSE des événements de jobs","Traduction"],
+ ["POST","/schedule","Planifie une traduction","Planification"],["POST","/schedule/batch","Planifie un lot","Planification"],
+ ["GET","/scheduled","Planifications actives","Planification"],["GET","/scheduled/tous","Toutes, tous statuts","Planification"],
+ ["GET","/scheduler/sante","Dernier tick, échéances dépassées, corruptions","Planification"],
+ ["DELETE","/scheduled/{id}","Retire une planification","Planification"],
+ ["GET","/bibliotheque","Registre des documents et leur progression","Bibliothèque"],
+ ["DELETE","/bibliotheque","Retire du registre (fichiers conservés)","Bibliothèque"],
+ ["POST","/chapitres/contenu","Texte d'un ou plusieurs chapitres","Bibliothèque"],
+ ["GET","/image","Sert une image extraite du PDF","Bibliothèque"],
+ ["GET","/telecharger","Télécharge un fichier produit (reconstruction)","Bibliothèque",1],
+ ["GET","/reconstruction/info","Le document vient-il d'un scan, donc reconstructible ?","Reconstruction",1],
+ ["POST","/reconstruction/{format}","Recrée le document traduit avec ses illustrations (PDF ou HTML)","Reconstruction",1],
+ ["POST","/signature","Écrit une copie _signe.pdf (signature visuelle)","Signature",1],
+ ["GET","/signature/apercu","Aperçu d'une page à signer (PNG)","Signature",1],
+ ["GET","/signature/info","Pages et dimensions du PDF à signer","Signature",1],
+ ["GET","/signature/pdfs","PDF signables liés au document","Signature",1],
+ ["POST","/etude","Génère points clés et quiz (stratégie sections ou condensation)","Étude"],
+ ["GET","/etude/statut","Statut et contenu de la fiche","Étude"],
+ ["GET","/glossaire","Lit le glossaire","Glossaire"],["PUT","/glossaire","Enregistre le glossaire","Glossaire"],
+ ["GET","/tts/moteurs","Moteurs et voix disponibles","Audio"],["POST","/tts/extrait","Écoute d'un court extrait","Audio"],
+ ["POST","/tts","Génère l'audio d'un chapitre","Audio"],["GET","/tts/statut","Statut de la génération","Audio"],["GET","/tts/audio","Sert le fichier audio","Audio"],
+ ["POST","/voix-clonees/capturer","Envoie un échantillon micro (WAV) pour clonage","Voix clonées"],
+ ["GET","/voix-clonees","Liste des voix","Voix clonées"],["GET","/voix-clonees/statut","Avancement du clonage","Voix clonées"],
+ ["PATCH","/voix-clonees/{id}","Renomme une voix","Voix clonées"],["DELETE","/voix-clonees/{id}","Supprime une voix","Voix clonées"],
+ ["POST","/labo/scan-colonnes","Lance le nettoyage d'un document complexe","Documents complexes"],["GET","/labo/scan-colonnes/statut","Avancement (un en_cours orphelin devient annule)","Documents complexes"],
+ ["POST","/labo/scan-colonnes/annuler","Arrête","Documents complexes"],["POST","/labo/scan-colonnes/reinitialiser","Efface le cache des pages","Documents complexes"],
+ ["GET","/labo/scan-colonnes/apercu","Aperçu des régions détectées (PNG)","Documents complexes"],["GET","/labo/scan-colonnes/info","Langues OCR installées","Documents complexes"],
+ ["GET","/labo/scan-colonnes/geometrie","Régions détectées d'une page, modifiables","Documents complexes",1],
+ ["PUT","/labo/scan-colonnes/reglage-page","Enregistre les régions réglées à la main pour une page","Documents complexes",1],
+ ["GET","/labo/decoupe/plan","Aperçu des sections prévues, n'écrit rien","Découpe",1],
+ ["POST","/labo/decoupe","Écrit les sections de N pages à côté du PDF (409 si déjà fait)","Découpe",1],
+ ["POST","/labo/segmentation/estimation","Estime le coût d'une segmentation","Segmentation"],
+ ["POST","/labo/segmentation","Propose des chapitres virtuels (lecture seule)","Segmentation"],
+ ["POST","/labo/segmentation/generer","Écrit le .md avec ces chapitres","Segmentation"],
+ ["GET","/stats/traitements","Historique des traitements","Chronique"],["POST","/stats/reconstituer","Recrée l'historique depuis les anciens états","Chronique"],
+ ["GET","/stats/estimation","Estime une durée (médiane, quartiles)","Chronique"]
+];
+const FRONT = [
+ {t:"Accueil",f:"module-import.js · parcours.js",items:[
+  ["Choisir un objectif, suivre la barre d'étapes, Pause, temps restant","part"],["Importer par Parcourir ou glisser-déposer","full"],["Ajouter par chemin absolu (avancé)","part"],
+  ["Analyse automatique : qualité, durée, chapitres","full"],["Réglages du lot : langues, modèle, extracteur (avancé)","full"],["Lancer le lot, planifier plus tard","full"],
+  ["Vos traductions : Pause, Reprendre, ➕ Chapitres, Supprimer","full"],["Traductions planifiées, Retirer","full"],["Nettoyer : scan lancé, arrêtable, enchaîné à la traduction","part"]]},
+ {t:"Bibliothèque",f:"module-bibliotheque.js · bibliotheque-exports.js",items:[
+  ["Liste des documents, lecture chapitre par chapitre","full"],["Comparer original et traduction","part"],["Titres de chapitres traduits","full"],
+  ["Bandeau « Reprendre » sur un document en erreur","full"],["Résumé et quiz, stratégie au choix et expliquée (avancé)","full"],["Export HTML de la fiche (avancé)","part"],
+  ["Export HTML du document avec images (flag + avancé)","part"],["⬇ PDF mis en page / HTML interactif d'un scan (flag)","part"],["✍ Signer un PDF (flag)","part"],
+  ["Lecture audio, générer, sauvegarder","full"],["Cases à cocher de chapitres (avancé)","part"]]},
+ {t:"Laboratoire (avancé)",f:"module-laboratoire.js · labo-scan-colonnes.js · labo-decoupe.js",items:[
+  ["Glossaire","full"],["Moteur et voix TTS, écoute d'extrait","full"],["Voix clonées : capture micro, liste, renommer, supprimer","part"],
+  ["Analyser, convertir, vérifier la reprise, journal d'erreurs","full"],["Segmentation automatique (prototype)","part"],
+  ["Documents complexes : aperçu, régions réglées page par page, zones dessinées","part"],["Découper un PDF en sections de N pages","part"],["Export PDF (teaser)","part"]]},
+ {t:"Chronique",f:"module-chronique.js",items:[
+  ["Vue d'ensemble","part"],["Estimer une durée selon le modèle","part"],["Vitesse par modèle","part"],["Historique, reconstitution","part"]]},
+ {t:"Anticipation",f:"module-anticipation.js · anticipation/cards.json",items:[
+  ["Cartes par statut, filtre, tri, épingles","part"],["Maquettes et rapports ouverts dans la carte","part"],["Rapport d'audit du code épinglé","part"]]},
+ {t:"Réglages ⚙",f:"reglages.js · reglages-styles.js · commutateurs.js · ui-ids.js",items:[
+  ["Mode avancé","full"],["Cartes du Laboratoire activables","part"],["Repères d'interface (lettre + numéro)","full"],
+  ["7 styles visuels","full"],["4 formats de commutateurs","part"],["État du système, relancer le backend","full"],["Documentation technique","part"]]}
+];
+const USAGES = [
+ {n:"Lire dans ma langue",obj:1,m:[2,1,0,0,1,2],steps:["Importer","Traduire","Lire"],
+  routes:["/upload","/analyser","/translate","/bibliotheque","/chapitres/contenu"],
+  gap:"Livré. Le choix langue/modèle est replié. Le temps restant s'affiche pendant la traduction ; l'estimateur de la Chronique n'est pas encore consulté avant lancement."},
+ {n:"Étudier un document",obj:1,m:[1,2,0,0,0,2],steps:["Importer","Traduire","Résumé et quiz"],
+  routes:["/translate","/etude","/etude/statut","/chapitres/contenu"],
+  gap:"Objectif proposé seulement si le flag mode_avance est actif. La génération se fait dans la Bibliothèque."},
+ {n:"Écouter un document",obj:1,m:[1,2,2,0,0,2],steps:["Importer","Traduire","Écouter"],
+  routes:["/tts/moteurs","/tts","/tts/statut","/tts/audio","/tts/extrait"],
+  gap:"Choix de moteur et de voix toujours dans le Labo (avancé), lecture dans la Bibliothèque. Pas d'étape Voix."},
+ {n:"Nettoyer un document complexe",obj:1,m:[1,1,2,0,0,2],steps:["Importer","Analyser","Scan colonnes","Vérifier","Traduire"],
+  routes:["/labo/scan-colonnes","/labo/scan-colonnes/statut","/labo/scan-colonnes/annuler","/labo/scan-colonnes/geometrie","/labo/scan-colonnes/reglage-page","/reconstruction/{format}"],
+  gap:"Même point d'entrée que le Labo. Les réglages page par page restent dans le Labo. L'enchaînement vers la traduction dépend de la page ouverte ; il n'est pas couvert par un test de bout en bout."},
+ {n:"Reprendre, ajouter, gérer",obj:0,m:[2,1,0,0,0,1],steps:["Vos traductions","Pause / Reprendre","➕ Chapitres","Supprimer"],
+  routes:["/bibliotheque","/translate","/job/{id}/pause","/check-resume","/jobs/events"],
+  gap:"Deux listes (Accueil et Bibliothèque) pour les mêmes documents. Pas d'Annuler pour la traduction."},
+ {n:"Planifier plus tard",obj:0,m:[2,0,0,0,0,0],steps:["Choisir l'heure","Planifier le lot","Planifiées"],
+  routes:["/schedule","/schedule/batch","/scheduled/tous","/scheduler/sante"],
+  gap:"Le Mac doit rester éveillé. L'audit frontend a corrigé un lot planifié qui ignorait les chapitres cochés."},
+ {n:"Comparer original et traduction",obj:0,m:[0,2,0,0,0,0],steps:["Ouvrir un chapitre","⇄ Comparer"],
+  routes:["/chapitres/contenu"],gap:"Marche parce que les index de chapitres concordent. À garder dans tout redécoupage."},
+ {n:"Découper un PDF",obj:0,m:[0,0,2,0,0,0],steps:["Choisir un PDF","N pages","Aperçu","Écrire les sections"],
+  routes:["/labo/decoupe/plan","/labo/decoupe"],
+  gap:"Les sections écrites ne sont pas ajoutées au lot : il faut les importer à la main."},
+ {n:"Signer un PDF",obj:0,m:[0,2,0,0,0,0],steps:["Ouvrir un document","✍ Signer","Placer","Copie _signe.pdf"],
+  routes:["/signature/pdfs","/signature/info","/signature/apercu","/signature"],
+  gap:"Derrière le flag signature_pdf, web seulement. Signature visuelle, pas cryptographique."},
+ {n:"Structurer un texte sans titres",obj:0,m:[0,0,2,0,0,0],steps:["Choisir un fichier","Tester","Générer le .md"],
+  routes:["/labo/segmentation/estimation","/labo/segmentation","/labo/segmentation/generer"],
+  gap:"Prototype. Non branché sur le pipeline : le .md généré se renvoie à la main dans le lot."},
+ {n:"Mesurer et estimer",obj:0,m:[0,0,0,2,0,1],steps:["Historique","Estimer une durée","Vitesse par modèle"],
+  routes:["/stats/traitements","/stats/estimation","/stats/reconstituer"],
+  gap:"Le temps restant du parcours ne passe pas par l'estimateur : deux calculs de durée coexistent."},
+ {n:"Personnaliser",obj:0,m:[0,0,1,0,2,0],steps:["Glossaire","Style","Repères","Mode avancé"],
+  routes:["/glossaire","/feature-flags","/modeles"],
+  gap:"Le glossaire est dans le Labo, les styles dans les Réglages. Le glossaire gagnerait à apparaître dans l'étape Traduire."}
+];
+const $=(s,r=document)=>r.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const mcls=m=>({GET:"m-get",POST:"m-post",DELETE:"m-del",PUT:"m-put",PATCH:"m-put"}[m]);
+
+const tabs=[...document.querySelectorAll("#tabs button")];
+function show(id){ if(!document.getElementById("p-"+id)) id="produit";
+  tabs.forEach(b=>b.setAttribute("aria-selected",String(b.dataset.t===id)));
+  document.querySelectorAll("section.panel").forEach(s=>s.hidden=s.id!=="p-"+id);
+  try{history.replaceState(null,"","#"+id)}catch(e){} window.scrollTo(0,0); }
+tabs.forEach(b=>b.addEventListener("click",()=>show(b.dataset.t)));
+
+const fams=["Toutes","Nouvelles",...new Set(ROUTES.map(r=>r[3]))]; let fam="Toutes";
+const garde=r=>fam==="Toutes"||(fam==="Nouvelles"?r[4]:r[3]===fam);
+function drawBack(){
+  $("#f-back").innerHTML=fams.map(f=>`<button class="chip" data-f="${esc(f)}" aria-pressed="${f===fam}">${esc(f)} (${ROUTES.filter(r=>f==="Toutes"||(f==="Nouvelles"?r[4]:r[3]===f)).length})</button>`).join("");
+  $("#t-back").innerHTML=ROUTES.filter(garde).map(r=>`<tr><td><code><b class="${mcls(r[0])}">${r[0]}</b> ${esc(r[1])}</code>${r[4]?'<span class="new">nouveau</span>':""}</td><td>${esc(r[2])}</td><td><span class="pill">${esc(r[3])}</span></td></tr>`).join("");
+  document.querySelectorAll("#f-back .chip").forEach(c=>c.onclick=()=>{fam=c.dataset.f;drawBack();});
+}
+drawBack();
+
+$("#g-front").innerHTML=FRONT.map(m=>`<div class="card"><h3>${esc(m.t)}</h3><div class="mono" style="color:var(--fg-2);margin-bottom:10px">${esc(m.f)}</div><ul class="plain" style="list-style:none;padding:0">${m.items.map(i=>`<li><i class="dot ${i[1]}" style="margin-right:8px"></i>${esc(i[0])}</li>`).join("")}</ul></div>`).join("");
+
+const cell=v=>`<td class="c"><i class="dot ${v===2?"full":v===1?"part":"none"}"></i></td>`;
+$("#t-usages").innerHTML=USAGES.map((u,i)=>`<tr class="usage" tabindex="0" data-i="${i}"><td><b>${esc(u.n)}</b>${u.obj?' <span class="pill acc">objectif</span>':""}</td>${u.m.map(cell).join("")}</tr>`).join("");
+function detail(i){
+  const u=USAGES[i];
+  document.querySelectorAll(".usage").forEach(r=>r.setAttribute("aria-selected",String(+r.dataset.i===i)));
+  $("#d-usage").innerHTML=`<h3>${esc(u.n)}</h3><ol class="steps">${u.steps.map(s=>`<li>${esc(s)}</li>`).join("")}</ol>
+   <h3>Routes utilisées</h3><p>${u.routes.map(r=>`<span class="pill">${esc(r)}</span>`).join(" ")}</p>
+   <h3>Ce qui bloque ou à trancher</h3><p>${esc(u.gap)}</p>`;
+}
+document.querySelectorAll(".usage").forEach(r=>{r.onclick=()=>detail(+r.dataset.i);r.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();detail(+r.dataset.i);}};});
+detail(0);
+show(location.hash.slice(1)||"produit");
+</script>
+</body>
+</html>
