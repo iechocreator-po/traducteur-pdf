@@ -92,6 +92,7 @@ struct LaboratoireModuleView: View {
 /// Choix du moteur et de la voix TTS, partagés avec la barre audio de la
 /// Bibliothèque via @AppStorage. Extrait de test lu avec AVAudioPlayer.
 struct TTSConfigView: View {
+    @EnvironmentObject private var env: AppEnvironment
     @AppStorage("ttsMoteur") private var moteurChoisi: String = ""
     @AppStorage("ttsVoix") private var voixChoisie: String = ""
     @State private var moteurs: [MoteurTTS] = []
@@ -184,7 +185,8 @@ struct TTSConfigView: View {
         Task {
             do {
                 let wav = try await APIService.shared.ecouterExtrait(
-                    texte: texte, moteur: moteurChoisi, voix: voixChoisie)
+                    texte: texte, moteur: moteurChoisi, voix: voixChoisie,
+                    langue: env.langueCible.rawValue)
                 lecteur = try AVAudioPlayer(data: wav)
                 lecteur?.play()
             } catch {
@@ -204,6 +206,10 @@ struct OutilsDocumentView: View {
     @State private var resultat: String? = nil
     @State private var erreurs: [String] = []
     @State private var repriseDisponible: String? = nil
+    /// État trouvé par « Vérifier » : « Reprendre » relance avec SON modèle et SES langues,
+    /// jamais celles des menus, qui ont pu changer entre-temps (piège 2).
+    @State private var etatReprise: EtatJob? = nil
+    @State private var cheminReprise: String? = nil
     @State private var enCours = false
 
     var body: some View {
@@ -307,9 +313,12 @@ struct OutilsDocumentView: View {
                 : try? await APIService.shared.checkResume(cheminPdf: cheminNet, modele: env.modeleChoisi)
             if let etat, etat.derniereSectionCompletee > 0, etat.statut != "termine" {
                 repriseDisponible = "section \(etat.derniereSectionCompletee)/\(etat.totalSections)"
+                etatReprise = etat
+                cheminReprise = cheminNet
                 resultat = "⏸ Job interrompu trouvé — \(etat.derniereSectionCompletee)/\(etat.totalSections) sections déjà traduites."
             } else {
                 repriseDisponible = nil
+                etatReprise = nil
                 resultat = "Aucun job interrompu pour ce fichier."
             }
             erreurs = (etat?.erreurs ?? []) + (etat?.avertissements ?? [])
@@ -317,16 +326,24 @@ struct OutilsDocumentView: View {
     }
 
     private func reprendre() {
+        // Le chemin a changé depuis « Vérifier » : l'état trouvé n'est plus le bon.
+        guard let etat = etatReprise, cheminReprise == cheminNet else {
+            repriseDisponible = nil
+            resultat = "Vérifie d'abord la reprise pour ce fichier."
+            return
+        }
         Task {
             guard await env.santeOk() else { return }
             do {
                 _ = try await APIService.shared.traduire(
                     cheminPdf: estMarkdown(cheminNet) ? nil : cheminNet,
                     cheminMd: estMarkdown(cheminNet) ? cheminNet : nil,
-                    modele: env.modeleChoisi,
-                    langueSource: env.langueSource, langueCible: env.langueCible,
+                    modele: etat.modeleOllama,
+                    langueSource: Langue(rawValue: etat.langueSource) ?? env.langueSource,
+                    langueCible: Langue(rawValue: etat.langueCible) ?? env.langueCible,
                     extracteur: env.extracteurChoisi, resume: true)
                 repriseDisponible = nil
+                etatReprise = nil
                 resultat = "▶ Traduction reprise — suivi dans « Nouveau document » ou en Bibliothèque une fois terminée."
             } catch {
                 resultat = "❌ \(error.localizedDescription)"

@@ -87,8 +87,10 @@
           chemin_pdf: item.chemin,
           modele_ollama: $("modele").value || "llama3.1",
         }, API_TIMEOUT_LONG_MS);
-        item.chapitres = data.nb_chapitres;
-        item.eta = data.estimation_temps_secondes;
+        // Sans texte extractible, le backend renvoie 0 chapitre et 0 s : rien n'a été
+        // mesuré, on n'affiche donc ni « ≈ 0:00 » ni « aucun titre » (piège 14).
+        item.chapitres = data.texte_extractible ? data.nb_chapitres : null;
+        item.eta = data.texte_extractible ? data.estimation_temps_secondes : null;
         item.recommandation = data.recommandation;
         if (data.texte_extractible) {
           item.qualite = data.avertissements.length ? "Correcte" : "Excellente";
@@ -150,9 +152,13 @@
     item.chapitresChargement = true;
     rendreLot();
     try {
+      // Les index cochés n'ont de sens qu'avec CET extracteur : il est figé sur le
+      // fichier et réutilisé au lancement, même si le menu change entre-temps (piège 2).
+      const extracteur = $("extracteur-pdf").value;
       const data = await apiPost("/chapitres", corpsSource(item.chemin, {
-        extracteur_pdf: $("extracteur-pdf").value,
+        extracteur_pdf: extracteur,
       }), API_TIMEOUT_LONG_MS);
+      item.extracteurChapitres = extracteur;
       initSelectionChapitres(item, data.chapitres);
       // Renseigne le compte (le sélecteur n'est rendu que si chapitres > 0),
       // utile quand on arrive par « ➕ Chapitres » sans passer par l'analyse.
@@ -167,17 +173,26 @@
 
   // ── Lancement du lot ────────────────────────────────────────────────────────
 
+  let lancementEnCours = false;
+
   async function lancerLot(ids = null) {   // ids : restreint le lancement à ces fichiers (enchaînement auto)
     const btn = $("bouton-lancer-lot");
-    if (!(await exigerSante())) return;
-    const prets = lot.filter(f => itemLancable(f) && (!ids || ids.includes(f.id)));
-    if (prets.length === 0) return;
-
-    // Feedback immédiat : le bouton grise pendant le lancement (le traitement
-    // backend démarre, l'utilisateur voit que « ça part »).
+    // Verrou synchrone AVANT le premier await : un double clic pendant /health
+    // lançait deux fois le même lot (l'idempotence backend n'est posée qu'après le preflight).
+    if (lancementEnCours) return;
+    lancementEnCours = true;
     const libelle = btn.textContent;
     btn.disabled = true;
     btn.textContent = "⏳ Lancement…";
+    const prets = (await exigerSante())
+      ? lot.filter(f => itemLancable(f) && (!ids || ids.includes(f.id)))
+      : [];
+    if (prets.length === 0) {
+      lancementEnCours = false;
+      btn.textContent = libelle;
+      rendreLot();
+      return;
+    }
 
     const lances = [];
     for (const item of prets) {
@@ -189,7 +204,7 @@
           langue_source: figes?.langue_source || $("langue-source").value,
           langue_cible: figes?.langue_cible || $("langue-cible").value,
           modele_ollama: figes?.modele || $("modele").value,
-          extracteur_pdf: $("extracteur-pdf").value,
+          extracteur_pdf: item.extracteurChapitres || $("extracteur-pdf").value,
           estimation_temps_total: item.eta ?? null,
           // La qualité observée à l'analyse suit le document dans le registre :
           // sans ça elle mourait avec le lot en mémoire (feature 320).
@@ -209,6 +224,7 @@
     // Les fichiers lancés QUITTENT le lot : ils sont désormais suivis dans
     // « Vos traductions » (plus de doublon lot ↔ Vos traductions).
     lot = lot.filter(f => !lances.includes(f.id));
+    lancementEnCours = false;
     btn.disabled = false;
     btn.textContent = libelle;
     rendreLot();
@@ -218,10 +234,25 @@
 
   // ── Planification du lot ────────────────────────────────────────────────────
 
+  let planificationEnCours = false;
+
   async function planifierLot() {
-    const prets = lot.filter(f => f.stage === "pret");
+    // Même filtre que « Lancer » : un fichier réglé sur « Aucun » chapitre n'est pas planifié.
+    const prets = lot.filter(itemLancable);
     if (prets.length === 0) { alert("Aucun fichier prêt à planifier."); return; }
     if (!$("plan-heure").value) { alert("Choisis la date et l'heure d'exécution."); return; }
+    if (planificationEnCours) return;  // double clic → deux lots identiques planifiés
+    planificationEnCours = true;
+    const btn = $("bouton-planifier");
+    if (btn) btn.disabled = true;
+    // Sélection partielle et extracteur de la liste, par fichier : sans eux, chaque fichier
+    // était planifié EN ENTIER, quels que soient les chapitres cochés.
+    const chapitresParChemin = {};
+    const extracteursParChemin = {};
+    for (const f of prets) {
+      if (selectionPartielle(f)) chapitresParChemin[f.chemin] = [...f.chapitresCoches].sort((a, b) => a - b);
+      if (f.extracteurChapitres) extracteursParChemin[f.chemin] = f.extracteurChapitres;
+    }
     try {
       const data = await apiPost("/schedule/batch", {
         chemins: prets.map(f => f.chemin),
@@ -230,14 +261,20 @@
         langue_cible: $("langue-cible").value,
         modele_ollama: $("modele").value,
         extracteur_pdf: $("extracteur-pdf").value,
-      });
+        chapitres_par_chemin: chapitresParChemin,
+        extracteurs_par_chemin: extracteursParChemin,
+      }, API_TIMEOUT_LONG_MS);
       $("plan-statut").textContent = `✅ ${data.jobs.length} fichier(s) planifié(s)`;
       setTimeout(() => { $("plan-statut").textContent = ""; }, 4000);
-      lot = lot.filter(f => f.stage !== "pret");
+      const planifies = new Set(prets.map(f => f.id));
+      lot = lot.filter(f => !planifies.has(f.id));
       rendreLot();
       rafraichirPlanifies();
     } catch (e) {
       $("plan-statut").textContent = `❌ ${e.message}`;
+    } finally {
+      planificationEnCours = false;
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -872,7 +909,9 @@
     etat.chargement = true;
     rafraichir();
     try {
-      const data = await apiPost("/chapitres", corpsSource(doc.chemin_source), API_TIMEOUT_LONG_MS);
+      // Même extracteur que le travail : les index déjà traduits n'ont de sens qu'avec lui.
+      const data = await apiPost("/chapitres", corpsSource(doc.chemin_source,
+        doc.extracteur_pdf ? { extracteur_pdf: doc.extracteur_pdf } : {}), API_TIMEOUT_LONG_MS);
       etat.chapitres = data.chapitres;
       // Coche par défaut les chapitres NON traduits.
       etat.coches = new Set(data.chapitres.map(c => c.index).filter(i => !etat.deja.has(i)));
@@ -957,9 +996,12 @@
   }
 
   async function lancerChapitres(doc, etat) {
-    if (!(await exigerSante())) return;
+    // Verrou posé AVANT le premier await : un double clic pendant /health
+    // soumettait deux fois (l'idempotence backend n'est posée qu'après le preflight).
+    if (etat.lancement) return;
     etat.lancement = true;
     rafraichir();
+    if (!(await exigerSante())) { etat.lancement = false; rafraichir(); return; }
     try {
       await apiPost("/translate", corpsSource(doc.chemin_source, {
         langue_source: doc.langue_source,
@@ -995,9 +1037,11 @@
   }
 
   async function reprendreDoc(doc, bouton) {
-    if (!(await exigerSante())) return;
+    // Verrou avant le premier await (double clic → deux soumissions).
+    if (bouton.disabled) return;
     bouton.disabled = true;
     bouton.textContent = "⏳ Reprise…";
+    if (!(await exigerSante())) { bouton.disabled = false; bouton.textContent = "⏯ Reprendre"; return; }
     try {
       await apiPost("/translate", corpsSource(doc.chemin_source, {
         langue_source: doc.langue_source,

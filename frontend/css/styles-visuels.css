@@ -145,6 +145,8 @@ html[data-style="classeur"][data-theme="dark"] {
 html[data-style="classeur"] .barre-app {
   --text: #eaf0ec; --text-2: #b9c8c0; --text-3: #8fa398; --surface-2: rgba(255, 255, 255, 0.1);
   --border: rgba(255, 255, 255, 0.22); --accent: #f0c36d;
+  /* --surface aussi : ⚙ et le thème actif (texte clair sur var(--surface)) devenaient illisibles en clair. */
+  --surface: rgba(255, 255, 255, 0.14);
   background: #33433d; color: var(--text); border-bottom-color: rgba(0, 0, 0, 0.35);
 }
 html[data-style="classeur"][data-theme="dark"] .barre-app { background: #1c2824; }
@@ -211,9 +213,13 @@ html[data-style="plan"] .logo-pastille { border-radius: 0; width: 12px; height: 
 html[data-style="plan"] .onglet-module { border-radius: 0; border: 1px solid transparent; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.78rem; font-weight: 500; }
 html[data-style="plan"] .onglet-module.is-active { background: transparent; border-color: var(--accent); }
 html[data-style="plan"] .ds-card { position: relative; border-color: var(--border); }
-html[data-style="plan"] .ds-card::before, html[data-style="plan"] .ds-card::after { content: ""; position: absolute; width: 9px; height: 9px; border: 2px solid var(--accent); pointer-events: none; }
-html[data-style="plan"] .ds-card::before { left: -1px; top: -1px; border-right: 0; border-bottom: 0; }
-html[data-style="plan"] .ds-card::after { right: -1px; bottom: -1px; border-left: 0; border-top: 0; }
+/* Coin haut-gauche dessiné en fond, PAS en ::before : ::before porte l'étiquette des repères
+   d'interface (« C3 »). Le partager effaçait l'étiquette (repères ON) ou le coin (repères OFF). */
+html[data-style="plan"] .ds-card {
+  background-image: linear-gradient(var(--accent), var(--accent)), linear-gradient(var(--accent), var(--accent));
+  background-size: 9px 2px, 2px 9px; background-position: 0 0, 0 0; background-repeat: no-repeat;
+}
+html[data-style="plan"] .ds-card::after { content: ""; position: absolute; width: 9px; height: 9px; border: 2px solid var(--accent); pointer-events: none; right: -1px; bottom: -1px; border-left: 0; border-top: 0; }
 html[data-style="plan"] .ds-card h2 { color: var(--text-2); text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.78rem; font-weight: 500; }
 html[data-style="plan"] .carte-dropzone { border-style: dashed; border-width: 1px; }
 html[data-style="plan"] .barre-conteneur { border: 1px solid var(--border); border-radius: 0; background: repeating-linear-gradient(90deg, var(--border) 0 1px, transparent 1px 8px); height: 12px; }

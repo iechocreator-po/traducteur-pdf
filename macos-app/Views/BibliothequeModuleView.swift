@@ -221,7 +221,8 @@ final class BibliothequeViewModel: ObservableObject {
             return
         }
         do {
-            _ = try await APIService.shared.genererAudio(cheminMd: doc.cheminSortie, moteur: moteur, voix: voix)
+            _ = try await APIService.shared.genererAudio(cheminMd: doc.cheminSortie, moteur: moteur, voix: voix,
+                                                         langue: doc.langueCible)
             audioGenerationEnCours = true
             demarrerPollAudio()
         } catch {

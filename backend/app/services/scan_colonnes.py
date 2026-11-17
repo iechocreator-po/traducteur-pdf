@@ -1105,6 +1105,22 @@ def demarrer_scan(chemin_pdf: str, page_debut: int | None = None, page_fin: int 
     if debut > fin:
         raise ScanColonnesEchec(f"Plage de pages vide ({debut}–{fin}) pour un document de {total} pages.")
     sorties = chemins_sortie(chemin_pdf)
+    # Un seul nettoyage actif par PDF : un double clic lançait deux jobs qui écrivaient le même état et le même
+    # dossier (des heures d'OCR en double, « Arrêter » n'annulant que le dernier). Vérification et
+    # enregistrement sous le même verrou : deux requêtes concurrentes ne passent pas toutes les deux.
+    with _VERROU_LANCEMENT:
+        actuel = lire_json_tolerant(sorties["etat"])
+        if (isinstance(actuel, dict) and actuel.get("statut") in ("en_attente", "en_cours")
+                and actuel.get("job_id") and job_actif(actuel["job_id"])):
+            raise ScanColonnesEchec("Un nettoyage de ce PDF est déjà en cours.")
+        return _enfiler_scan(chemin_pdf, sorties, debut, fin, langue_ocr, travailleurs, double_page)
+
+
+_VERROU_LANCEMENT = threading.Lock()
+
+
+def _enfiler_scan(chemin_pdf: str, sorties: dict, debut: int, fin: int, langue_ocr: str, travailleurs: int,
+                  double_page: bool | None) -> dict:
     etat = {
         "job_id": str(uuid.uuid4()),
         "chemin_pdf": chemin_pdf,

@@ -15,6 +15,14 @@ function formaterDuree(secondes) {
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// Échappement HTML complet, guillemets compris : seul échappeur à utiliser, y compris
+// dans un attribut (`href="…"`, `alt="…"`). Passer par `textContent` → `innerHTML`
+// n'échappe ni `"` ni `'` : un lien `https://a"onmouseover=…` sortait de l'attribut.
+function echapperHtml(txt) {
+  return String(txt ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 function nomFichier(chemin) {
   return chemin.split("/").pop();
 }
@@ -61,7 +69,7 @@ class ErreurApi extends Error {
     // redémarrage d'Ollama des écrans qui l'affichaient — une régression
     // silencieuse en croyant améliorer les choses.
     super(
-      (corps && corps.detail) ||
+      ErreurApi.texteDetail(corps && corps.detail) ||
       (typee && typee.message) ||
       `Erreur HTTP ${statut}`
     );
@@ -74,6 +82,18 @@ class ErreurApi extends Error {
 
   get estOllamaIndisponible() {
     return this.code === "ollama_indisponible";
+  }
+
+  // Une erreur de validation FastAPI (422) porte `detail` en TABLEAU
+  // ([{loc, msg, type}…]) : passé tel quel à `Error`, il s'affichait « [object Object] ».
+  static texteDetail(detail) {
+    if (!Array.isArray(detail)) return detail;
+    const msgs = detail.map((d) => {
+      if (!d || typeof d !== "object") return String(d ?? "");
+      const champ = Array.isArray(d.loc) ? d.loc.filter((x) => x !== "body" && x !== "query").join(".") : "";
+      return champ ? `${champ} : ${d.msg}` : String(d.msg ?? "");
+    }).filter(Boolean);
+    return msgs.join(" ; ") || null;
   }
 }
 

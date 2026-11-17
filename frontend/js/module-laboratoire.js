@@ -40,6 +40,7 @@ async function chargerMoteursTts() {
   try {
     const data = await apiGet("/tts/moteurs");
     ttsMoteurs = data.moteurs;
+    const moteurChoisi = $("tts-moteur").value;
     $("tts-moteur").innerHTML = "";
     for (const m of ttsMoteurs) {
       const opt = document.createElement("option");
@@ -48,7 +49,10 @@ async function chargerMoteursTts() {
       opt.disabled = !m.disponible;
       $("tts-moteur").appendChild(opt);
     }
-    const premierDispo = ttsMoteurs.find(m => m.disponible);
+    // Garde le moteur choisi s'il est toujours disponible : ce rechargement suit chaque
+    // fin de clonage et chaque reconnexion, il ramenait le choix sur le premier moteur.
+    const courant = ttsMoteurs.find(m => m.id === moteurChoisi && m.disponible);
+    const premierDispo = courant || ttsMoteurs.find(m => m.disponible);
     if (premierDispo) $("tts-moteur").value = premierDispo.id;
     majVoixTts();
   } catch {
@@ -167,18 +171,20 @@ $("bouton-analyser").addEventListener("click", async () => {
   zone.innerHTML = "<em>Analyse en cours…</em>";
   try {
     const d = await apiPost("/analyser", { chemin_pdf: chemin, modele_ollama: $("modele").value || "llama3.1" }, API_TIMEOUT_LONG_MS);
+    // Sans texte extractible, le backend renvoie 0 chapitre et 0 s : rien n'a été mesuré (« — », pas 0).
+    const mesure = d.texte_extractible !== false;
     zone.innerHTML = `
       <table class="tableau-analyse">
         <tr><th>Pages analysées</th><td>${d.nb_pages_analysees}</td></tr>
         <tr><th>Texte extractible</th><td>${d.texte_extractible ? "✅ Oui" : "❌ Non"}</td></tr>
-        <tr><th>Langue détectée</th><td>${d.langue_detectee || "—"}</td></tr>
-        <tr><th>Chapitres</th><td>${d.nb_chapitres}</td></tr>
-        <tr><th>Sections (chunks)</th><td>${d.estimation_nb_chunks}</td></tr>
-        <tr><th>Durée estimée</th><td>⏱ ~${formaterDuree(d.estimation_temps_secondes)}</td></tr>
-        <tr><th>Recommandation</th><td>${d.recommandation}</td></tr>
+        <tr><th>Langue détectée</th><td>${_echapperHtml(d.langue_detectee || "—")}</td></tr>
+        <tr><th>Chapitres</th><td>${mesure ? d.nb_chapitres : "—"}</td></tr>
+        <tr><th>Sections (chunks)</th><td>${mesure ? d.estimation_nb_chunks : "—"}</td></tr>
+        <tr><th>Durée estimée</th><td>${mesure ? `⏱ ~${formaterDuree(d.estimation_temps_secondes)}` : "—"}</td></tr>
+        <tr><th>Recommandation</th><td>${_echapperHtml(d.recommandation)}</td></tr>
       </table>`;
   } catch (e) {
-    zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    zone.innerHTML = `<span class="erreur">Erreur : ${_echapperHtml(e.message)}</span>`;
   }
 });
 
@@ -190,22 +196,28 @@ $("bouton-convertir").addEventListener("click", async () => {
   zone.innerHTML = "<em>Conversion en cours…</em>";
   try {
     const d = await apiPost("/convert", { chemin_pdf: chemin, extracteur_pdf: $("extracteur-pdf").value }, API_TIMEOUT_LONG_MS);
-    zone.innerHTML = `<p>✅ Conversion terminée — ${d.nb_caracteres.toLocaleString()} caractères<br>Fichier : <code>${d.chemin_sortie}</code></p>`;
+    zone.innerHTML = `<p>✅ Conversion terminée — ${d.nb_caracteres.toLocaleString()} caractères<br>Fichier : <code>${_echapperHtml(d.chemin_sortie)}</code></p>`;
   } catch (e) {
-    zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    zone.innerHTML = `<span class="erreur">Erreur : ${_echapperHtml(e.message)}</span>`;
   }
 });
+
+// État trouvé par « Vérifier » : « Reprendre » relance avec SES options (langues, modèle),
+// jamais celles des menus, qui ont pu changer entre-temps (piège 2).
+let repriseTrouvee = null;
 
 $("bouton-verifier-reprise").addEventListener("click", async () => {
   const chemin = cheminOutil();
   if (!chemin) return;
   const zone = $("outil-resultat");
+  repriseTrouvee = null;
   try {
     // Le modèle du menu : c'est avec lui que « Reprendre » relancera (piège 5 : sans lui, l'état d'un autre modèle).
     const etat = await apiPost("/check-resume", corpsSource(chemin, { modele_ollama: $("modele").value }));
     if (etat && etat.derniere_section_completee > 0 && etat.statut !== "termine") {
       $("reprise-progression").textContent = `section ${etat.derniere_section_completee}/${etat.total_sections}`;
       $("bouton-reprendre").hidden = false;
+      repriseTrouvee = { chemin, etat };
       zone.innerHTML = `<p>⏸ Job interrompu trouvé — ${etat.derniere_section_completee}/${etat.total_sections} sections déjà traduites.</p>`;
     } else {
       $("bouton-reprendre").hidden = true;
@@ -215,26 +227,39 @@ $("bouton-verifier-reprise").addEventListener("click", async () => {
     $("section-erreurs").hidden = erreurs.length === 0;
     $("contenu-erreurs").textContent = erreurs.join("\n");
   } catch (e) {
-    zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    zone.innerHTML = `<span class="erreur">Erreur : ${_echapperHtml(e.message)}</span>`;
   }
 });
 
 $("bouton-reprendre").addEventListener("click", async () => {
   const chemin = cheminOutil();
   if (!chemin) return;
-  if (!(await exigerSante())) return;
+  // Le chemin a changé depuis « Vérifier » : l'état trouvé n'est plus le bon.
+  if (!repriseTrouvee || repriseTrouvee.chemin !== chemin) {
+    $("bouton-reprendre").hidden = true;
+    $("outil-resultat").innerHTML = "<p>Vérifie d'abord la reprise pour ce fichier.</p>";
+    return;
+  }
+  const btn = $("bouton-reprendre");
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const { etat } = repriseTrouvee;
   try {
+    if (!(await exigerSante())) return;
     await apiPost("/translate", corpsSource(chemin, {
-      langue_source: $("langue-source").value,
-      langue_cible: $("langue-cible").value,
-      modele_ollama: $("modele").value,
-      extracteur_pdf: $("extracteur-pdf").value,
+      langue_source: etat.langue_source,
+      langue_cible: etat.langue_cible,
+      modele_ollama: etat.modele_ollama,
+      ...(etat.extracteur_pdf ? { extracteur_pdf: etat.extracteur_pdf } : {}),
       resume: true,
     }), API_TIMEOUT_LONG_MS);
+    repriseTrouvee = null;
     $("bouton-reprendre").hidden = true;
     $("outil-resultat").innerHTML = "<p>▶ Traduction reprise — suivi dans « Nouveau document » ou dans la Bibliothèque une fois terminée.</p>";
   } catch (e) {
-    $("outil-resultat").innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    $("outil-resultat").innerHTML = `<span class="erreur">Erreur : ${_echapperHtml(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
   }
 });
 
@@ -247,10 +272,9 @@ $("bouton-reprendre").addEventListener("click", async () => {
 // couvrir une attente potentiellement illimitée comme avant.
 const API_TIMEOUT_SEGMENTATION_MS = 15 * 60 * 1000;
 
+// Alias historique : délègue à l'échappeur complet de commun.js (guillemets compris).
 function _echapperHtml(s) {
-  const div = document.createElement("div");
-  div.textContent = s;
-  return div.innerHTML;
+  return echapperHtml(s);
 }
 
 function _rendreListeSegments(titre, segments, avecCitation) {
@@ -314,7 +338,7 @@ async function estimerCibleSegmentation(chemin) {
       aide.textContent = `💡 ${d.cible_suggeree} suggéré pour ${d.nb_caracteres.toLocaleString()} caractères (estimation par longueur, pas une analyse de contenu — ajuste librement).`;
     }
   } catch (e) {
-    if (aide) aide.textContent = `❌ Estimation impossible : ${e.message}`;
+    if (aide) aide.textContent = `❌ Estimation impossible : ${_echapperHtml(e.message)}`;
   }
 }
 
@@ -389,7 +413,7 @@ $("bouton-segmenter").addEventListener("click", async () => {
       $("bouton-segmentation-generer").hidden = false;
     }
   } catch (e) {
-    zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    zone.innerHTML = `<span class="erreur">Erreur : ${_echapperHtml(e.message)}</span>`;
   } finally {
     btn.disabled = false;
     btn.textContent = "Tester la segmentation";
@@ -407,9 +431,9 @@ $("bouton-segmentation-generer").addEventListener("click", async () => {
   try {
     const corps = corpsSource(chemin, { chapitres });
     const d = await apiPost("/labo/segmentation/generer", corps, API_TIMEOUT_LONG_MS);
-    zone.innerHTML = `<p>✅ Fichier généré — ${d.nb_caracteres.toLocaleString()} caractères<br>Fichier : <code>${d.chemin_sortie}</code></p>`;
+    zone.innerHTML = `<p>✅ Fichier généré — ${d.nb_caracteres.toLocaleString()} caractères<br>Fichier : <code>${_echapperHtml(d.chemin_sortie)}</code></p>`;
   } catch (e) {
-    zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    zone.innerHTML = `<span class="erreur">Erreur : ${_echapperHtml(e.message)}</span>`;
   } finally {
     btn.disabled = false;
     btn.textContent = "Générer le .md avec ces chapitres";
@@ -480,13 +504,13 @@ async function chargerVoixClonees() {
         en_attente: "⏳ En attente…",
         en_cours: "⏳ Traitement en cours…",
         termine: "✅ Prête",
-        erreur: `❌ ${v.erreur || "Échec du traitement"}`,
-      }[v.statut] || v.statut;
+        erreur: `❌ ${_echapperHtml(v.erreur || "Échec du traitement")}`,
+      }[v.statut] || _echapperHtml(v.statut);
       ligne.innerHTML = `
-        <span class="voix-nom">${v.nom}</span>
+        <span class="voix-nom">${_echapperHtml(v.nom)}</span>
         <span class="aide">${libelleStatut}</span>
-        <button class="bouton-lien" data-action="renommer" data-id="${v.id}">Renommer</button>
-        <button class="bouton-lien" data-action="supprimer" data-id="${v.id}">Supprimer</button>
+        <button class="bouton-lien" data-action="renommer" data-id="${_echapperHtml(v.id)}">Renommer</button>
+        <button class="bouton-lien" data-action="supprimer" data-id="${_echapperHtml(v.id)}">Supprimer</button>
       `;
       zone.appendChild(ligne);
       if (v.statut === "en_attente" || v.statut === "en_cours") pollerStatutTraitement(v.id);
@@ -524,17 +548,29 @@ $("liste-voix-clonees").addEventListener("click", async (e) => {
   }
 });
 
-async function pollerStatutTraitement(idVoix) {
+// Une seule chaîne de sondage par voix : `chargerVoixClonees` est rappelée par chaque
+// reconnexion (toutes les 30 s quand Ollama est arrêté), chaque renommage et chaque fin
+// de chaîne — sans ce garde, les chaînes se démultipliaient.
+const voixSondees = new Set();
+
+function pollerStatutTraitement(idVoix) {
+  if (voixSondees.has(idVoix)) return;
+  voixSondees.add(idVoix);
+  _sonderVoix(idVoix);
+}
+
+async function _sonderVoix(idVoix) {
   try {
-    const etat = await apiGet(`/voix-clonees/statut?id_voix=${idVoix}`);
+    const etat = await apiGet(`/voix-clonees/statut?id_voix=${encodeURIComponent(idVoix)}`);
     if (!etat || etat.statut === "en_attente" || etat.statut === "en_cours") {
-      setTimeout(() => pollerStatutTraitement(idVoix), 3000);
+      setTimeout(() => _sonderVoix(idVoix), 3000);
       return;
     }
+    voixSondees.delete(idVoix);
     await chargerVoixClonees();
     if (etat.statut === "termine") await chargerMoteursTts();
   } catch {
-    setTimeout(() => pollerStatutTraitement(idVoix), 5000);
+    setTimeout(() => _sonderVoix(idVoix), 5000);
   }
 }
 
@@ -601,7 +637,7 @@ $("bouton-demarrer-enr").addEventListener("click", async () => {
     if (e.name === "NotAllowedError") {
       elStatut.textContent = "❌ Permission micro refusée — autorise l'accès au micro dans ton navigateur.";
     } else {
-      elStatut.textContent = `❌ Micro indisponible : ${e.message}`;
+      elStatut.textContent = `❌ Micro indisponible : ${_echapperHtml(e.message)}`;
     }
   }
 });
@@ -652,7 +688,7 @@ $("bouton-valider-voix").addEventListener("click", async () => {
     elStatut.textContent = "✅ Échantillon envoyé — traitement en cours…";
     await chargerVoixClonees();
   } catch (e) {
-    elStatut.textContent = `❌ ${e.message}`;
+    elStatut.textContent = `❌ ${_echapperHtml(e.message)}`;
   } finally {
     btn.disabled = false;
     btn.textContent = "✅ Valider";
@@ -674,7 +710,7 @@ async function capturerInteret(fonctionnalite, elStatut) {
     elStatut.textContent = "✅ Merci ! Ton intérêt a été enregistré.";
     setTimeout(() => { elStatut.textContent = ""; }, 5000);
   } catch (e) {
-    elStatut.textContent = `❌ ${e.message}`;
+    elStatut.textContent = `❌ ${_echapperHtml(e.message)}`;
   }
 }
 

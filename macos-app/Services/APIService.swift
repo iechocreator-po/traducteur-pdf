@@ -164,10 +164,12 @@ actor APIService {
     }
 
     /// Synthétise un court extrait et retourne les octets WAV (à jouer via AVAudioPlayer).
-    func ecouterExtrait(texte: String, moteur: String, voix: String) async throws -> Data {
-        let data = try await postAny("tts/extrait", body: [
-            "texte": texte, "moteur": moteur, "voix": voix,
-        ])
+    /// `langue` : langue de lecture (voix clonée). Omise, le backend lit « en français » (même
+    /// paramètre que le web).
+    func ecouterExtrait(texte: String, moteur: String, voix: String, langue: String? = nil) async throws -> Data {
+        var body: [String: Any] = ["texte": texte, "moteur": moteur, "voix": voix]
+        if let langue, !langue.isEmpty { body["langue"] = langue }
+        let data = try await postAny("tts/extrait", body: body)
         // Une réponse JSON signale une erreur ; un WAV commence par « RIFF »
         if data.starts(with: Array("RIFF".utf8)) {
             return data
@@ -180,10 +182,12 @@ actor APIService {
                       userInfo: [NSLocalizedDescriptionKey: "Réponse audio inattendue."])
     }
 
-    func genererAudio(cheminMd: String, moteur: String, voix: String) async throws -> TTSGenerationResponse {
-        let data = try await postAny("tts", body: [
-            "chemin_md": cheminMd, "moteur": moteur, "voix": voix,
-        ])
+    /// `langue` : langue du DOCUMENT (sa langue cible), comme le web — omise, une voix clonée
+    /// lisait un document anglais « en français » (audit frontend du 16/11/2026).
+    func genererAudio(cheminMd: String, moteur: String, voix: String, langue: String? = nil) async throws -> TTSGenerationResponse {
+        var body: [String: Any] = ["chemin_md": cheminMd, "moteur": moteur, "voix": voix]
+        if let langue, !langue.isEmpty { body["langue"] = langue }
+        let data = try await postAny("tts", body: body)
         if let rep = try? decoder.decode(TTSGenerationResponse.self, from: data) {
             return rep
         }

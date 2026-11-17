@@ -760,6 +760,21 @@ def demarrer_traduction(
     """
     output_path = build_output_path(source_path, modele)
 
+    # Modèle transmis : l'état consulté est celui de CE modèle, jamais celui d'un
+    # autre (voir _trouver_etat_existant). Lu AVANT tout effet : une reprise ou un
+    # ajout suit les options du DOCUMENT (langues, extracteur), pas celles de la
+    # requête, qui viennent d'un menu (piège 2, audit frontend du 16/11/2026).
+    existing = _trouver_etat_existant(source_path, modele)
+    reprendre = bool(resume and existing and existing.statut in STATUTS_REPRENABLES)
+    ajout = bool(
+        not resume and existing and chapitres_selectionnes is not None
+        and existing.chapitres_traduits
+    )
+    if reprendre or ajout:
+        langue_source = existing.langue_source
+        langue_cible = existing.langue_cible
+        extracteur = existing.extracteur_pdf or extracteur
+
     # Sélection vérifiée AVANT tout effet (registre, en-tête) : des index inconnus donnaient un job de 0 morceau,
     # fini `termine`, qui écrasait la sortie par son en-tête (audit api, 10/11/2026). La reprise suit la
     # sélection persistée, pas celle de la requête.
@@ -789,16 +804,6 @@ def demarrer_traduction(
         )
     except Exception as e:  # noqa: BLE001
         print(f"[traduction] enregistrement store ignoré : {e}", flush=True)
-
-    # Modèle transmis : l'état consulté est celui de CE modèle, jamais celui d'un
-    # autre (voir _trouver_etat_existant).
-    existing = _trouver_etat_existant(source_path, modele)
-
-    reprendre = bool(resume and existing and existing.statut in STATUTS_REPRENABLES)
-    ajout = bool(
-        not resume and existing and chapitres_selectionnes is not None
-        and existing.chapitres_traduits
-    )
 
     if reprendre:
         state = existing
@@ -866,8 +871,12 @@ def demarrer_traduction(
             mots_traduits=0,
             temps_debut=time.time(),
             chapitres_selectionnes=sorted(run_selection),
+            extracteur_pdf=extracteur,
         )
         _ecrire_entete(output_path, modele, langue_source, langue_cible)
+
+    if state.extracteur_pdf is None:
+        state.extracteur_pdf = extracteur
 
     # Chapitres réellement à traduire ce run : dans la sélection, pas déjà faits,
     # et non couverts par un ancêtre sélectionné (évite de traduire deux fois).

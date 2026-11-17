@@ -452,6 +452,12 @@ class ScheduleBatchRequest(BaseModel):
     modele_ollama: str = "llama3.1"
     extracteur_pdf: Extracteur = EXTRACTEUR_PAR_DEFAUT
     executer_a: str  # ISO 8601 datetime
+    # Sélection partielle par fichier (clé = chemin tel qu'envoyé dans `chemins`) : sans elle, un lot
+    # planifié traduisait chaque fichier EN ENTIER, quels que soient les chapitres cochés (audit
+    # frontend du 16/11/2026). Un fichier absent de la table est traduit en entier.
+    chapitres_par_chemin: dict[str, list[int]] = Field(default_factory=dict)
+    # Extracteur qui a produit la liste de chapitres d'un fichier : les index n'ont de sens qu'avec lui.
+    extracteurs_par_chemin: dict[str, Extracteur] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def valider_chemins(self):
@@ -470,9 +476,26 @@ def creer_jobs_planifies(req: ScheduleBatchRequest) -> dict:
     executer_a = _valider_planification(req.executer_a, req.modele_ollama)
 
     from app.services.scheduler import planifier_job
+    from app.services.translation_runner import SelectionInvalide, verifier_selection_document
 
-    chemins = [valider_chemin_source(c.strip()) for c in req.chemins if c.strip()]
-    if not chemins:
+    # (chemin validé, sélection, extracteur) — tout est vérifié AVANT de planifier quoi que ce soit (piège 11).
+    a_planifier = []
+    for brut in req.chemins:
+        if not brut.strip():
+            continue
+        chemin = valider_chemin_source(brut.strip())
+        selection = req.chapitres_par_chemin.get(brut)
+        if selection is None:
+            selection = req.chapitres_par_chemin.get(brut.strip())
+        extracteur = req.extracteurs_par_chemin.get(brut) or req.extracteurs_par_chemin.get(brut.strip()) \
+            or req.extracteur_pdf
+        if selection is not None:
+            try:
+                verifier_selection_document(chemin, extracteur, selection)
+            except SelectionInvalide as e:
+                raise HTTPException(status_code=422, detail=f"{brut} : {e}")
+        a_planifier.append((chemin, selection, extracteur))
+    if not a_planifier:
         raise HTTPException(status_code=422, detail="Au moins un chemin de fichier est requis.")
 
     jobs = [
@@ -481,10 +504,11 @@ def creer_jobs_planifies(req: ScheduleBatchRequest) -> dict:
             langue_source=req.langue_source,
             langue_cible=req.langue_cible,
             modele_ollama=req.modele_ollama,
-            extracteur_pdf=req.extracteur_pdf,
+            extracteur_pdf=extracteur,
             executer_a=executer_a,
+            chapitres_selectionnes=selection,
         )
-        for chemin in chemins
+        for chemin, selection, extracteur in a_planifier
     ]
     return {"jobs": jobs}
 

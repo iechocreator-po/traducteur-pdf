@@ -4,11 +4,11 @@
   {
    "id": "audit-code",
    "featureId": null,
-   "titre": "Audit du code : ≈ 46 % du code actuel audité, ≈ 63 % relu en comptant les revues, deux zones à auditer",
+   "titre": "Audit du code : ≈ 78 % du code actuel audité, ≈ 83 % relu en comptant les revues, une zone à auditer",
    "description": "Taille de toledo, zones auditées avec les défauts trouvés, constats de chaque revue et ce qui reste à faire par priorité (skill commune /revue-code). Une revue ne lit que le code ajouté : elle ne vaut pas un audit.",
    "onglet": "Tous",
    "statut": "planifiee",
-   "date": "2026-11-16",
+   "date": "2026-11-17",
    "page": "docs/audit-code.html",
    "libelleBouton": "Ouvrir le rapport",
    "epingle": true,
@@ -23,12 +23,10 @@
     ]
    },
    "dernierAudit": {
-    "date": "2026-11-15",
-    "portee": "Audit /revue-code de la zone « etude-tts » (fiche d'étude, TTS, clonage vocal, stats, métriques, glossaire, agents, 2 035 lignes) ; deux zones restent à auditer",
-    "resultat": "5 constats à 80 ou plus, tous corrigés (#537 à #541) : voix clonée coupée restée « en cours » pour toujours (95), audio précédent détruit par une relance annulée ou en échec, nom de voix avec « / » inutilisable, num_ctx non fixé pour la fiche et l'analyse, fiche Markdown réécrite sans écriture atomique. 609 tests au vert, 8 ajoutés qui échouent sur l'ancien code. Ni Ollama, ni moteur TTS réel.",
-    "commits": [
-     "6ffe17c"
-    ]
+    "date": "2026-11-16",
+    "portee": "Audit /revue-code de la zone « frontend » (JS, HTML et CSS de l'interface web, 22 fichiers, ≈ 8 700 lignes) ; une zone reste à auditer (macos)",
+    "resultat": "20 constats à 80 ou plus, tous corrigés le 17/11 : trois XSS (lien, image exportée, nom de voix), planification d'un lot qui ignorait les chapitres cochés, reprises qui lisaient les menus au lieu du document, extracteur non figé, timeouts de 15 s, doubles clics, course entre réponses, totaux à 0 qui mentent, quatre défauts CSS, langue TTS absente sur macOS. 616 tests au vert, 7 ajoutés qui échouent sur l'ancien code ; swiftc -typecheck sans erreur ; CSS vérifié dans le navigateur. Ni Ollama, ni scan réel, ni build Xcode.",
+    "commits": []
    }
   },
   {

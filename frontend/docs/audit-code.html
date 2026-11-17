@@ -23,7 +23,7 @@
   td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
   .gros { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .barre { height: 12px; border-radius: 6px; background: var(--surface-2, var(--border)); overflow: hidden; margin: 6px 0; }
-  .barre > i { display: block; height: 100%; background: var(--accent); width: 46%; }
+  .barre > i { display: block; height: 100%; background: var(--accent); width: 78%; }
   ol { margin: 0; padding-left: 20px; }
   li { margin-bottom: 6px; }
   code { font-size: 12px; }
@@ -31,9 +31,39 @@
 </head>
 <body>
 <main>
-<div class="bandeau">Rapport · mis à jour le 16 novembre 2026</div>
+<div class="bandeau">Rapport · mis à jour le 17 novembre 2026</div>
 <h1>Audit du code de toledo : où en est-on ?</h1>
-<p class="muted">La skill commune <code>/revue-code</code> a tourné sept fois : un audit de la zone « moteur » le 26 octobre (trois sous-agents, constats corrigés), une revue du code ajouté depuis, le 6 novembre (cinq passes, 36 constats, tous corrigés ; la parité macOS est un écart volontaire), puis une revue de ces correctifs le 7 novembre (9 constats, 7 corrigés, 2 ouverts), enfin une revue de Découper un PDF et de Documents complexes le 9 novembre (4 constats, tous corrigés), un audit de la zone « api » le 10 novembre (9 constats, tous corrigés), un audit de la zone « extraction » le 13 novembre (7 constats, tous corrigés), puis un audit de la zone « etude-tts » le 15 novembre (5 constats, tous corrigés). Une revue ne couvre que le code ajouté : deux zones restent à auditer. Les sections « sous le seuil » et « ce qui reste à faire » datent du 26 octobre.</p>
+<p class="muted">La skill commune <code>/revue-code</code> a tourné huit fois : un audit de la zone « moteur » le 26 octobre (trois sous-agents, constats corrigés), une revue du code ajouté depuis, le 6 novembre (cinq passes, 36 constats, tous corrigés ; la parité macOS est un écart volontaire), puis une revue de ces correctifs le 7 novembre (9 constats, 7 corrigés, 2 ouverts), enfin une revue de Découper un PDF et de Documents complexes le 9 novembre (4 constats, tous corrigés), un audit de la zone « api » le 10 novembre (9 constats, tous corrigés), un audit de la zone « extraction » le 13 novembre (7 constats, tous corrigés), un audit de la zone « etude-tts » le 15 novembre (5 constats, tous corrigés), puis un audit de la zone « frontend » le 16 novembre (20 constats, tous corrigés). Une revue ne couvre que le code ajouté : une zone reste à auditer (macos). Les sections « sous le seuil » et « ce qui reste à faire » datent du 26 octobre.</p>
+
+<section class="ds-card carte"><h2>Audit de la zone « frontend » du 16 novembre 2026</h2>
+<p><span class="gros">20</span> constats à 80 ou plus sur l'interface web (22 fichiers, ≈ 8 700 lignes de JS, HTML et CSS, trois sous-agents, constats revérifiés dans le code) : <strong>tous corrigés</strong> le 17/11. Six touchent aussi le serveur (planification d'un lot, reprise, extracteur, Chronique, scan) et deux l'app macOS. Après correctifs : pytest 616 passés (7 tests ajoutés, tous échouent sur l'ancien code), <code>swiftc -typecheck</code> sans erreur, focus clavier, logo, styles Plan et Classeur vérifiés dans le navigateur.</p>
+<table>
+<tr><th class="n">Note</th><th>Constat</th><th>État</th></tr>
+<tr><td class="n">88</td><td>Planification d'un lot : chaque fichier était planifié en entier, quels que soient les chapitres cochés, et un fichier réglé sur « Aucun » l'était quand même (<code>module-import.js:222</code>, pièges 2 et 11). <code>/schedule/batch</code> accepte maintenant une sélection et un extracteur par fichier, vérifiés avant de planifier.</td><td>corrigé</td></tr>
+<tr><td class="n">88</td><td>Focus clavier invisible sur tous les interrupteurs <code>.ui-switch</code> : le sélecteur supposait l'input avant le label (<code>style.css:998</code>). Vérifié au clavier dans le navigateur.</td><td>corrigé</td></tr>
+<tr><td class="n">88</td><td>« Reprendre » de la Bibliothèque coupé à 15 s alors que <code>/translate</code> fait le preflight et l'extraction (<code>module-bibliotheque.js:236</code>, piège 13).</td><td>corrigé</td></tr>
+<tr><td class="n">85</td><td>XSS : l'échappeur HTML de la Bibliothèque n'échappait pas les guillemets ; un lien <code>https://a"onmouseover=…</code> d'un document s'exécutait dans le lecteur et l'export. Un seul échappeur complet, dans <code>commun.js</code>.</td><td>corrigé</td></tr>
+<tr><td class="n">85</td><td>Sous 590 px, le texte du logo restait affiché dans 4 styles sur 7 (spécificité). Vérifié à 500 px dans les cinq styles testés.</td><td>corrigé</td></tr>
+<tr><td class="n">85</td><td>Style Plan : son coin haut-gauche et l'étiquette des repères partageaient <code>::before</code> ; l'un effaçait l'autre. Le coin est dessiné en fond.</td><td>corrigé</td></tr>
+<tr><td class="n">85</td><td>Style Classeur en clair : ⚙ et le thème actif illisibles dans la barre verte (<code>--surface</code> non redéfini). Vérifié à l'écran.</td><td>corrigé</td></tr>
+<tr><td class="n">85</td><td>PDF scanné : l'analyse affichait « ≈ 0:00 », « aucun titre », « Chapitres 0 » alors que rien n'était mesuré (piège 14). Affiche « — ».</td><td>corrigé</td></tr>
+<tr><td class="n">83</td><td>Voix clonées : chaque reconnexion (toutes les 30 s sans Ollama) ajoutait une chaîne de sondage, et le moteur TTS choisi revenait sur le premier. Une chaîne par voix ; choix conservé.</td><td>corrigé</td></tr>
+<tr><td class="n">82</td><td>XSS dans l'attribut <code>alt</code> des images de l'export HTML (même cause, même correctif).</td><td>corrigé</td></tr>
+<tr><td class="n">82</td><td>Version d'origine de la comparaison coupée à 15 s (extraction complète du PDF à chaque clic, piège 13) ; lue désormais avec l'extracteur du travail.</td><td>corrigé</td></tr>
+<tr><td class="n">82</td><td>Double clic sur « Nettoyer le document » : deux scans OCR du même PDF. Verrou côté interface et un seul nettoyage actif par PDF côté serveur.</td><td>corrigé</td></tr>
+<tr><td class="n">80</td><td>XSS par le nom d'une voix clonée (<code>innerHTML</code> sans échappement) ; messages d'erreur, chemins et réparations OCR échappés dans tout le Laboratoire.</td><td>corrigé</td></tr>
+<tr><td class="n">80</td><td>« Reprendre » du Laboratoire prenait langues et modèle dans les menus (piège 2), web et macOS. Il reprend l'état trouvé par « Vérifier » ; le serveur impose en plus les langues et l'extracteur du document à toute reprise et tout ajout de chapitres.</td><td>corrigé</td></tr>
+<tr><td class="n">80</td><td>Erreur de validation FastAPI affichée « [object Object] » (<code>detail</code> en tableau) : <code>ErreurApi</code> en fait un texte lisible.</td><td>corrigé</td></tr>
+<tr><td class="n">80</td><td>Double clic sur Lancer, Reprendre ou « Traduire N chapitres » : deux soumissions. Verrou posé avant le premier <code>await</code>.</td><td>corrigé</td></tr>
+<tr><td class="n">80</td><td>Extracteur relu au moment du clic : les index cochés pouvaient désigner d'autres chapitres. Il est figé sur le fichier, enregistré dans l'état du travail (<code>extracteur_pdf</code>) et renvoyé par la Bibliothèque.</td><td>corrigé</td></tr>
+<tr><td class="n">80</td><td>Course entre réponses dans la Bibliothèque : le texte d'un document ou d'un chapitre s'affichait sous un autre. Réponse périmée ignorée.</td><td>corrigé</td></tr>
+<tr><td class="n">80</td><td>Chronique : totaux à 0 alors que rien n'était mesuré (lignes reconstituées, piège 14). Le serveur renvoie <code>null</code>, l'écran affiche « — ».</td><td>corrigé</td></tr>
+<tr><td class="n">80</td><td>Parité macOS : la synthèse vocale n'envoyait pas la langue du document ; une voix clonée lisait un document anglais « en français ».</td><td>corrigé</td></tr>
+</table>
+<p class="muted" style="margin-top:8px">Sous le seuil, à surveiller : gabarit <code>button:not(.ds-btn)</code> qui écrase le padding et la bordure de nombreux boutons (72) ; micro non libéré si la capture échoue (75) ; deux calculs du temps restant, l'Accueil peut annoncer ≈ 18 h quand « Vos traductions » dit 45 min (74) ; délais par défaut de 60 s côté macOS (72) ; document <code>en_pause</code> illisible dans la Bibliothèque (70) ; estimateur de la Chronique vide sur une installation neuve (70) ; échec de l'export HTML avalé (70) ; boutons ☀ ☾ ▸ sans <code>aria-label</code> (70).</p>
+<p class="muted"><strong>Structure :</strong> aucune fonction au-delà de 150 lignes ; <code>module-bibliotheque.js</code> 1 249 lignes en une seule IIFE ; ≈ 65 lignes de CSS mort ; 17 appels <code>fetch</code> qui contournent <code>apiPost</code> ; code d'upload recopié 4 fois ; trois <code>formaterDuree</code> différentes.</p>
+<p class="muted"><strong>Non vérifié :</strong> pas de suite de tests frontend ; doubles clics et courses démontrés par lecture, pas reproduits ; Swift vérifié par <code>swiftc -typecheck</code> seulement (build Xcode à faire) ; aucun scan ni traduction réels.</p>
+</section>
 
 <section class="ds-card carte"><h2>Audit de la zone « etude-tts » du 15 novembre 2026</h2>
 <p><span class="gros">5</span> constats à 80 ou plus sur la fiche d'étude, le TTS, le clonage vocal, les stats, les métriques, le glossaire et les agents (12 fichiers, 2 035 lignes, passes A à E sans sous-agent) : <strong>tous corrigés</strong>. Après correctifs : pytest 609 passés (8 tests ajoutés, tous échouent sur l'ancien code). Regroupés en 5 entrées dans bilbao (#537 à #541), toutes livrées (commit <code>6ffe17c</code>).</p>
@@ -164,8 +194,8 @@
 <p class="muted" style="margin-top:8px">Mesuré le 9/11/2026 ; CSS et HTML non comptés. La suite pytest passe : 552 tests en local (389 au 26/10/2026), avec un test intermittent.</p></section>
 
 <section class="ds-card carte"><h2>Couverture des audits</h2>
-<div class="gros">≈ 46 % <span class="muted" style="font-weight:400">en audit complet · ≈ 63 % en comptant les revues</span></div><div class="barre"><i></i></div>
-<p class="muted">Audit complet : ≈ 9 700 lignes lues sur ≈ 20 900 (« moteur », ≈ 3 000 lignes, le 26/10 ; « api », ≈ 2 200, le 10/11 ; « extraction », ≈ 2 450, le 13/11 ; « etude-tts », ≈ 2 050, le 15/11). En comptant les ≈ 3 960 lignes ajoutées et relues par les revues (≈ 2 400 les 6 et 7/11, ≈ 1 560 le 9/11) : ≈ 13 100 lignes, sans compter deux fois le code du scan relu par la revue du 9/11 puis audité. Une revue ne lit que le diff, pas toute une zone : elle ne vaut pas un audit.</p>
+<div class="gros">≈ 78 % <span class="muted" style="font-weight:400">en audit complet · ≈ 83 % en comptant les revues</span></div><div class="barre"><i></i></div>
+<p class="muted">Audit complet : ≈ 18 400 lignes lues sur ≈ 23 600 (« moteur », ≈ 3 000 lignes, le 26/10 ; « api », ≈ 2 200, le 10/11 ; « extraction », ≈ 2 450, le 13/11 ; « etude-tts », ≈ 2 050, le 15/11 ; « frontend », ≈ 8 700, le 16/11 : le total passe de ≈ 20 900 à ≈ 23 600 parce que la zone frontend, estimée à ≈ 6 000 lignes de JS, en compte ≈ 8 700 avec le HTML et le CSS). En comptant le code relu par les revues et absent de toute zone auditée (<code>reconstruction.py</code>, <code>signature.py</code>, <code>decoupe.py</code>, ≈ 1 240 lignes) : ≈ 19 600 lignes, sans compter deux fois le code relu par une revue puis audité. Une revue ne lit que le diff, pas toute une zone : elle ne vaut pas un audit.</p>
 <table>
 <tr><th>Zone</th><th>État</th><th>Ce qui a été trouvé</th></tr>
 <tr><td><b>moteur</b> (translation_runner, translator, store, persistance, job_manager, cache, récupération, planificateur, soumission, énergie, bibliothèque)</td><td><span class="ds-badge ds-badge--success">fait</span></td>
@@ -175,7 +205,7 @@
 <tr><td><b>extraction</b> (pdf_extractor, scan_colonnes, segmentation, uploads, ≈ 2 450 lignes)</td><td><span class="ds-badge ds-badge--success">fait</span></td><td>7 constats à 80 ou plus, tous corrigés le 13/11 (#530 à #536), voir plus haut : tables et signets qui font perdre du texte, purge, <code>_converti</code>, deux cas de mise en page du scan. Segmentation sans aucun test.</td></tr>
 <tr><td><b>etude-tts</b> (étude, TTS, clonage vocal, stats, ≈ 2 050 lignes)</td><td><span class="ds-badge ds-badge--success">fait</span></td><td>5 constats à 80 ou plus, tous corrigés le 15/11 (#537 à #541), voir plus haut : voix clonée bloquée « en cours », audio précédent détruit, nom de voix dans le chemin, <code>num_ctx</code>, fiche non atomique.</td></tr>
 <tr><td><b>api</b> (routes, validation, erreurs, config, modèles, main, scripts, ≈ 2 200 lignes)</td><td><span class="ds-badge ds-badge--success">fait</span></td><td>9 constats à 80 ou plus, tous corrigés le 10/11 (#517 à #525), voir plus haut : double reprise qui efface une traduction, garde du serveur local, effets de bord au démarrage, flags. 44 routes testées sur 59 avant correctifs.</td></tr>
-<tr><td>frontend (≈ 6 000 lignes de JS, 2 sous-agents)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
+<tr><td><b>frontend</b> (JS, HTML, CSS, ≈ 8 700 lignes, 3 sous-agents)</td><td><span class="ds-badge ds-badge--success">fait</span></td><td>20 constats à 80 ou plus, tous corrigés le 17/11, voir plus haut : trois XSS, planification d'un lot sans la sélection, reprises qui lisaient les menus, extracteur non figé, timeouts, doubles clics, quatre défauts CSS, parité TTS macOS.</td></tr>
 <tr><td>macos (≈ 3 800 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
 </table></section>
 
@@ -203,9 +233,9 @@
 <table>
 <tr><th>Priorité</th><th>Contenu</th></tr>
 <tr><td><b>1. Pertes de données possibles</b></td><td>Écriture atomique de l'en-tête ; ordre « écrire puis compter » pour les chapitres ; récupération au démarrage indépendante du registre ; verrou sur la soumission.</td></tr>
-<tr><td><b>2. Zones non auditées</b></td><td>frontend (≈ 6 000 lignes, 2 sous-agents), macos (≈ 3 800).</td></tr>
+<tr><td><b>2. Zones non auditées</b></td><td>macos (≈ 3 800 lignes).</td></tr>
 <tr><td><b>3. Fiabilité de fond</b></td><td>Réessais espacés du planificateur ; contrôle qualité des textes courts ; ETA de reprise ; suppression propagée au store pour les morceaux et les chapitres.</td></tr>
-<tr><td><b>4. Décisions à prendre</b></td><td>Une traduction « possiblement en boucle » doit-elle rester un avertissement ou devenir un échec reprenable ? Persister l'extracteur dans l'état du document ?</td></tr>
+<tr><td><b>4. Décisions à prendre</b></td><td>Une traduction « possiblement en boucle » doit-elle rester un avertissement ou devenir un échec reprenable ?</td></tr>
 <tr><td><b>5. Dette de structure</b></td><td><code>_executer_traduction</code> (≈ 193 lignes) et <code>demarrer_traduction</code> (≈ 143 lignes) ; <code>translation_runner.py</code> mêle cinq responsabilités ; cache réécrit en entier après chaque morceau.</td></tr>
 </table>
 <p style="margin-top:10px"><b>Règles pour les nouveaux développements :</b></p>

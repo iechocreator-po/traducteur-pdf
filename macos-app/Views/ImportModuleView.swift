@@ -190,6 +190,8 @@ final class ImportViewModel: ObservableObject {
                     cheminMd: estMarkdown(fichier.chemin) ? fichier.chemin : nil,
                     // F6 : le modele D'ORIGINE du job, jamais le menu courant.
                     modele: fichier.modeleUtilise ?? env.modeleChoisi,
+                    // Langues et extracteur : le backend reprend ceux de l'état du document
+                    // (piège 2) ; les menus envoyés ici ne servent que de repli.
                     langueSource: env.langueSource, langueCible: env.langueCible,
                     extracteur: env.extracteurChoisi, resume: true) {
                     maj(fichier.id) {

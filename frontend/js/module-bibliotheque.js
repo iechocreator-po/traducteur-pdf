@@ -180,9 +180,13 @@
     document.dispatchEvent(new CustomEvent("doc-actif", { detail: doc }));
 
     try {
-      const data = await apiPost("/chapitres", { chemin_md: doc.chemin_sortie });
+      const data = await apiPost("/chapitres", { chemin_md: doc.chemin_sortie }, API_TIMEOUT_LONG_MS);
+      // Un autre document a été choisi pendant l'attente : cette réponse n'est plus la bonne
+      // (sinon les chapitres de A s'affichaient sous le document B).
+      if (docActif !== doc) return;
       chapitres = data.chapitres;
     } catch {
+      if (docActif !== doc) return;
       chapitres = [];
     }
     rendreChapitres();
@@ -233,7 +237,7 @@
         langue_cible: docActif.langue_cible,
         modele_ollama: docActif.modele,
         resume: true,
-      }));
+      }), API_TIMEOUT_LONG_MS);  // preflight Ollama + extraction des chapitres (piège 13)
       $("lecture-echec-texte").textContent =
         "Reprise lancée — seules les sections manquantes sont retraduites. Suis la progression dans « Nouveau document ».";
       bouton.hidden = true;
@@ -310,13 +314,19 @@
     $("lecture-titre").hidden = false;
     $("lecture-titre").textContent = titreAffiche(chap);
     $("lecture-texte").textContent = "Chargement…";
+    const doc = docActif;
+    // Réponse périmée (autre chapitre ou autre document choisi pendant l'attente) : ignorée,
+    // sinon le contenu du chapitre 1 s'affichait sous le titre du chapitre 2.
+    const perime = () => chapActif !== chap || docActif !== doc;
     try {
       const data = await apiPost("/chapitres/contenu", {
-        chemin_md: docActif.chemin_sortie,
+        chemin_md: doc.chemin_sortie,
         index: chap.index,
-      });
+      }, API_TIMEOUT_LONG_MS);
+      if (perime()) return;
       rendreContenu(data.contenu);
     } catch (e) {
+      if (perime()) return;
       $("lecture-texte").textContent = `Impossible de charger le chapitre : ${e.message}`;
     }
     chargerSourceComparee();
@@ -351,17 +361,20 @@
     if (!comparaisonActive || !docActif || !chapActif) return;
     const zone = $("lecture-source");
     zone.textContent = "Chargement…";
+    const doc = docActif, chap = chapActif;
+    const perime = () => chapActif !== chap || docActif !== doc;
     try {
-      // La source est le document D'ORIGINE (PDF ou Markdown), pas la sortie.
-      // `corpsSource` n'existe pas ici : on choisit la clé selon l'extension,
-      // comme le fait le reste du module.
-      const cle = estMarkdown(docActif.chemin_source) ? "chemin_md" : "chemin_pdf";
-      const data = await apiPost("/chapitres/contenu", {
-        [cle]: docActif.chemin_source,
-        index: chapActif.index,
-      });
+      // La source est le document D'ORIGINE (PDF ou Markdown), pas la sortie, lue avec
+      // l'extracteur du travail : les index de chapitres n'ont de sens qu'avec lui.
+      // Délai long : sans `_converti`, c'est une extraction complète du PDF (piège 13).
+      const data = await apiPost("/chapitres/contenu", corpsSource(doc.chemin_source, {
+        index: chap.index,
+        ...(doc.extracteur_pdf ? { extracteur_pdf: doc.extracteur_pdf } : {}),
+      }), API_TIMEOUT_LONG_MS);
+      if (perime()) return;
       rendreContenu(data.contenu, zone);
     } catch (e) {
+      if (perime()) return;
       zone.textContent = `Impossible de charger la version d'origine : ${e.message}`;
     }
   }
@@ -772,11 +785,8 @@
     $("ia-exporter").hidden = !dispo;
   }
 
-  function echapperHtml(txt) {
-    const div = document.createElement("div");
-    div.textContent = txt == null ? "" : String(txt);
-    return div.innerHTML;
-  }
+  // `echapperHtml` vient de commun.js (échappe aussi les guillemets : les URL des
+  // liens et les `alt` des images sont insérés dans des attributs).
 
   // Chapitres à inclure dans l'export : ceux cochés qui ont une fiche ; si
   // aucune case n'est cochée, toutes les fiches générées (repli).

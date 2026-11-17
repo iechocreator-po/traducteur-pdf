@@ -84,7 +84,7 @@ async function chargerInfoScan(chemin) {
     select.innerHTML = utiles.map(l => `<option value="${l}">${noms[l] || l}</option>`).join("");
     if (utiles.includes("eng")) select.value = "eng";
   } catch (e) {
-    info.textContent = `❌ ${e.message}`;
+    info.textContent = `❌ ${_echapperHtml(e.message)}`;
   }
 }
 
@@ -111,7 +111,7 @@ async function chargerApercuScan(chemin, page, doublePage, img, zone, edition = 
     return true;
   } catch (e) {
     img.hidden = true;
-    zone.innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    zone.innerHTML = `<span class="erreur">Erreur : ${_echapperHtml(e.message)}</span>`;
     return false;
   }
 }
@@ -258,7 +258,7 @@ async function enregistrerRegions(reglage) {
     if (!rep.ok) throw new Error(data.detail || `Erreur HTTP ${rep.status}`);
     await afficherApercuLabo(page);
   } catch (e) {
-    $("scan-regions-etat").innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    $("scan-regions-etat").innerHTML = `<span class="erreur">Erreur : ${_echapperHtml(e.message)}</span>`;
     document.querySelectorAll("#scan-regions select, #scan-regions button").forEach(el => { el.disabled = false; });
   }
 }
@@ -671,11 +671,11 @@ function rendreResultatScan(etat) {
   if (!["termine", "erreur"].includes(etat.statut)) return;
   let html = "";
   if (etat.statut === "termine") {
-    html += `<p>✅ ${etat.titres} titre(s) détecté(s). Fichier écrit : <code>${etat.chemin_sortie}</code></p>`;
+    html += `<p>✅ ${etat.titres} titre(s) détecté(s). Fichier écrit : <code>${_echapperHtml(etat.chemin_sortie)}</code></p>`;
   } else {
     html += `<p class="erreur">⚠ Terminé avec ${etat.pages_en_erreur.length} page(s) en erreur — le fichier reste écrit avec les autres pages ; relance pour réessayer seulement celles-là.</p>`;
-    html += "<ul>" + etat.pages_en_erreur.slice(0, 10).map(p => `<li>Page ${p.page} : ${p.erreur}</li>`).join("") + "</ul>";
-    if (etat.erreur) html += `<p class="erreur">${etat.erreur}</p>`;
+    html += "<ul>" + etat.pages_en_erreur.slice(0, 10).map(p => `<li>Page ${p.page} : ${_echapperHtml(p.erreur)}</li>`).join("") + "</ul>";
+    if (etat.erreur) html += `<p class="erreur">${_echapperHtml(etat.erreur)}</p>`;
   }
   // Le .md n'est pas dans la Bibliothèque (rien n'est traduit) : on le propose en un clic comme
   // source de « Nouveau document » (analyse, traduction). Écrit même si certaines pages ont échoué.
@@ -684,7 +684,7 @@ function rendreResultatScan(etat) {
   }
   if ((etat.reparations || []).length) {
     html += `<details><summary>${etat.reparations.length} réparation(s) automatique(s) à vérifier</summary><ul>` +
-            etat.reparations.map(r => `<li>${r}</li>`).join("") + "</ul></details>";
+            etat.reparations.map(r => `<li>${_echapperHtml(r)}</li>`).join("") + "</ul></details>";
   }
   zone.innerHTML = html;
   const envoyer = $("bouton-scan-envoyer");
@@ -768,9 +768,22 @@ async function suivreScan(chemin) {
 // de l'Accueil (js/parcours.js) passent tous deux ici, avec les mêmes champs (#scan-*). C'est ce qui
 // garantit le même fichier en sortie, quel que soit le chemin emprunté. Rend le message d'erreur, ou null :
 // lancé depuis l'Accueil, le Laboratoire est masqué et l'appelant doit pouvoir l'afficher.
+// Verrou synchrone : un double clic (Laboratoire ou parcours) lançait deux scans OCR du même PDF.
+let scanLancementEnCours = false;
+
 async function lancerScan() {
   const chemin = $("scan-chemin").value.trim();
   if (!chemin) { alert("Indiquez d'abord le chemin du PDF, ou utilisez Parcourir…"); return null; }
+  if (scanLancementEnCours) return null;
+  scanLancementEnCours = true;
+  try {
+    return await _lancerScan(chemin);
+  } finally {
+    scanLancementEnCours = false;
+  }
+}
+
+async function _lancerScan(chemin) {
   const corps = { chemin_pdf: chemin, langue_ocr: $("scan-langue").value || "eng", double_page: $("scan-double-page").value };
   const debut = parseInt($("scan-page-debut").value, 10);
   const fin = parseInt($("scan-page-fin").value, 10);
@@ -788,7 +801,7 @@ async function lancerScan() {
     return null;
   } catch (e) {
     $("bouton-scan-lancer").disabled = false;
-    $("scan-resultat").innerHTML = `<span class="erreur">Erreur : ${e.message}</span>`;
+    $("scan-resultat").innerHTML = `<span class="erreur">Erreur : ${_echapperHtml(e.message)}</span>`;
     return e.message;
   }
 }

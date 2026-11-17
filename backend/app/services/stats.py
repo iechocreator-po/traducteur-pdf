@@ -173,6 +173,16 @@ def _mediane(xs: list[float]) -> float | None:
     return statistics.median(xs) if xs else None
 
 
+def _total_mesure(runs, colonne: str):
+    """Somme d'une colonne, ou None si AUCUNE ligne ne l'a mesurée (piège 14 : un 0 qui ment).
+
+    Les lignes reconstituées ont jetons et caractères à NULL par construction : `or 0`
+    affichait « Jetons générés 0 » après « Reconstituer », alors que rien n'avait été mesuré.
+    """
+    valeurs = [r[colonne] for r in runs if r[colonne] is not None]
+    return sum(valeurs) if valeurs else None
+
+
 def agreger(runs: list[dict]) -> dict:
     """Totaux et vitesse par (type, modèle). Médianes : un passage aberrant (modèle froid, veille de
     la machine) ne doit pas fausser la vitesse « normale »."""
@@ -196,11 +206,11 @@ def agreger(runs: list[dict]) -> dict:
         "modeles": lignes,
         "totaux": {
             "passages": len(runs),
-            "duree_secondes": sum(r["duree_secondes"] or 0 for r in runs),
-            "jetons_sortie": sum(r["jetons_sortie"] or 0 for r in runs),
-            "jetons_entree": sum(r["jetons_entree"] or 0 for r in runs),
-            "caracteres_traites": sum(r["caracteres_traites"] or 0 for r in runs),
-            "reponses_tronquees": sum(r["reponses_tronquees"] or 0 for r in runs),
+            "duree_secondes": _total_mesure(runs, "duree_secondes"),
+            "jetons_sortie": _total_mesure(runs, "jetons_sortie"),
+            "jetons_entree": _total_mesure(runs, "jetons_entree"),
+            "caracteres_traites": _total_mesure(runs, "caracteres_traites"),
+            "reponses_tronquees": _total_mesure(runs, "reponses_tronquees"),
         },
     }
 

@@ -69,6 +69,10 @@ class EtatJob(BaseModel):
     # qu'une future session sache quoi finir lors d'une reprise. None/[] pour
     # les états d'avant l'unification du moteur (traités comme « tout le doc »).
     chapitres_selectionnes: list[int] = Field(default_factory=list)
+    # Extracteur qui a produit la liste de chapitres de ce job : les index de
+    # `chapitres_selectionnes` / `chapitres_traduits` n'ont de sens qu'avec LUI.
+    # Une reprise ou un ajout le réutilise (piège 2). None : état antérieur.
+    extracteur_pdf: str | None = None
     # Sections/chapitres dont la traduction a échoué. Un job qui en contient
     # finit en `erreur`, jamais en `termine` : une traduction trouée ne doit
     # pas s'annoncer comme un succès. Ces index pilotent aussi le rejeu à

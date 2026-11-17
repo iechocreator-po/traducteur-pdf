@@ -149,12 +149,24 @@ function parcoursEnvoyerScan() {
   document.dispatchEvent(new CustomEvent("retirer-du-lot", { detail: nettoyageCible }));
 }
 
-async function parcoursLancerScan() {
-  // Mêmes champs que le Laboratoire : on y écrit, puis on passe par la fonction commune.
-  $("scan-chemin").value = nettoyageCible;
-  await chargerInfoScan(nettoyageCible);
-  parcoursSyncOcr("vers-labo");
-  parcoursErreurLancement = await lancerScan();
+let parcoursScanEnLancement = false;
+
+async function parcoursLancerScan(e) {
+  // Verrou posé avant le premier await : deux clics pendant `chargerInfoScan` lançaient deux scans.
+  if (parcoursScanEnLancement) return;
+  parcoursScanEnLancement = true;
+  const btn = e && e.currentTarget;
+  if (btn) btn.disabled = true;
+  try {
+    // Mêmes champs que le Laboratoire : on y écrit, puis on passe par la fonction commune.
+    $("scan-chemin").value = nettoyageCible;
+    await chargerInfoScan(nettoyageCible);
+    parcoursSyncOcr("vers-labo");
+    parcoursErreurLancement = await lancerScan();
+  } finally {
+    parcoursScanEnLancement = false;
+    if (btn) btn.disabled = false;
+  }
   parcoursCharger();
 }
 

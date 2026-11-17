@@ -235,6 +235,9 @@ def _enrichir(doc: dict) -> dict | None:
         enrichi["chapitres_traduits"] = etat.chapitres_traduits
         # Portée du run courant : sert au compteur « N/M chapitres » de la barre.
         enrichi["chapitres_selectionnes"] = etat.chapitres_selectionnes
+        # Extracteur de CE travail : les index de chapitres n'ont de sens qu'avec lui
+        # (« ➕ Chapitres », comparaison avec la source). None pour un état ancien.
+        enrichi["extracteur_pdf"] = etat.extracteur_pdf
         # Permet à la Bibliothèque de proposer « Reprendre » sur un document
         # lisible mais troué, plutôt que de le déclarer inaccessible.
         enrichi["nb_sections_echouees"] = len(etat.sections_echouees) + len(etat.chapitres_echoues)
