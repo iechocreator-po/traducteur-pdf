@@ -73,3 +73,36 @@ def test_traduire_texte_sans_glossaire_ne_change_pas_le_prompt(mock_post):
 
     corps = mock_post.call_args.kwargs["json"]
     assert "Ne traduis JAMAIS ces termes" not in corps["system"]
+
+
+# ── Traductions imposées (« source => cible ») ───────────────────────────────
+
+def test_decomposer_une_entree():
+    assert glossaire.decomposer("Labyrinth tile => tuile Labyrinthe") == ("Labyrinth tile", "tuile Labyrinthe")
+    assert glossaire.decomposer("FastAPI") == ("FastAPI", None)
+    assert glossaire.decomposer("bizarre =>") == ("bizarre =>", None)   # cible vide : terme seul
+
+
+def test_traduction_imposee_reconnue_au_pluriel_et_en_mots_entiers():
+    entree = "Labyrinth tile => tuile Labyrinthe"
+    assert glossaire.termes_presents("Place 2 Labyrinth tiles now.", [entree]) == [entree]
+    assert glossaire.termes_presents("The Labyrinth tiled floor.", [entree]) == []
+
+
+def test_traduction_imposee_verifiee_sur_la_cible():
+    entree = "Labyrinth tile => tuile Labyrinthe"
+    assert glossaire.termes_perdus([entree], "Placez 2 tuiles Labyrinthe.") == []
+    assert glossaire.termes_perdus([entree], "Placez 2 pavillons du Labyrinthe.") == [entree]
+
+
+@patch("app.services.translator.requests.post")
+def test_prompt_separe_termes_conserves_et_traductions_imposees(mock_post):
+    mock_reponse = MagicMock()
+    mock_reponse.json.return_value = {"response": "x"}
+    mock_post.return_value = mock_reponse
+    traduire_texte("Hello", modele="m", langue_source="anglais", langue_cible="français",
+                   termes_a_conserver=["Argo", "Labyrinth tile => tuile Labyrinthe"])
+    system = mock_post.call_args.kwargs["json"]["system"]
+    assert "« Argo »" in system and "Ne traduis JAMAIS" in system
+    assert "« Labyrinth tile » → « tuile Labyrinthe »" in system
+    assert "« Labyrinth tile => tuile Labyrinthe »" not in system

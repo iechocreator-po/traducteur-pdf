@@ -703,3 +703,47 @@ def test_texte_sur_fond_grise_n_est_pas_une_illustration():
 def test_dessin_au_trait_sur_papier_blanc_reste_une_illustration():
     rects = reconstruction.detecter_illustrations(_page_dessin_au_trait())
     assert len(rects) == 1 and rects[0][0] < 140 and rects[0][2] > 760
+
+
+# ── Petites figures et pictogrammes (17/11/2026) ─────────────────────────────
+
+def test_petite_figure_trouvee_ombre_de_reliure_ecartee():
+    """Seconde passe : un jeton de 70 px (trop petit pour la passe ×8) est une illustration ; une bande sombre
+    collée au bord, haute et étroite (ombre de reliure), n'en est pas une ; le texte non plus."""
+    img = _page_scannee(illustration=False)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, 40, 1139], fill=(90, 85, 80))            # ombre au bord gauche
+    d.ellipse([1150, 440, 1220, 510], fill=(170, 120, 40))       # jeton coloré au milieu du texte
+    rects = reconstruction.detecter_illustrations(img)
+    assert any(r[0] <= 1150 and r[1] <= 440 and r[2] >= 1220 and r[3] >= 510 for r in rects)
+    assert not any(r[0] <= 2 and r[2] - r[0] < 60 for r in rects)
+    assert len(rects) == 1
+
+
+def test_pictogramme_situe_recolle_sinon_losange():
+    icones = {(2, 7): "page-0002-ico-7.png"}
+    html = reconstruction.inline_html("Le ⟦icône:2.7⟧ et ⟦icône:2.8⟧ puis ⟦icône⟧.", icones)
+    assert '<img class="ico" src="page-0002-ico-7.png"' in html
+    assert html.count('<span class="ico">◆</span>') == 2
+
+
+def test_numero_et_intertitre_rendus_en_titre():
+    html = reconstruction._blocs_html([("para", "**0001**"), ("para", "**Peur et Effroi**"), ("para", "Texte **gras** ici")])
+    assert '<h4 class="entree">0001</h4>' in html
+    assert '<h4 class="intertitre">Peur et Effroi</h4>' in html
+    assert "<p>Texte <b>gras</b> ici</p>" in html
+
+
+def test_numero_colle_au_paragraphe_remis_en_tete():
+    assert reconstruction._blocs_traduits("**0004** Forme des choses à venir.\n\nSuite.") == [
+        ("para", "**0004**"), ("para", "Forme des choses à venir."), ("para", "Suite.")]
+
+
+def test_numero_d_entree_sur_la_page_de_son_texte(tmp_path):
+    """Réparti au prorata des caractères, « **0001** » tombait au bas de la page précédente."""
+    (tmp_path / "page-0001.json").write_text(json.dumps({"page": 1, "blocs": [["para", "A" * 400]]}))
+    (tmp_path / "page-0002.json").write_text(json.dumps({"page": 2, "blocs": [
+        ["entree", "0001"], ["para", "So it begins " + "b" * 400]]}))
+    md = "Un " + "a" * 400 + "\n\nDeux " + "c" * 50 + "\n\n**0001**\n\nAinsi commence " + "b" * 400   # 4 blocs ≠ 3
+    par_page = reconstruction.repartir_par_page(str(tmp_path), [1, 2], md)
+    assert ("para", "**0001**") in par_page[2] and ("para", "**0001**") not in par_page[1]

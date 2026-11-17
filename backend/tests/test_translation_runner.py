@@ -909,3 +909,66 @@ def test_titre_traduit_absent_sur_un_fichier_tronque_par_un_crash(tmp_path):
 
     assert chapitres[0]["titre"] == "Un"         # le marqueur, lui, est intact
     assert chapitres[0]["titre_traduit"] is None  # jamais un titre coupé en deux
+
+
+def _etat_controle(tmp_path):
+    import time as _time
+    from app.models.schemas import EtatJob, StatutJob, Langue
+    return EtatJob(
+        job_id="langue", chemin_pdf=str(tmp_path / "doc.md"), chemin_sortie=str(tmp_path / "doc_traduit_ll.md"),
+        langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS, modele_ollama="llama3.1",
+        statut=StatutJob.EN_COURS, derniere_section_completee=0, total_sections=1,
+        total_pages=0, total_mots=10, mots_traduits=0, temps_debut=_time.time(),
+    )
+
+
+def test_traduction_en_espagnol_retentee_puis_acceptee_en_francais(tmp_path, monkeypatch):
+    """qwen2.5 a rendu un paragraphe en espagnol (Cycle I, 17/11/2026) : seconde tentative, la bonne est gardée."""
+    monkeypatch.setattr(translation_runner.glossaire, "charger_termes", lambda: [])
+    reponses = iter(["Tú logras persuadir al hombre de que no es el momento para pelear con su espada.",
+                     "Vous parvenez à convaincre l'homme que ce n'est pas le moment de se battre avec son épée."])
+    monkeypatch.setattr(translation_runner, "traduire_texte", lambda *a, **k: next(reponses))
+    texte = "You successfully persuade the man that it is not the time to fight with his sword."
+    cache = {}
+    state = _etat_controle(tmp_path)
+    out = translation_runner._traduire_avec_controle(texte, state, cache, "partie 1/1")
+    assert out.startswith("Vous parvenez") and cache and not state.avertissements
+
+
+def test_traduction_en_chinois_persistante_signalee_et_pas_mise_en_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(translation_runner.glossaire, "charger_termes", lambda: [])
+    monkeypatch.setattr(translation_runner, "traduire_texte",
+                        lambda *a, **k: "Ou de ceux qui préfèrent rester de旁观者并避开它们 et se taire longtemps ici.")
+    texte = "Or one of those who would rather stand aside and keep quiet for a long time here?"
+    cache = {}
+    state = _etat_controle(tmp_path)
+    translation_runner._traduire_avec_controle(texte, state, cache, "partie 1/1")
+    assert not cache and "autre langue" in state.avertissements[0]
+
+
+def test_cache_defectueux_retraduit(tmp_path, monkeypatch):
+    """Une traduction en cache avec du chinois ou un numéro d'entrée perdu n'est pas resservie."""
+    monkeypatch.setattr(translation_runner.glossaire, "charger_termes", lambda: [])
+    monkeypatch.setattr(translation_runner, "traduire_texte",
+                        lambda *a, **k: "**0009**\n\nIci, parmi les coquillages fossilisés, vous trouvez de la verdure.")
+    texte = "**0009**\n\nHere, among the fossilized shells, you find a patch of verdure."
+    state = _etat_controle(tmp_path)
+    cle = translation_runner.cache_traduction.calculer_cle(texte, state.modele_ollama, "anglais", "français", extra="")
+    cache = {cle: "Ici, parmi les coquillages fossilisés, vous trouvez de la verdure."}   # numéro perdu
+    out = translation_runner._traduire_avec_controle(texte, state, cache, "partie 1/1")
+    assert out.startswith("**0009**") and cache[cle] == out
+
+
+def test_chinois_persistant_traduit_en_deux_moities(tmp_path, monkeypatch):
+    monkeypatch.setattr(translation_runner.glossaire, "charger_termes", lambda: [])
+
+    def faux(texte, *a, **k):
+        if "Second" in texte and "First" in texte:      # le morceau entier rate toujours
+            return "Premier paragraphe 召唤和下次移动 et le second paragraphe aussi pour la longueur voulue."
+        return "Premier paragraphe traduit en français." if "First" in texte else "Second paragraphe traduit en français."
+    monkeypatch.setattr(translation_runner, "traduire_texte", faux)
+    texte = "First paragraph to translate into French.\n\nSecond paragraph to translate into French."
+    cache, state = {}, _etat_controle(tmp_path)
+    out = translation_runner._traduire_avec_controle(texte, state, cache, "partie 1/1")
+    assert out == "Premier paragraphe traduit en français.\n\nSecond paragraphe traduit en français."
+    assert not state.avertissements and cache

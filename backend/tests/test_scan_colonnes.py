@@ -534,3 +534,126 @@ def test_route_lancer_refusee_si_le_flag_est_coupe(tmp_path, monkeypatch):
     assert S.lire_etat(str(pdf)) is None                # rien n'a démarré
     # statut reste lisible : un scan déjà parti doit pouvoir être suivi et arrêté
     assert client.get("/api/labo/scan-colonnes/statut", params={"chemin_pdf": str(pdf)}).status_code == 200
+
+
+# ── Pictogrammes situés (17/11/2026) ─────────────────────────────────────────
+
+def _mot_situe(txt, c=95.0, h=12, sat=0.0, x=0):
+    return dict(l=x * 3, t=0, w=30, h=h, c=c, txt=txt, sat=sat, boite=[x, 100, x + 10, 112])
+
+
+def test_mot_colore_court_devient_pictogramme_situe():
+    L = dict(mots=[_mot_situe("place"), _mot_situe("fff", c=74, sat=0.14, x=20), _mot_situe("symbol", x=40)],
+             gauche=0, droite=100, haut=0)
+    icones = {"page": 2, "boites": []}
+    assert S.texte_ligne(L, icones) == "place ⟦icône:2.1⟧ symbol"
+    assert icones["boites"] == [[20, 100, 30, 112]]
+    # un vrai mot en couleur, long et sûr, reste un mot
+    L2 = dict(mots=[_mot_situe("Labyrinth", sat=0.5)], gauche=0, droite=100, haut=0)
+    assert S.texte_ligne(L2, {"page": 2, "boites": []}) == "Labyrinth"
+
+
+def test_vignette_haute_et_son_reste_fusionnes_en_un_pictogramme():
+    """Tableau du Cycle I p. 1 (zone lue à part) : « diated » (13 %, deux fois plus haut) puis « sei » (6 %)."""
+    mots = [_mot_situe("TEARS"), _mot_situe("MINOTAUR", x=20), _mot_situe("diated", c=13, h=26, x=40),
+            _mot_situe("sei", c=6, h=9, x=60)]
+    icones = {"page": 1, "boites": []}
+    assert S.texte_ligne(dict(mots=mots, gauche=0, droite=100, haut=0, zone=True), icones) == "TEARS MINOTAUR ⟦icône:1.1⟧"
+    assert icones["boites"] == [[40, 100, 70, 112]]
+    # dans le texte courant, un mot peu sûr et haut (italique, capitale ornée) reste un mot
+    assert S.texte_ligne(dict(mots=mots, gauche=0, droite=100, haut=0)) == "TEARS MINOTAUR diated sei"
+
+
+def test_sans_page_le_pictogramme_reste_un_marqueur_simple():
+    L = dict(mots=[_mot_situe("a"), _mot_situe("M", sat=0.2, x=20)], gauche=0, droite=100, haut=0)
+    assert S.texte_ligne(L) == "a ⟦icône⟧"
+
+
+def test_ancrer_decale_les_boites_dans_la_page():
+    L = [dict(mots=[_mot_situe("x", x=5)], gauche=0, droite=10, haut=100)]
+    assert S._ancrer(L, 300)[0]["mots"][0]["boite"] == [305, 100, 315, 112]
+
+
+def test_numero_d_entree_colore_reste_du_texte():
+    """« 0 0 2 8 » en gros chiffres brun-rouge (Cycle I) : ni pictogramme ni vignette, même mal lu."""
+    mots = [_mot_situe("0", c=84, h=66, sat=0.12), _mot_situe("')", c=6, h=73, sat=0.04, x=10),
+            _mot_situe("2", c=90, h=65, sat=0.11, x=20), _mot_situe("8", c=96, h=65, sat=0.1, x=30),
+            _mot_situe("As", h=30, x=40), _mot_situe("you", h=30, x=50), _mot_situe("traverse", h=30, x=60)]
+    icones = {"page": 3, "boites": []}
+    assert S.texte_ligne(dict(mots=mots, gauche=0, droite=100, haut=0), icones).startswith("0 ') 2 8 As")
+    assert icones["boites"] == []
+
+
+# ── Numéros d'entrée et intertitres (17/11/2026) ─────────────────────────────
+
+def _ligne_h(textes_h, gauche=0, droite=200, haut=0):
+    return dict(mots=[_mot_situe(t, h=h, x=i * 10) for i, (t, h) in enumerate(textes_h)], gauche=gauche,
+                droite=droite, haut=haut)
+
+
+def _corps(n=3):
+    return [_ligne_h([("the", 27), ("Argo", 27), ("cuts", 27), ("through", 27)], haut=100 + 30 * i) for i in range(n)]
+
+
+def test_numero_d_entree_garde_en_tete_meme_avec_un_seul_mot_long():
+    """« 0001 So it begins » : le paragraphe « So it begins » n'a qu'un mot de 3 lettres, il était jeté."""
+    lignes = [_ligne_h([("0001", 63), ("So", 27), ("it", 27), ("begins", 27)], droite=60)] + _corps()
+    blocs = S.lignes_vers_blocs(lignes, 200, 1000)
+    assert blocs[0] == ("entree", "0001")
+    assert blocs[1][0] == "para" and blocs[1][1].startswith("So it begins")
+
+
+def test_numero_d_entree_eclate_et_mal_lu():
+    assert S.numero_entree([_mot_situe(t, h=66) for t in ("0", "0", "0)")] + [_mot_situe("6", h=66),
+                           _mot_situe("You", h=27)], 27)[0] == "0006"
+    assert S.numero_entree([_mot_situe(t, h=66) for t in ("0", "0", "I", "3")] + [_mot_situe("Ok", h=27)], 27)[0] == "0013"
+    assert S.numero_entree([_mot_situe(t, h=66) for t in ("0", "')", "0", "8")] + [_mot_situe("A", h=27)], 27)[0] == "0?08"
+    assert S.numero_entree([_mot_situe("Despair", h=60)], 27) == (None, 0)
+
+
+def test_reparer_entrees_par_les_voisins():
+    journal = []
+    blocs = [("entree", "0006"), ("para", "x"), ("entree", "000?"), ("entree", "0?08"), ("entree", "0009")]
+    assert [t for k, t in S.reparer_entrees(blocs, journal) if k == "entree"] == ["0006", "0007", "0008", "0009"]
+    assert len(journal) == 2
+
+
+def test_intertitre_plus_gros_que_le_texte():
+    lignes = _corps(2) + [_ligne_h([("HOW", 45), ("TO", 45), ("USE", 45), ("THIS", 45), ("BOOK?", 45)], haut=200)] \
+        + _corps(2)
+    blocs = S.lignes_vers_blocs(lignes, 200, 1000)
+    assert ("intertitre", "HOW TO USE THIS BOOK?") in blocs
+    # une ligne ordinaire un peu haute (« metropolis. » 1,42) n'en est pas un, ni une ligne en minuscule
+    assert not S.est_intertitre(_ligne_h([("metropolis.", 38)]), 27, "metropolis.")
+    assert not S.est_intertitre(_ligne_h([("place", 50), ("X", 50)]), 27, "place X")
+
+
+def test_markdown_numero_et_intertitre_en_gras_jamais_en_titre():
+    md = S.blocs_vers_markdown([("entree", "0001"), ("intertitre", "Fear and Dread"), ("para", "Texte")])
+    assert "**0001**" in md and "**Fear and Dread**" in md and "#" not in md
+
+
+def test_reparer_entrees_numero_lisible_mais_hors_sequence():
+    """« 0940 » entre 0039 et 0041, « 00030 » entre 0029 et 0031, « 00?2 » après un « 0071 » lui-même réparé."""
+    blocs = [("entree", v) for v in ("0039", "0940", "0041", "0029", "00030", "0031", "0070", "0?01", "00?2", "0073")]
+    sortie = [t for _, t in S.reparer_entrees(blocs, [])]
+    assert sortie == ["0039", "0040", "0041", "0029", "0030", "0031", "0070", "0071", "0072", "0073"]
+
+
+def test_mot_en_gros_n_est_pas_un_numero():
+    mots = [_mot_situe("“Traitor!”", h=42), _mot_situe("someone", h=42), _mot_situe("shouts.", h=25)]
+    assert S.numero_entree(mots, 26) == (None, 0)
+
+
+def test_ligne_decalee_sous_le_gros_numero_continue_le_paragraphe():
+    lignes = [_ligne_h([("0070", 63), ("As", 27), ("you", 27), ("turn", 27), ("the", 27), ("corner,", 27)], droite=200),
+              dict(_ligne_h([("attacked", 27), ("by", 27), ("the", 27), ("Horned", 27), ("Guard!", 27)]), gauche=60)] \
+        + _corps()
+    blocs = S.lignes_vers_blocs(lignes, 200, 1000)
+    assert blocs[0] == ("entree", "0070")
+    assert blocs[1][1].startswith("As you turn the corner, attacked by the Horned Guard!")
+
+
+def test_numero_suivi_d_un_mot_haut_entre_guillemets():
+    mots = [_mot_situe(t, h=66) for t in ("0", "I", "1", "0")] + [_mot_situe("“Phaedra,”", h=60), _mot_situe("says", h=27)]
+    assert S.numero_entree(mots, 27) == ("0110", 4)

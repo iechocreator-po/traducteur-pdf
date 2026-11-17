@@ -190,7 +190,7 @@ def test_page_refaite_quand_son_reglage_change(tmp_path, monkeypatch):
     pdf = _pdf(tmp_path)
     appels = []
 
-    def faux_traitement(image, langue, double_page, reglage):
+    def faux_traitement(image, langue, double_page, reglage, numero=None):
         appels.append(reglage)
         return {"blocs": [["para", "x"]], "avertissements": []}
 

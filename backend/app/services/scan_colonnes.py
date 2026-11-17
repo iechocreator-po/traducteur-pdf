@@ -59,7 +59,7 @@ ECHELLE_OCR = 3            # agrandissement avant Tesseract (mesuré : ×3 suffi
 CONFIANCE_MIN_LIGNE = 55   # sous ce seuil, la ligne est du bruit (illustration, ombre de reliure)
 CONFIANCE_MIN_ZONE = 40    # dans une zone déclarée texte par l'utilisateur (voir ocr_lignes)
 CONFIANCE_MIN_TITRE = 70   # idem pour une bande de titre (voir ocr_titre)
-VERSION_ALGO = 4           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
+VERSION_ALGO = 7           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
 RATIO_DOUBLE_PAGE = 1.25   # largeur/hauteur au-delà duquel la page est une double page
 # Page qui n'est pas du texte courant (page titre, couverture) : peu de bandes horizontales ont la forme
 # d'un texte en colonnes. Mesuré sur le Cycle I : page titre 5/41, page avec grande illustration 7/20,
@@ -88,9 +88,36 @@ NB_MAX_ZONES = 60
 MARQUE_CONSERVER = ("<!-- conserver -->", "<!-- /conserver -->")
 TRAVAILLEURS_PAR_DEFAUT = 3
 MARQUEUR_ICONE = "⟦icône⟧"
+# Pictogramme situé : « ⟦icône:page.n⟧ ». La page lue (traiter_page avec `numero`) range la boîte de chaque
+# pictogramme dans `icones` ; la reconstruction y recolle l'image découpée dans le scan au lieu d'un losange.
+RE_ICONE = re.compile(r"⟦icône(?::(\d+)\.(\d+))?⟧")
+# Pictogramme lu comme un mot (mesuré sur le Cycle I, 17/11/2026). Une icône de couleur passe souvent pour un mot
+# sûr (« fff » 74 %, « M » 91 %) : le texte imprimé est noir, sa part de pixels colorés reste sous 5 %, celle
+# des icônes dépasse 12 %. Une vignette noire de tableau (« hd », « ee », « diated ») est peu sûre ET plus haute
+# que les lettres de sa ligne. Un mot très peu sûr collé à un pictogramme en est le reste (« id al », « a ced »).
+# Exception : le numéro d'entrée en tête de ligne (« 0 0 2 8 ») est imprimé en gros chiffres brun-rouge, donc
+# coloré ET haut ; pris pour des pictogrammes, il cassait les renvois « See 0028 » (mesuré le 17/11/2026).
+# Les règles de la vignette et du voisin ne valent que dans une zone lue à part (tableau) : dans le texte courant,
+# des mots en italique ou à capitale ornée (« Reveal », « odyssey », « Wet ») sont aussi peu sûrs et aussi hauts
+# qu'une icône, et un mot mal lu à côté d'un « I » pris pour un symbole (« here... », « and ») n'en est pas le reste.
+SATURATION_MOT_ICONE = 0.08     # part de pixels saturés (S > 90) d'un mot
+LETTRES_MAX_ICONE_SURE = 3      # au-delà, un mot coloré et sûr est un vrai mot (titre en couleur)
+CONFIANCE_MAX_VIGNETTE = 50
+HAUTEUR_VIGNETTE = 1.5          # × hauteur médiane des mots de la ligne
+CONFIANCE_MAX_VOISIN_ICONE = 20     # « sei » 6, « a » 16 ; à 40, une ligne entière collée à une icône y passait
 PONCTUATION_OK = set(".,;:!?—–-“”\"'’‘()…")
 CONNECTEURS = {"the", "of", "a", "an", "and", "to", "in", "for", "on", "at", "by", "with"}
 
+# Numéro d'entrée (« 0001 », gros chiffres en tête de ligne) et intertitre (« HOW TO USE THIS BOOK? », corps plus
+# gros que le texte) : rendus en paragraphes gras « **…** » et non en « ## » — un « # » ferait un chapitre de
+# traduction et une ancre de pagination (voir reconstruction.repartir_par_page). Mesuré sur le Cycle I p. 2-3
+# (17/11/2026) : intertitres 1,5 à 3,1 fois la hauteur médiane des lignes, numéros d'entrée 2,4 fois ; au-dessous
+# de 1,5, des lignes courtes ordinaires (« metropolis. » 1,42, « “Traitor!” » 1,44). « 0001 So it begins » n'avait
+# qu'un mot de 3 lettres : le filtre des paragraphes le jetait.
+HAUTEUR_INTERTITRE = 1.5        # × hauteur médiane des lignes du segment
+MOTS_MAX_INTERTITRE = 8
+CHIFFRES_LUS = str.maketrans("OoQDIl|!SZB", "00001111528")
+_RE_GRAS_SEUL = re.compile(r"^\*\*(.+)\*\*$")
 _RE_PIED = re.compile(r"^(\d{1,3}\s+\D{3,40}|\D{3,40}\s+\d{1,3})$")
 _RE_TITRE = re.compile(r"^\d{1,2} [A-Z]\S*(\s\S+)*$")
 # numéro d'entrée en gros caractères que Tesseract espace : « 0 2 8 1 As the… » → « 0281 As the… »
@@ -304,14 +331,22 @@ def ocr_lignes(image, langue: str, y_decalage: int = 0, zone: bool = False) -> l
     `zone=True` : zone que l'utilisateur a déclarée texte. Mesuré sur un tableau aéré (Cycle I p. 1) : le mode
     bloc (psm 6) n'y lisait que l'en-tête ; psm 4 lit chaque rangée. Les lignes de chiffres (« 1-3 1-2 »),
     écartées des colonnes comme du bruit d'illustration, et les lignes un peu moins sûres y sont gardées."""
+    np = _numpy()
+    sat = np.array(image.convert("RGB").convert("HSV"))[..., 1] > 90
     lignes: dict[tuple, list[dict]] = {}
     for ligne in _tesseract(image, 4 if zone else 6, langue, tsv=True).splitlines()[1:]:
         f = ligne.split("\t")
         if len(f) < 12 or not f[11].strip():
             continue
-        lignes.setdefault((f[2], f[3], f[4]), []).append(
-            dict(l=int(f[6]), t=int(f[7]), w=int(f[8]), h=int(f[9]), c=float(f[10]), txt=f[11])
-        )
+        l, t, w, h = int(f[6]), int(f[7]), int(f[8]), int(f[9])
+        x0, y0 = l // ECHELLE_OCR, t // ECHELLE_OCR
+        x1, y1 = max(x0 + 1, (l + w) // ECHELLE_OCR), max(y0 + 1, (t + h) // ECHELLE_OCR)
+        lignes.setdefault((f[2], f[3], f[4]), []).append(dict(
+            l=l, t=t, w=w, h=h, c=float(f[10]), txt=f[11],
+            sat=float(sat[y0:y1, x0:x1].mean()) if sat[y0:y1, x0:x1].size else 0.0,
+            # boîte dans la page (x relatif au recadrage : voir _ancrer)
+            boite=[x0, y0 + y_decalage, x1, y1 + y_decalage],
+        ))
     res = []
     for mots in lignes.values():
         if sum(m["c"] for m in mots) / len(mots) < (CONFIANCE_MIN_ZONE if zone else CONFIANCE_MIN_LIGNE):
@@ -320,7 +355,7 @@ def ocr_lignes(image, langue: str, y_decalage: int = 0, zone: bool = False) -> l
         if not zone and not any(len(re.sub(r"[^A-Za-z]", "", m["txt"])) >= 3 for m in mots):
             continue
         res.append(dict(
-            mots=mots,
+            mots=mots, zone=zone,
             gauche=min(m["l"] for m in mots) / ECHELLE_OCR,
             droite=max(m["l"] + m["w"] for m in mots) / ECHELLE_OCR,
             haut=min(m["t"] for m in mots) / ECHELLE_OCR + y_decalage,
@@ -369,11 +404,69 @@ def nettoyer_mot(mot: dict, suivant: str = "") -> str:
     return t
 
 
-def texte_ligne(ligne: dict) -> str:
+def _ancrer(lignes: list[dict], dx: int) -> list[dict]:
+    """Boîtes des mots en coordonnées de la PAGE : ocr_lignes ne connaît que le haut de son recadrage."""
+    for L in lignes:
+        for m in L["mots"]:
+            if "boite" in m:
+                b = m["boite"]
+                m["boite"] = [b[0] + dx, b[1], b[2] + dx, b[3]]
+    return lignes
+
+
+def _est_pictogramme(mot: dict, hauteur_mediane: float, zone: bool = False) -> bool:
+    """Mot qui est en réalité une icône ou une vignette (voir SATURATION_MOT_ICONE)."""
+    coeur = re.sub(r"[^A-Za-z0-9]", "", mot["txt"])
+    if coeur.isdigit():         # un chiffre, même en couleur, est un chiffre
+        return False
+    if mot.get("sat", 0.0) > SATURATION_MOT_ICONE and (len(coeur) <= LETTRES_MAX_ICONE_SURE or mot["c"] < 60):
+        return True
+    return zone and mot["c"] < CONFIANCE_MAX_VIGNETTE and mot["h"] > HAUTEUR_VIGNETTE * hauteur_mediane
+
+
+def texte_ligne(ligne: dict, icones: dict | None = None) -> str:
+    """
+    Texte d'une ligne OCR. Les pictogrammes consécutifs ne font qu'un. `icones` ({"page": n, "boites": [...]}) :
+    chaque pictogramme y range sa boîte (union des mots fusionnés) et devient « ⟦icône:page.k⟧ » ; sans lui,
+    « ⟦icône⟧ » (rendu en losange).
+    """
     mots = ligne["mots"]
+    hauteurs = sorted(m["h"] for m in mots)
+    h_med = hauteurs[len(hauteurs) // 2] if hauteurs else 0
     jetons = [nettoyer_mot(m, mots[i + 1]["txt"] if i + 1 < len(mots) else "") for i, m in enumerate(mots)]
-    s = " ".join(jetons)
-    return re.sub(rf"(?:{re.escape(MARQUEUR_ICONE)}\s*)+", MARQUEUR_ICONE + " ", s).strip()
+    # numéro d'entrée en tête de ligne : les mots hauts du début, s'il y a un chiffre parmi eux, restent du texte
+    tete = 0
+    while tete < len(mots) and mots[tete]["h"] > HAUTEUR_VIGNETTE * h_med:
+        tete += 1
+    numero = tete if any(re.search(r"\d", m["txt"]) for m in mots[:tete]) else 0
+    jetons = [MARQUEUR_ICONE if i >= numero and _est_pictogramme(m, h_med, ligne.get("zone", False)) else j
+              for i, (m, j) in enumerate(zip(mots, jetons))]
+    change = ligne.get("zone", False)
+    while change:       # un mot très peu sûr collé à un pictogramme en est le reste
+        change = False
+        for i, m in enumerate(mots):
+            if i >= numero and jetons[i] != MARQUEUR_ICONE and m["c"] < CONFIANCE_MAX_VOISIN_ICONE and any(
+                    0 <= j < len(jetons) and jetons[j] == MARQUEUR_ICONE for j in (i - 1, i + 1)):
+                jetons[i], change = MARQUEUR_ICONE, True
+    sortie: list[str] = []
+    i = 0
+    while i < len(jetons):
+        if jetons[i] != MARQUEUR_ICONE:
+            sortie.append(jetons[i])
+            i += 1
+            continue
+        j = i
+        while j < len(jetons) and jetons[j] == MARQUEUR_ICONE:
+            j += 1
+        boites = [mots[k]["boite"] for k in range(i, j) if "boite" in mots[k]]
+        if icones is not None and icones.get("page") and len(boites) == j - i:
+            icones["boites"].append([min(b[0] for b in boites), min(b[1] for b in boites),
+                                     max(b[2] for b in boites), max(b[3] for b in boites)])
+            sortie.append(f"⟦icône:{icones['page']}.{len(icones['boites'])}⟧")
+        else:
+            sortie.append(MARQUEUR_ICONE)
+        i = j
+    return " ".join(sortie).strip()
 
 
 def est_pied_de_page(texte: str, y_abs: float, hauteur_page: int) -> bool:
@@ -384,12 +477,17 @@ def est_pied_de_page(texte: str, y_abs: float, hauteur_page: int) -> bool:
 
 
 def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int,
-                      filtrer: bool = True) -> list[tuple[str, str]]:
+                      filtrer: bool = True, icones: dict | None = None) -> list[tuple[str, str]]:
     """Lignes → paragraphes. Nouveau paragraphe sur retrait ou sur ligne courte finissant
     une phrase ; les mots coupés en fin de ligne sont recollés."""
     blocs: list[tuple[str, str]] = []
     cur, prec = "", None
     gauche0 = min((L["gauche"] for L in lignes), default=0)
+    medianes = [st.median(m["h"] for m in L["mots"]) for L in lignes if L["mots"]]
+    corps = st.median(medianes) if len(medianes) >= 3 else None
+    garder = set()      # index des paragraphes qui suivent un numéro d'entrée : jamais filtrés
+    # Le gros numéro occupe deux lignes : la suivante est décalée de sa largeur, ce n'est pas un retrait de paragraphe.
+    lignes_sous_numero = 0
 
     def vider():
         nonlocal cur
@@ -398,12 +496,34 @@ def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int,
             cur = ""
 
     for L in lignes:
-        txt = texte_ligne(L)
+        mots = L["mots"]
+        if not mots:
+            continue
+        num, tete = numero_entree(mots, corps)
+        if num:
+            vider()
+            blocs.append(("entree", num))
+            garder.add(len(blocs))
+            lignes_sous_numero = 2
+            L = dict(L, mots=mots[tete:])
+            if not L["mots"]:
+                prec = None
+                continue
+        txt = texte_ligne(L, icones)
         if not txt or est_pied_de_page(txt, L["haut"], hauteur_page):
             continue
-        retrait = L["gauche"] - gauche0 > 0.05 * largeur_col
+        if not num and est_intertitre(L, corps, txt):
+            vider()
+            if blocs and blocs[-1][0] == "intertitre" and prec is not None and prec.get("_intertitre"):
+                blocs[-1] = ("intertitre", blocs[-1][1] + " " + txt)     # intertitre sur deux lignes
+            else:
+                blocs.append(("intertitre", txt))
+            prec = dict(L, _intertitre=True)
+            continue
+        retrait = L["gauche"] - gauche0 > 0.05 * largeur_col and not lignes_sous_numero
+        lignes_sous_numero = max(0, lignes_sous_numero - 1)
         courte = prec and (prec["droite"] - gauche0) < 0.80 * largeur_col and re.search(r"[.!?”\"]$", cur)
-        if cur and (retrait or courte):
+        if cur and (retrait or courte) and not num:
             vider()
         if cur.endswith("-") and txt[:1].islower():
             cur = cur[:-1] + txt
@@ -411,7 +531,89 @@ def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int,
             cur = (cur + " " + txt).strip()
         prec = L
     vider()
-    return [(k, t) for k, t in blocs if not filtrer or len(re.findall(r"[A-Za-z]{3,}", t)) >= 2]
+    return [(k, t) for i, (k, t) in enumerate(blocs)
+            if not filtrer or k != "para" or i in garder or len(re.findall(r"[A-Za-z]{3,}", t)) >= 2]
+
+
+def numero_entree(mots: list[dict], corps: float | None) -> tuple[str | None, int]:
+    """
+    Numéro d'entrée en tête de ligne → (« 0001 », nombre de mots qu'il occupe), sinon (None, 0).
+    Les mots de tête nettement plus hauts que le texte forment le numéro, même mal lus : « 0 0 0) 6 » → 0006,
+    « 0 0 I 3 » → 0013 ; un mot illisible (« Ff », « ') ») devient « ? », réparé par la séquence (reparer_entrees).
+    """
+    hauteurs = sorted(m["h"] for m in mots)
+    ref = corps or hauteurs[len(hauteurs) // 2]
+    tete = 0
+    while tete < len(mots) and mots[tete]["h"] > HAUTEUR_VIGNETTE * ref:
+        tete += 1
+    if not tete or tete == len(mots) and len(mots) == 1 and not re.fullmatch(r"\d{4}", mots[0]["txt"]):
+        return None, 0
+    chiffres, n = "", 0
+    for m in mots[:tete]:
+        coeur = re.sub(r"[^A-Za-z0-9]", "", m["txt"])
+        lu = coeur.translate(CHIFFRES_LUS)
+        if lu.isdigit():
+            chiffres += lu
+        elif len(coeur) <= 2:           # chiffre illisible (« Ff », « ') »)
+            chiffres += "?"
+        else:                           # un vrai mot (« “Traitor!” », ou « “Phaedra,” » haut par ses guillemets)
+            break
+        n += 1
+    tete = n
+    lus = sum(c.isdigit() for c in chiffres)
+    if lus < 2 or (lus == 2 and len(chiffres) != 4) or len(chiffres) > 5:   # « ??35 » : 4 positions, 2 lues
+        return None, 0
+    return chiffres.rjust(4, "0") if "?" not in chiffres else chiffres, tete
+
+
+def est_intertitre(ligne: dict, corps: float | None, texte: str) -> bool:
+    """Ligne courte en corps nettement plus gros que le texte, qui commence par une majuscule (voir HAUTEUR_INTERTITRE)."""
+    if corps is None or len(ligne["mots"]) > MOTS_MAX_INTERTITRE:
+        return False
+    h = st.median(m["h"] for m in ligne["mots"])
+    premiere = next((c for c in texte if c.isalpha()), "")
+    return h >= HAUTEUR_INTERTITRE * corps and premiere.isupper()
+
+
+def reparer_entrees(blocs: list[tuple[str, str]], journal: list[str]) -> list[tuple[str, str]]:
+    """Numéro d'entrée mal lu (« 000? », « 0?08 ») : rétabli par son voisin (précédent + 1 ou suivant − 1) quand le
+    motif lu le permet ; sinon laissé tel quel et journalisé (jamais un numéro inventé)."""
+    idx = [i for i, (k, _) in enumerate(blocs) if k == "entree"]
+    sortie = list(blocs)
+
+    def valeur(p):
+        t = sortie[idx[p]][1] if 0 <= p < len(idx) else ""
+        return int(t) if re.fullmatch(r"\d{4}", t) else None
+
+    def ecarts(lu: str, v: str) -> int:
+        return sum(a != b and a != "?" for a, b in zip(lu, v)) if len(lu) == 4 else 4
+
+    change, tours = True, 0
+    while change and tours < 10:    # jusqu'à stabilité (borné) : un numéro réparé sert de voisin aux autres (« 00?2 », « ?073 »)
+        change, tours = False, tours + 1
+        for p, i in enumerate(idx):
+            lu = sortie[i][1]
+            avant, apres = valeur(p - 1), valeur(p + 1)
+            accord = avant is not None and apres is not None and apres == avant + 2
+            if re.fullmatch(r"\d{4}", lu) and not (accord and int(lu) != avant + 1 and ecarts(lu, f"{avant + 1:04d}") <= 1):
+                continue            # lisible et à sa place (ou rien pour le contredire)
+            candidats = [c for c in (avant + 1 if avant is not None else None, apres - 1 if apres is not None else None)
+                         if c is not None and 0 <= c <= 9999]
+            motif = re.compile("^" + lu.rjust(4, "?").replace("?", r"\d") + "$")
+            bon = next((f"{c:04d}" for c in candidats if motif.match(f"{c:04d}")), None)
+            # Les deux voisins s'accordent : un numéro mal lu à un ou deux chiffres près (« 0940 », « 0?01 »), ou à
+            # un chiffre de trop (« 00030 »), est le numéro attendu.
+            if not bon and accord and (ecarts(lu, f"{avant + 1:04d}") <= 2 or f"{avant + 1:04d}" in lu
+                                       or f"{(avant + 1) % 100:02d}" in lu[-3:]):
+                bon = f"{avant + 1:04d}"
+            if bon and bon != lu:
+                journal.append(f"numéro d'entrée « {lu} » lu → {bon} (voisins)")
+                sortie[i] = ("entree", bon)
+                change = True
+    for i in idx:
+        if not re.fullmatch(r"\d{4}", sortie[i][1]):
+            journal.append(f"numéro d'entrée « {sortie[i][1]} » illisible, laissé tel quel")
+    return sortie
 
 
 def reparer_titres(blocs: list[tuple[str, str]], journal: list[str]) -> list[tuple[str, str]]:
@@ -460,6 +662,8 @@ def blocs_vers_markdown(blocs: list[tuple[str, str]]) -> str:
             md.append("> " + t + "\n")
         elif k == "conserve":
             md.append(f"{MARQUE_CONSERVER[0]}\n{t}\n{MARQUE_CONSERVER[1]}\n")
+        elif k in ("entree", "intertitre"):
+            md.append(f"**{t}**\n")
         else:
             md.append(t + "\n")
     return "\n".join(md)
@@ -582,11 +786,13 @@ def analyser_mise_en_page(image, double_page: bool | None = None, reglage: dict 
     return dict(gris=gris, double_page=double, gouttiere=gx, moities=res, h=h, w=w, zones=zones)
 
 
-def traiter_page(image, langue: str = "eng", double_page: bool | None = None, reglage: dict | None = None) -> dict:
+def traiter_page(image, langue: str = "eng", double_page: bool | None = None, reglage: dict | None = None,
+                 numero: int | None = None) -> dict:
     """
     Une page → {'blocs': [(type, texte)], 'avertissements': [...]}.
     Types : 'titre', 'encadre', 'para'. Une demi-page en mode 'image' ou 'ignorer' n'a pas de colonne :
-    rien n'y est lu.
+    rien n'y est lu. Avec `numero`, les pictogrammes sont situés (« ⟦icône:numero.k⟧ ») et leurs boîtes
+    rendues dans 'icones' (k = rang dans cette liste, à partir de 1).
     """
     mise = analyser_mise_en_page(image, double_page, reglage)
     zones = mise["zones"]
@@ -594,6 +800,7 @@ def traiter_page(image, langue: str = "eng", double_page: bool | None = None, re
     h = mise["h"]
     retirees = (reglage or {}).get("detections_retirees")
     blocs, avert = [], []      # blocs : (clé d'ordre de lecture, type, texte)
+    icones = {"page": numero, "boites": []} if numero else None
     for mi, moitie in enumerate(mise["moities"]):
         avert += moitie["alertes"]
         for ci, (a, b) in enumerate(moitie["colonnes"]):
@@ -612,17 +819,19 @@ def traiter_page(image, langue: str = "eng", double_page: bool | None = None, re
                     marge = 4 if sk == "encadre" else 0   # évite les coins arrondis du cadre
                     if s1 - s0 < 2 * marge + 8:
                         continue
-                    lignes = ocr_lignes(image_lue.crop((a + marge, y0 + s0 + marge, b - marge, y0 + s1 - marge)),
-                                        langue, y_decalage=y0 + s0 + marge)
+                    lignes = _ancrer(ocr_lignes(image_lue.crop((a + marge, y0 + s0 + marge, b - marge,
+                                                                 y0 + s1 - marge)),
+                                                langue, y_decalage=y0 + s0 + marge), a + marge)
                     if not lignes:
                         continue
-                    for _, t in lignes_vers_blocs(lignes, b - a, h):
-                        blocs.append((cle, "encadre" if sk == "encadre" else "para", t))
+                    for k, t in lignes_vers_blocs(lignes, b - a, h, icones=icones):
+                        blocs.append((cle, "encadre" if sk == "encadre" and k == "para" else k, t))
                     # NB : lignes_vers_blocs renvoie des 'para' ; l'encadré est requalifié ici
     for z in zones:
-        blocs += [(_cle_zone(mise, z["rect"]), k, t) for k, t in _lire_zone(image, z, langue, h, avert)]
+        blocs += [(_cle_zone(mise, z["rect"]), k, t) for k, t in _lire_zone(image, z, langue, h, avert, icones)]
     blocs.sort(key=lambda b: b[0])      # tri stable : sans zone, l'ordre est celui de la boucle
-    return {"blocs": [(k, t) for _, k, t in blocs], "avertissements": avert}
+    return {"blocs": [(k, t) for _, k, t in blocs], "avertissements": avert,
+            "icones": icones["boites"] if icones else []}
 
 
 def _masquer_zones(gris, image, zones: list[dict]):
@@ -653,23 +862,23 @@ def _cle_zone(mise: dict, rect) -> tuple[int, int, int]:
     return (mi, ci, y0)
 
 
-def _lire_zone(image, zone: dict, langue: str, hauteur_page: int, avert: list[str]) -> list[tuple[str, str]]:
+def _lire_zone(image, zone: dict, langue: str, hauteur_page: int, avert: list[str],
+               icones: dict | None = None) -> list[tuple[str, str]]:
     """Blocs d'une zone dessinée à la main (voir TYPES_ZONE). Une zone à lire où l'OCR ne trouve rien est signalée."""
     if zone["type"] in ("illustration", "ignorer"):
         return []
     x0, y0, x1, y1 = zone["rect"]
-    lignes = ocr_lignes(image.crop((x0, y0, x1, y1)), langue, y_decalage=y0, zone=True)
-    texte = " ".join(t for t in (texte_ligne(L) for L in lignes) if t).strip()
-    if not texte:
+    lignes = _ancrer(ocr_lignes(image.crop((x0, y0, x1, y1)), langue, y_decalage=y0, zone=True), x0)
+    # Vérification à blanc (sans `icones`) : chaque pictogramme n'est rangé qu'une fois, par le rendu retenu.
+    if not any(texte_ligne(L) for L in lignes):
         avert.append(f"zone « {zone['type']} » ({x0}, {y0}) : aucun texte lu")
         return []
-    if zone["type"] == "titre":
-        return [("titre", texte)]
-    if zone["type"] == "conserver":
-        return [("conserve", texte)]
+    if zone["type"] in ("titre", "conserver"):
+        texte = " ".join(t for t in (texte_ligne(L, icones) for L in lignes) if t).strip()
+        return [("titre" if zone["type"] == "titre" else "conserve", texte)]
     if _ressemble_a_un_tableau(lignes):     # une rangée par paragraphe : fusionnées, les cellules se mélangent
-        return [("para", t) for t in (texte_ligne(L) for L in lignes) if t]
-    return lignes_vers_blocs(lignes, x1 - x0, hauteur_page, filtrer=False) or [("para", texte)]
+        return [("para", t) for t in (texte_ligne(L, icones) for L in lignes) if t]
+    return lignes_vers_blocs(lignes, x1 - x0, hauteur_page, filtrer=False, icones=icones)
 
 
 def _ressemble_a_un_tableau(lignes: list[dict]) -> bool:
@@ -995,6 +1204,7 @@ def assembler_markdown(dossier_pages: str, pages: list[int]) -> tuple[str, list[
             blocs += [tuple(b) for b in donnees.get("blocs", [])]
     journal: list[str] = []
     blocs = reparer_titres(blocs, journal)
+    blocs = reparer_entrees(blocs, journal)
     return blocs_vers_markdown(blocs), journal
 
 
@@ -1012,7 +1222,7 @@ def _traiter_et_ecrire_page(chemin_pdf: str, numero: int, dossier: str, langue: 
         return existant
     doc = _ouvrir_pdf(chemin_pdf)   # un handle par fil : PyMuPDF n'est pas thread-safe
     try:
-        resultat = traiter_page(rendre_page(doc, numero), langue, double_page, manuel)
+        resultat = traiter_page(rendre_page(doc, numero), langue, double_page, manuel, numero=numero)
     finally:
         doc.close()
     resultat["page"] = numero

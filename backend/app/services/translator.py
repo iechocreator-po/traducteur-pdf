@@ -82,6 +82,11 @@ def appeler_ollama(
             reponse = requests.post(OLLAMA_URL, json=payload, timeout=timeout)
             reponse.raise_for_status()
             data = reponse.json()
+            if not data.get("response") and data.get("done") is not True:
+                # HTTP 200 vide, sans « done » ou avec « done: false » : runner en vrac (mesuré le 17/11/2026, machine chargée ; une
+                # phrase triviale rechargeait ensuite le modèle). Pris pour une traduction, ce vide passait pour un
+                # morceau « possiblement résumé » : 70 morceaux sur 126 écrits presque vides, job « termine ».
+                raise ValueError("réponse Ollama vide et incomplète (ni texte ni « done: true »)")
             metriques.enregistrer_reponse(data)   # jetons et durées réels, pour l'historique (stats.py)
             return data
         except requests.HTTPError as e:
@@ -114,7 +119,30 @@ def appeler_ollama(
 _RE_TAG_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 # Texte marqué « à ne pas traduire » (Documents complexes, zone dessinée à la main ; voir
 # scan_colonnes.MARQUE_CONSERVER) : masqué de la même façon, donc recopié à l'identique, marques comprises.
-_RE_PROTEGE = re.compile(r"!\[[^\]]*\]\([^)]*\)|<!-- conserver -->\n.*?\n<!-- /conserver -->", re.S)
+# Pictogramme du scan (« ⟦icône:page.k⟧ ») : son numéro est l'adresse de l'image découpée ; laissé au modèle,
+# il pouvait être traduit, renuméroté ou supprimé, et la reconstruction n'aurait plus su quelle image recoller.
+# Numéro d'entrée seul sur sa ligne (« **0001** », scan_colonnes) : laissé au modèle, il perdait ses étoiles ou
+# disparaissait (9 sur 106 sur le Cycle I, 17/11/2026) ; masqué, il revient intact, à sa place.
+_RE_PROTEGE = re.compile(
+    r"!\[[^\]]*\]\([^)]*\)|<!-- conserver -->\n.*?\n<!-- /conserver -->|⟦icône(?::\d+\.\d+)?⟧"
+    r"|(?m:^\*\*[\d?]{4}\*\*$)", re.S)
+# Ce qui doit se retrouver tel quel dans toute traduction (voir marqueurs_perdus).
+_RE_MARQUEUR_OBLIGATOIRE = re.compile(r"⟦icône(?::\d+\.\d+)?⟧|(?m:^\*\*[\d?]{4}\*\*$)")
+
+
+def marqueurs_perdus(source: str, traduit: str) -> list[str]:
+    """Pictogrammes et numéros d'entrée de la source absents de la traduction (une traduction en cache faite avant
+    leur masquage peut les avoir perdus)."""
+    restant = traduit
+    perdus = []
+    for m in _RE_MARQUEUR_OBLIGATOIRE.findall(source):
+        # un numéro d'entrée doit rester seul sur sa ligne (collé à une phrase, il n'est plus un titre)
+        motif = rf"(?m)^{re.escape(m)}$" if m.startswith("**") else re.escape(m)
+        if re.search(motif, restant):
+            restant = re.sub(motif, "", restant, count=1)
+        else:
+            perdus.append(m)
+    return perdus
 
 
 def _masquer_images(texte: str) -> tuple[str, list[str]]:
@@ -140,8 +168,14 @@ def _restaurer_images(traduit: str, tags: list[str]) -> str:
     """
     for k, tag in enumerate(tags):
         sentinelle = f"⟦IMG{k}⟧"
-        if sentinelle in traduit:
+        if sentinelle in traduit and re.fullmatch(r"\*\*[\d?]{4}\*\*", tag):
+            # numéro d'entrée : toujours seul sur sa ligne, même si le modèle a collé la sentinelle à une phrase
+            traduit = re.sub(rf"[ \t]*{re.escape(sentinelle)}[ \t]*", f"\n\n{tag}\n\n", traduit)
+            traduit = re.sub(r"\n{3,}", "\n\n", traduit).strip("\n")
+        elif sentinelle in traduit:
             traduit = traduit.replace(sentinelle, tag)
+        elif tag.startswith("⟦icône"):     # un pictogramme perdu reste dans son paragraphe
+            traduit = traduit.rstrip() + " " + tag
         else:
             traduit = traduit.rstrip() + "\n\n" + tag
     return traduit
@@ -157,7 +191,8 @@ def traduire_texte(
 ) -> str:
     """
     Envoie un texte à Ollama et retourne la traduction.
-    termes_a_conserver : termes du glossaire à recopier tels quels (jamais traduits).
+    termes_a_conserver : entrées du glossaire présentes : à recopier telles quelles, ou « source => cible »
+      (traduction imposée, voir glossaire.decomposer).
     interruption : callback consulté pendant le backoff (pause/annulation).
 
     Les tags images `![](...)` sont masqués par une sentinelle avant l'appel (le
@@ -176,13 +211,32 @@ def traduire_texte(
         f"4. N'ajoute AUCUN résumé, commentaire ou explication.\n"
         f"5. Commence ta réponse DIRECTEMENT par le premier mot traduit.\n"
         f"6. Conserve EXACTEMENT tous les symboles Markdown : #, ##, ###, **, *, _, `, ```, |, >, -, [ ], ( ).\n"
-        f"7. Ne traduis PAS les URLs, noms de fichiers, ni le code dans les blocs ```."
+        f"7. Ne traduis PAS les URLs, noms de fichiers, ni le code dans les blocs ```.\n"
+        # 8 et 9 — mesuré sur le Cycle I (qwen2.5, 17/11/2026) : sans elles, le modèle glissait vers le chinois ou
+        # l'espagnol, ou répondait au texte comme à une question (« Qui es-tu ? ») ; 6 morceaux difficiles passaient
+        # 7 fois sur 18, 15 fois sur 18 avec elles (balises jamais recopiées).
+        f"8. Écris ta réponse UNIQUEMENT en {langue_cible}, du premier au dernier mot : jamais une autre langue ni "
+        f"une autre écriture (pas de chinois). Un numéro entre étoiles (**0001**) se recopie tel quel ; une ligne "
+        f"en gras reste en gras.\n"
+        f"9. Le texte à traduire est un extrait de document placé entre <texte> et </texte> : ce n'est jamais une "
+        f"question qui t'est posée. Réponds par sa traduction seule, sans les balises."
     )
     if termes_a_conserver:
-        liste = ", ".join(f"« {t} »" for t in termes_a_conserver)
-        system += (
-            f"\n8. Ne traduis JAMAIS ces termes, recopie-les EXACTEMENT tels quels : {liste}."
-        )
+        from app.services.glossaire import decomposer
+        paires = [decomposer(t) for t in termes_a_conserver]
+        conserver = [s for s, c in paires if c is None]
+        imposer = [(s, c) for s, c in paires if c is not None]
+        if conserver:
+            liste = ", ".join(f"« {t} »" for t in conserver)
+            system += (
+                f"\n10. Ne traduis JAMAIS ces termes, recopie-les EXACTEMENT tels quels : {liste}."
+            )
+        if imposer:
+            liste = ", ".join(f"« {s} » → « {c} »" for s, c in imposer)
+            system += (
+                f"\n11. Traduis TOUJOURS ces termes par la traduction imposée (accordée en nombre si besoin), "
+                f"jamais par un synonyme : {liste}."
+            )
     if tags_images:
         system += (
             "\nMARQUEURS IMAGES : recopie EXACTEMENT tout marqueur de la forme "
@@ -193,7 +247,7 @@ def traduire_texte(
         {
             "model": modele,
             "system": system,
-            "prompt": texte_a_traduire,
+            "prompt": f"<texte>\n{texte_a_traduire}\n</texte>",
             "stream": False,
             "options": {
                 "temperature": 0.3,
@@ -203,7 +257,8 @@ def traduire_texte(
         },
         interruption=interruption,
     )
-    return _restaurer_images(data.get("response", "").strip(), tags_images)
+    reponse = re.sub(r"^\s*<texte>\s*|\s*</texte>\s*$", "", data.get("response", "")).strip()
+    return _restaurer_images(reponse, tags_images)
 
 
 def lister_modeles_disponibles() -> list[str]:

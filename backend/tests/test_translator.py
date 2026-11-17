@@ -231,8 +231,15 @@ def test_traduire_texte_sans_image_inchange(mock_appel):
     mock_appel.return_value = {"response": "Bonjour le monde"}
     traduire_texte("Hello world", modele="llama3.1", langue_source="anglais", langue_cible="français")
     payload = mock_appel.call_args[0][0]
-    assert payload["prompt"] == "Hello world"
+    assert payload["prompt"] == "<texte>\nHello world\n</texte>"     # seul le balisage du texte s'ajoute
     assert "MARQUEURS IMAGES" not in payload["system"]
+
+
+@patch("app.services.translator.appeler_ollama")
+def test_balises_recopiees_par_le_modele_retirees(mock_appel):
+    mock_appel.return_value = {"response": "<texte>\nBonjour le monde\n</texte>"}
+    assert traduire_texte("Hello world", "m", "anglais", "français") == "Bonjour le monde"
+    assert "UNIQUEMENT en français" in mock_appel.call_args[0][0]["system"]
 
 
 @patch("app.services.translator.appeler_ollama")
@@ -242,3 +249,55 @@ def test_traduire_texte_filet_si_le_modele_perd_la_sentinelle(mock_appel):
     texte = "Texte ![x](img/a.png) suite."
     resultat = traduire_texte(texte, modele="llama3.1", langue_source="anglais", langue_cible="français")
     assert "![x](img/a.png)" in resultat
+
+
+@patch("app.services.translator.requests.post")
+def test_pictogrammes_situes_masques_puis_restaures(mock_post):
+    """Le modèle ne voit jamais « ⟦icône:2.7⟧ » (il pourrait le renuméroter) ; un marqueur perdu revient
+    dans le paragraphe, pas en paragraphe isolé."""
+    mock_post.return_value = _reponse({"response": "Le symbole ⟦IMG0⟧ est restreint."})
+    out = translator.traduire_texte("The ⟦icône:2.7⟧ symbol is restricted. Gain ⟦icône:2.8⟧.", "m",
+                                    "anglais", "français")
+    envoye = mock_post.call_args.kwargs["json"]["prompt"]
+    assert "icône" not in envoye and "⟦IMG0⟧" in envoye and "⟦IMG1⟧" in envoye
+    assert out == "Le symbole ⟦icône:2.7⟧ est restreint. ⟦icône:2.8⟧"
+
+
+def test_reponse_vide_sans_done_est_reessayee(horloge):
+    """Un 200 sans texte ni « done » (runner en vrac) est une panne transitoire, pas une traduction vide."""
+    with patch("app.services.translator.requests.post") as mock_post:
+        mock_post.side_effect = [_reponse({}), _reponse({"response": "Bonjour", "done": True})]
+        assert translator.appeler_ollama({"prompt": "x"})["response"] == "Bonjour"
+        assert mock_post.call_count == 2
+
+
+def test_reponse_vide_done_false_est_reessayee(horloge):
+    with patch("app.services.translator.requests.post") as mock_post:
+        mock_post.side_effect = [_reponse({"response": "", "done": False}), _reponse({"response": "Oui", "done": True})]
+        assert translator.appeler_ollama({"prompt": "x"})["response"] == "Oui"
+
+
+@patch("app.services.translator.requests.post")
+def test_numero_d_entree_masque_et_restaure(mock_post):
+    """Le modèle ne voit pas « **0029** » (il lui retirait ses étoiles ou le supprimait)."""
+    mock_post.return_value = _reponse({"response": "⟦IMG0⟧\n\nVous n'avez pas oublié.", "done": True})
+    out = translator.traduire_texte("**0029**\n\nYou have not forgotten.", "m", "anglais", "français")
+    assert "0029" not in mock_post.call_args.kwargs["json"]["prompt"]
+    assert out == "**0029**\n\nVous n'avez pas oublié."
+
+
+def test_marqueurs_perdus():
+    src = "**0009**\n\nHere ⟦icône:3.1⟧ and ⟦icône:3.1⟧."
+    assert translator.marqueurs_perdus(src, "**0009**\n\nIci ⟦icône:3.1⟧ et ⟦icône:3.1⟧.") == []
+    assert translator.marqueurs_perdus(src, "0009 Ici ⟦icône:3.1⟧.") == ["**0009**", "⟦icône:3.1⟧"]
+
+
+@patch("app.services.translator.requests.post")
+def test_numero_d_entree_remis_seul_sur_sa_ligne(mock_post):
+    mock_post.return_value = _reponse({"response": "Reviens à la phase du Voyage. ⟦IMG0⟧\n\nAprès le combat.", "done": True})
+    out = translator.traduire_texte("Return to the Voyage Phase.\n\n**0052**\n\nAfter the battle.", "m", "anglais", "français")
+    assert out == "Reviens à la phase du Voyage.\n\n**0052**\n\nAprès le combat."
+
+
+def test_numero_colle_a_une_phrase_compte_comme_perdu():
+    assert translator.marqueurs_perdus("x\n\n**0052**\n\ny", "Voyage. **0052**\n\nAprès.") == ["**0052**"]

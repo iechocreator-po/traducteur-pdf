@@ -14,8 +14,8 @@ Chaîne : PDF scanné → (par page) illustrations + cadres de texte, mis en cac
 Limites assumées (affichées à l'utilisateur, jamais masquées) :
   - le texte traduit est plus long que l'original : la police est réduite page par page jusqu'à
     TAILLE_MIN_PT ; au-delà, le reste part sur une page « suite » plutôt que d'être tronqué ;
-  - les petits pictogrammes inline du livre (⟦icône⟧ de l'OCR) ne sont pas recadrés : ils sont
-    remplacés par un losange ;
+  - les pictogrammes inline du livre (« ⟦icône:page.k⟧ » du scan) sont recadrés dans le scan et recollés dans
+    la ligne ; un marqueur sans position (scan antérieur, « ⟦icône⟧ ») reste un losange ;
   - seule la géométrie du scan est utilisée : aucun appel à Ollama ici.
 """
 
@@ -33,7 +33,7 @@ from app.services import scan_colonnes
 from app.services.persistance import ecrire_binaire_atomique, ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
 
 SUFFIXE_SCAN = "_scan_colonnes"
-VERSION_CACHE = 5           # à incrémenter quand la détection change (invalide le cache)
+VERSION_CACHE = 6           # à incrémenter quand la détection change (invalide le cache)
 DPI_APERCU = 90              # scan d'origine embarqué dans le HTML (mode « Pages »)
 QUALITE_ILLUS = 85
 QUALITE_APERCU = 65
@@ -42,7 +42,7 @@ QUALITE_APERCU = 65
 # ×ECHELLE_SORTIE (même format, proportions identiques) pour retrouver la taille d'un vrai livre.
 ECHELLE_SORTIE = 2.0
 TAILLE_MAX_PT = 10.0
-TAILLE_MIN_PT = 7.0
+TAILLE_MIN_PT = 6.5
 PAS_TAILLE_PT = 0.5
 AIRE_MIN_ILLUS = 0.02        # fraction de la page en dessous de laquelle une zone n'est pas une illustration
 COTE_MIN_ILLUS = 0.08        # idem pour chaque côté (écarte l'ombre de reliure, haute mais étroite)
@@ -52,7 +52,28 @@ ENCRE_TEXTE_MIN, ENCRE_TEXTE_MAX = 0.03, 0.40
 HAUTEUR_MAX_CARACTERE = 0.045           # fraction de la hauteur de page (gros numéros de section compris)
 LARGEUR_MAX_MOT = 0.09                  # fraction de la largeur de page
 PART_ENCRE_EN_PETITS_MORCEAUX = 0.6
+# Petites figures (tuiles, jetons, schémas, logo au trait) : l'illustration est cherchée sur une image réduite
+# ×8 puis lissée, ce qui efface tout objet de moins de ~70 px. Seconde passe à pleine résolution : une ouverture
+# morphologique efface les traits de lettres (≤ 4 px à 200 dpi) et garde les aplats d'encre. Mesuré sur le
+# Cycle I p. 1-10 (17/11/2026) : tuiles Labyrinthe, jeton Désespoir, schéma « Labyrinth X », logo de couverture
+# trouvés ; aucun paragraphe pris ; seules les ombres de reliure (12 à 32 px de large) passaient, d'où le côté minimal.
+OUVERTURE_FIGURE_PX = 7
+FERMETURE_FIGURE_PX = 15
+AIRE_MIN_FIGURE, AIRE_MAX_FIGURE = 0.0004, 0.15
+COTE_MIN_FIGURE = 0.035                 # × hauteur de page, pour chaque côté
+# Ombre de reliure ou de bord de page (livre complet, 61 pages : 18 bandes de 41 à 150 px de large, toutes collées
+# à un bord de la page et 3 à 25 fois plus hautes que larges ; aucune vraie figure dans ce cas).
+ALLONGEMENT_MAX_AU_BORD = 2.5
+RECOUVREMENT_MAX_FIGURE = 0.3           # part d'une figure déjà couverte par une illustration : c'est la même
+# Une illustration qui couvre plus de cette part de la largeur d'une colonne y interrompt le texte.
+PART_COLONNE_COUPEE = 0.15
 MARGE_HAUT, MARGE_BAS = 0.03, 0.93   # le texte n'est jamais coulé dans le titre courant / folio
+# Colonnes du PDF recréé un peu plus étroites que celles du scan (retrait de chaque côté, en part de la largeur de
+# colonne) : coulé bord à bord, le texte traduit touchait la colonne voisine et la gouttière (demande du 17/11/2026).
+# Mesuré sur le Cycle I p. 1-10 avec numéros d'entrée et intertitres : retrait 3 %, minimum 7 pt, interligne 1,18 →
+# 8 pages sur 10 débordaient sur une page « suite » ; retrait 2 %, minimum 6,5 pt, interligne 1,12 → aucune, et le
+# texte reste à 7 pt sur 9 pages.
+RETRAIT_COLONNE = 0.02
 NB_MAX_SUITES = 200          # par page source ; au-delà, échec explicite plutôt qu'un texte coupé
 SEUIL_TITRE = 0.6            # ressemblance minimale pour rattacher un chapitre à un titre du scan
 LANGUES_HTML = {"français": "fr", "anglais": "en", "espagnol": "es"}
@@ -159,7 +180,51 @@ def detecter_illustrations(image) -> list[tuple[int, int, int, int]]:
         if _ressemble_a_du_texte(gris[y0:y1, x0:x1], w, h):
             continue
         rects.append((int(x0), int(y0), int(x1), int(y1)))
+    rects = _ajouter_figures_pleines(rects, gris, sat, fond, sat_papier)
     return sorted(rects, key=lambda r: (r[0] >= w // 2, r[1], r[0]))
+
+
+def _ajouter_figures_pleines(rects: list, gris, sat, fond: float, sat_papier: float) -> list:
+    """
+    Seconde passe (voir OUVERTURE_FIGURE_PX) : figures trop petites ou trop fines pour la première. Une figure
+    contenue dans une illustration déjà trouvée est ignorée ; une figure qui CONTIENT des illustrations trouvées
+    les remplace (le logo au trait n'était vu que par morceaux) ; une figure qui en chevauche une est ignorée.
+    """
+    import cv2
+    import numpy as np
+
+    h, w = gris.shape
+    masque = ((gris < fond - 60) | (sat > sat_papier + 60)).astype(np.uint8)
+    masque = cv2.morphologyEx(masque, cv2.MORPH_OPEN, np.ones((OUVERTURE_FIGURE_PX,) * 2, np.uint8))
+    masque = cv2.morphologyEx(masque, cv2.MORPH_CLOSE, np.ones((FERMETURE_FIGURE_PX,) * 2, np.uint8))
+    nb, _, stats, _ = cv2.connectedComponentsWithStats(masque)
+    cote_min = COTE_MIN_FIGURE * h
+    sortie = list(rects)
+    for i in range(1, nb):
+        x, y, ww, hh, _ = stats[i]
+        if not AIRE_MIN_FIGURE * w * h <= ww * hh <= AIRE_MAX_FIGURE * w * h or min(ww, hh) < cote_min:
+            continue
+        f = (int(x), int(y), int(x + ww), int(y + hh))
+        au_bord = f[0] <= 2 or f[1] <= 2 or f[2] >= w - 2 or f[3] >= h - 2
+        if au_bord and max(ww / hh, hh / ww) > ALLONGEMENT_MAX_AU_BORD:
+            continue
+
+        def inter(r):
+            return max(0, min(r[2], f[2]) - max(r[0], f[0])) * max(0, min(r[3], f[3]) - max(r[1], f[1]))
+
+        def aire(r):
+            return (r[2] - r[0]) * (r[3] - r[1])
+
+        if any(inter(r) >= 0.9 * aire(f) for r in sortie):
+            continue
+        contenues = [r for r in sortie if inter(r) >= 0.9 * aire(r)]
+        autres = [r for r in sortie if r not in contenues]
+        if any(inter(r) > RECOUVREMENT_MAX_FIGURE * aire(f) for r in autres):
+            continue
+        if _ressemble_a_du_texte(gris[f[1]:f[3], f[0]:f[2]], w, h):
+            continue
+        sortie = autres + [f]
+    return sortie
 
 
 def _ressemble_a_du_texte(gris, largeur_page: int, hauteur_page: int) -> bool:
@@ -244,7 +309,7 @@ def cadres_texte(mise: dict, illustrations: list[tuple[int, int, int, int]]) -> 
             bas = min(int(lignes[-1]) if len(lignes) else h, int(h * MARGE_BAS))
             intervalles = [(haut, bas)]
             for x0, y0, x1, y1 in illustrations:
-                if min(b, x1) - max(a, x0) <= 0.3 * (b - a):
+                if min(b, x1) - max(a, x0) <= PART_COLONNE_COUPEE * (b - a):
                     continue
                 coupe0, coupe1 = y0 - 12, y1 + 12
                 nouveaux = []
@@ -282,6 +347,21 @@ def _regions_du_scan(chemin_pdf: str, dossier_pages: str | None, numero: int) ->
     return scan_colonnes.reglage_page(chemin_pdf, numero)
 
 
+def _icones_du_scan(dossier_pages: str | None, numero: int) -> list[list[int]]:
+    """Boîtes des pictogrammes que le scan a situés sur la page (`page-NNNN.json` › icones), dans l'ordre des k."""
+    if not dossier_pages:
+        return []
+    d = lire_json_tolerant(os.path.join(dossier_pages, f"page-{numero:04d}.json"))
+    boites = d.get("icones") if isinstance(d, dict) else None
+    return [list(b) for b in boites] if isinstance(boites, list) else []
+
+
+def _sources_icones(manifeste: dict, src) -> dict[tuple[int, int], str]:
+    """(page, k) → source d'image du pictogramme, `src(fichier)` donnant l'URL (nom d'archive ou data-URI)."""
+    return {(int(n), int(k)): src(f) for n, info in manifeste["pages"].items()
+            for k, f in (info.get("icones") or {}).items()}
+
+
 def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_page: bool | None = None,
                        dossier_pages: str | None = None) -> dict:
     """
@@ -297,8 +377,10 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_p
         manifeste = {"signature": signature, "pages": {}}
     # Une page relue par le scan avec d'autres régions est refaite (le reste du cache tient).
     manuels = {n: _regions_du_scan(chemin_pdf, dossier_pages, n) for n in pages}
+    icones = {n: _icones_du_scan(dossier_pages, n) for n in pages}
     a_faire = [n for n in pages if str(n) not in manifeste["pages"]
-               or manifeste["pages"][str(n)].get("regions") != manuels[n]]
+               or manifeste["pages"][str(n)].get("regions") != manuels[n]
+               or manifeste["pages"][str(n)].get("icones_scan", []) != icones[n]]
     if a_faire:
         os.makedirs(dossier, exist_ok=True)
         doc = scan_colonnes._ouvrir_pdf(chemin_pdf)
@@ -312,6 +394,11 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_p
                     nom = f"page-{n:04d}-illus-{i + 1}.jpg"
                     image.crop((x0, y0, x1, y1)).save(os.path.join(dossier, nom), "JPEG", quality=QUALITE_ILLUS)
                     fichiers.append({"rect": [x0, y0, x1, y1], "fichier": nom})
+                pictos = {}
+                for k, boite in enumerate(icones[n], start=1):
+                    nom = f"page-{n:04d}-ico-{k}.png"
+                    image.crop(tuple(boite)).save(os.path.join(dossier, nom), "PNG")
+                    pictos[str(k)] = nom
                 apercu = f"page-{n:04d}-apercu.jpg"
                 r = DPI_APERCU / scan_colonnes.DPI_RENDU
                 image.resize((int(image.width * r), int(image.height * r))).save(
@@ -323,6 +410,8 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_p
                     "cadres": [list(c) for c in cadres_texte(mise, illus)],
                     "apercu": apercu,
                     "regions": manuels[n],
+                    "icones": pictos,
+                    "icones_scan": icones[n],
                 }
         finally:
             doc.close()
@@ -342,6 +431,10 @@ def _blocs_traduits(corps: str) -> list[tuple[str, str]]:
         morceau = re.sub(r"<!--.*?-->", "", morceau, flags=re.S).strip()
         if not morceau:
             continue
+        num = re.match(r"^\*\*([\d?]{4})\*\*\s+(\S.*)$", morceau, re.S)
+        if num:     # le modèle a collé le numéro d'entrée au paragraphe qui le suit : on le remet en tête, seul
+            blocs.append(("para", f"**{num.group(1)}**"))
+            morceau = num.group(2)
         if morceau.startswith("#"):
             premiere, _, reste = morceau.partition("\n")
             blocs.append(("titre", premiere.lstrip("#").strip()))
@@ -467,6 +560,11 @@ def repartir_par_page(dossier_pages: str, pages: list[int], md_traduit: str,
                 vu += len(b[1])
                 j = next((j for j, v in enumerate(cumul) if v >= milieu), len(source) - 1)
                 pages_corps.append(source[j][0])
+        # Un numéro d'entrée ou un intertitre (paragraphe tout en gras) va sur la page de ce qu'il introduit : réparti
+        # au prorata des caractères, ce bloc de 4 caractères tombait en bas de la page précédente (« 0001 », Cycle I).
+        for j in range(len(corps) - 2, -1, -1):
+            if _RE_GRAS_SEUL.match(corps[j][1].strip()):
+                pages_corps[j] = pages_corps[j + 1]
         page_titre = plat[debut][0] if ancres[rang] is not None or not pages_corps else pages_corps[0]
         j = 0
         for k, t in traduits:
@@ -480,25 +578,40 @@ def repartir_par_page(dossier_pages: str, pages: list[int], md_traduit: str,
 
 # ── Rendu commun ─────────────────────────────────────────────────────────────
 
-def inline_html(texte: str) -> str:
-    """Markdown inline minimal → HTML sûr (échappé d'abord)."""
+def inline_html(texte: str, icones: dict[tuple[int, int], str] | None = None) -> str:
+    """Markdown inline minimal → HTML sûr (échappé d'abord). Un pictogramme situé dont l'image est connue
+    (`icones`, voir _sources_icones) est recollé ; sinon, un losange."""
     t = html_mod.escape(texte, quote=False)
     t = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", t)
     t = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"<i>\1</i>", t)
-    t = t.replace(scan_colonnes.MARQUEUR_ICONE, '<span class="ico">◆</span>')
-    return t
+
+    def picto(m: re.Match) -> str:
+        src = (icones or {}).get((int(m.group(1)), int(m.group(2)))) if m.group(1) else None
+        return f'<img class="ico" src="{html_mod.escape(src)}" alt="pictogramme">' if src \
+            else '<span class="ico">◆</span>'
+    return scan_colonnes.RE_ICONE.sub(picto, t)
 
 
-def _blocs_html(blocs: list[tuple[str, str]], ancre_chap=None) -> str:
+_RE_GRAS_SEUL = re.compile(r"^\*\*(.+?)\*\*$")
+
+
+def _blocs_html(blocs: list[tuple[str, str]], ancre_chap=None, icones=None) -> str:
+    """Un paragraphe tout en gras est un numéro d'entrée (« **0001** ») ou un intertitre (scan_colonnes) : rendu en
+    titre, plus gros que le texte, au début de ce qu'il introduit."""
     sortie = []
     for k, t in blocs:
+        gras = _RE_GRAS_SEUL.match(t.strip()) if k == "para" else None
+        if gras:
+            classe = "entree" if re.fullmatch(r"[\d?]{3,5}", gras.group(1).strip()) else "intertitre"
+            sortie.append(f'<h4 class="{classe}">{inline_html(gras.group(1).strip(), icones)}</h4>')
+            continue
         if k == "titre":
             ident = f' id="{ancre_chap(t)}"' if ancre_chap else ""
-            sortie.append(f"<h3{ident}>{inline_html(t)}</h3>")
+            sortie.append(f"<h3{ident}>{inline_html(t, icones)}</h3>")
         elif k == "encadre":
-            sortie.append(f'<div class="encadre"><p>{inline_html(t)}</p></div>')
+            sortie.append(f'<div class="encadre"><p>{inline_html(t, icones)}</p></div>')
         else:
-            sortie.append(f"<p>{inline_html(t)}</p>")
+            sortie.append(f"<p>{inline_html(t, icones)}</p>")
     return "\n".join(sortie)
 
 
@@ -507,21 +620,25 @@ def _blocs_html(blocs: list[tuple[str, str]], ancre_chap=None) -> str:
 
 _CSS_PDF = """
 * {{ font-family: serif; }}
-body {{ font-size: {taille}pt; line-height: 1.18; color: #1f1a14; text-align: justify; margin: 0; }}
+body {{ font-size: {taille}pt; line-height: 1.12; color: #1f1a14; text-align: justify; margin: 0; }}
 p {{ margin: 0 0 {espace}pt 0; }}
 h3 {{ font-size: {titre}pt; color: #7a2418; font-weight: bold; margin: {espace}pt 0 {espace}pt 0; text-align: left; }}
 .encadre {{ background-color: #ffffff; border: 0.6pt solid #8a6d3b; padding: 2pt 3pt; margin: 0 0 {espace}pt 0; }}
 .ico {{ color: #7a2418; }}
+img.ico {{ height: 1.1em; vertical-align: middle; }}
+h4.entree {{ font-size: {entree}pt; color: #7a2418; font-weight: bold; margin: {espace}pt 0 1pt 0; text-align: left; }}
+h4.intertitre {{ font-size: {inter}pt; color: #3a2a1c; font-weight: bold; margin: {espace}pt 0 1pt 0; text-align: left; }}
 """
 
 
 def _css_pdf(taille: float) -> str:
-    return _CSS_PDF.format(taille=taille, titre=round(taille * 1.25, 1), espace=round(taille * 0.3, 1))
+    return _CSS_PDF.format(taille=taille, titre=round(taille * 1.25, 1), espace=round(taille * 0.3, 1),
+                           entree=round(taille * 1.3, 1), inter=round(taille * 1.15, 1))
 
 
-def _tient(html: str, taille: float, cadres) -> bool:
+def _tient(html: str, taille: float, cadres, archive=None) -> bool:
     import pymupdf
-    story = pymupdf.Story(html=html, user_css=_css_pdf(taille))
+    story = pymupdf.Story(html=html, user_css=_css_pdf(taille), archive=archive)
     for cadre in cadres:
         plus, _ = story.place(cadre)
         # Sans draw, le Story n'avance pas : chaque place remesure le début du texte, seul le premier
@@ -563,6 +680,8 @@ def generer_pdf(chemin_traduit: str) -> dict:
         par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read(), titres_source(loc["source_md"]))
 
     ech = 72 / scan_colonnes.DPI_RENDU * ECHELLE_SORTIE
+    archive = pymupdf.Archive(loc["dossier_illus"])     # les pictogrammes y sont lus par leur nom
+    icones = _sources_icones(manifeste, lambda f: f)
     sortie = pymupdf.open()
     nb_illus, pages_suite, tailles = 0, [], {}
     for n in loc["pages"]:
@@ -579,19 +698,20 @@ def generer_pdf(chemin_traduit: str) -> dict:
         blocs = par_page.get(n) or []
         if not blocs:
             continue
-        cadres = [pymupdf.Rect(a * ech, b * ech, c * ech, d * ech) for a, b, c, d in info["cadres"]]
+        cadres = [pymupdf.Rect((a + RETRAIT_COLONNE * (c - a)) * ech, b * ech, (c - RETRAIT_COLONNE * (c - a)) * ech,
+                               d * ech) for a, b, c, d in info["cadres"]]
         if not cadres:
             cadres = _cadres_suite(W, H)
-        contenu = _blocs_html(blocs)
+        contenu = _blocs_html(blocs, icones=icones)
         taille = TAILLE_MAX_PT
-        while taille > TAILLE_MIN_PT and not _tient(contenu, taille, cadres):
+        while taille > TAILLE_MIN_PT and not _tient(contenu, taille, cadres, archive):
             taille = round(taille - PAS_TAILLE_PT, 2)
         tailles[n] = taille
 
         # Calque de texte : dessiné dans un document temporaire de même format, puis superposé.
         tampon = io.BytesIO()
         ecrivain = pymupdf.DocumentWriter(tampon)
-        story = pymupdf.Story(html=contenu, user_css=_css_pdf(taille))
+        story = pymupdf.Story(html=contenu, user_css=_css_pdf(taille), archive=archive)
         dev = ecrivain.begin_page(pymupdf.Rect(0, 0, W, H))
         plus = 1
         for cadre in cadres:
@@ -637,7 +757,8 @@ def generer_pdf(chemin_traduit: str) -> dict:
 
 def _data_uri(chemin: str) -> str:
     with open(chemin, "rb") as f:
-        return "data:image/jpeg;base64," + base64.b64encode(f.read()).decode("ascii")
+        mime = "image/png" if chemin.lower().endswith(".png") else "image/jpeg"
+        return f"data:{mime};base64," + base64.b64encode(f.read()).decode("ascii")
 
 
 def _position_illustration(info: dict, ill: dict) -> float:
@@ -668,6 +789,7 @@ def generer_html(chemin_traduit: str, titre: str | None = None) -> dict:
         par_page = repartir_par_page(loc["dossier_pages"], loc["pages"], f.read(), titres_source(loc["source_md"]))
 
     pages_html, sommaire, nb_illus = [], [], 0
+    icones = _sources_icones(manifeste, lambda f: _data_uri(os.path.join(loc["dossier_illus"], f)))
     n = 0
 
     def ancre(t: str) -> str:
@@ -687,7 +809,7 @@ def generer_html(chemin_traduit: str, titre: str | None = None) -> dict:
             while i_ins < len(inserts) and inserts[i_ins][0] * total <= cumul:
                 morceaux.append(_figure(loc, inserts[i_ins][1], n))
                 i_ins += 1
-            morceaux.append(_blocs_html([(k, t)], ancre))
+            morceaux.append(_blocs_html([(k, t)], ancre, icones))
             cumul += len(t)
         morceaux += [_figure(loc, ill, n) for _, ill in inserts[i_ins:]]
         nb_illus += len(inserts)
@@ -764,6 +886,9 @@ h3 { color:var(--accent); font-size:1.25em; margin:1.4em 0 .5em; text-align:left
 .encadre { border:1px solid var(--bord); border-left:4px solid var(--accent); background:var(--papier); padding:.6em 1em; border-radius:6px; margin:1em 0; }
 .encadre p { margin:0; }
 .ico { color:var(--accent); font-size:.8em; }
+img.ico { height:1.25em; width:auto; vertical-align:-.3em; font-size:1em; }
+h4.entree { font-size:1.5em; color:var(--accent); margin:1.1em 0 .2em; }
+h4.intertitre { font-size:1.2em; margin:1em 0 .2em; }
 figure { margin:1.2em 0; text-align:center; }
 figure img { max-width:100%; height:auto; border-radius:6px; cursor:zoom-in; box-shadow:0 2px 10px rgba(0,0,0,.15); }
 figcaption { font:12px -apple-system, system-ui, sans-serif; color:var(--doux); margin-top:4px; }
@@ -834,7 +959,7 @@ mark { background:#f5d76e; color:#000; }
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") loupe.classList.remove("ouvert"); });
   // Recherche : surligne les occurrences et défile jusqu'à la première.
   var originaux = new Map();
-  document.querySelectorAll(".texte p, .texte h3").forEach(function (el) { originaux.set(el, el.innerHTML); });
+  document.querySelectorAll(".texte p, .texte h3, .texte h4").forEach(function (el) { originaux.set(el, el.innerHTML); });
   var minuterie;
   document.getElementById("chercher").addEventListener("input", function (e) {
     clearTimeout(minuterie);
