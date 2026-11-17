@@ -227,6 +227,11 @@ const AnticipationRendu = (() => {
     rendre();
   });
 
+  // Le thème est figé dans le srcdoc à l'ouverture : on le recharge quand l'utilisateur change de mode (jour, nuit,
+  // auto) carte ouverte. En auto, la page suit d'elle-même le système (prefers-color-scheme dans l'iframe).
+  new MutationObserver(() => remplirCadre(boite?.querySelector("iframe[data-antic-cadre]")))
+    .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
   document.addEventListener("module-affiche", (e) => { if (e.detail === "anticipation") charger(); });
   if (!$("module-anticipation")?.hidden) charger(); // onglet restauré au démarrage
 })();
