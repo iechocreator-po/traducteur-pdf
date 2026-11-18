@@ -986,3 +986,13 @@ def test_defaut_de_langue_retente_a_temperature_croissante(tmp_path, monkeypatch
     out = translation_runner._traduire_avec_controle("Seeing your confused looks, he goes on with his story at once.",
                                                      _etat_controle(tmp_path), {}, "partie 1/1")
     assert vues == [0.3, 0.7, 1.0] and "perplexes" in out
+
+
+def test_encadres_perdus_retentes(tmp_path, monkeypatch):
+    monkeypatch.setattr(translation_runner.glossaire, "charger_termes", lambda: [])
+    reponses = iter(["Échec : voir 0006.\n\nSuccès : voir 0005.", "> Échec : voir 0006.\n\n> Succès : voir 0005."])
+    monkeypatch.setattr(translation_runner, "traduire_texte", lambda *a, **k: next(reponses))
+    cache = {}
+    out = translation_runner._traduire_avec_controle("> Fail: See 0006.\n\n> Success: See 0005.",
+                                                     _etat_controle(tmp_path), cache, "partie 1/1")
+    assert out.startswith("> Échec") and cache

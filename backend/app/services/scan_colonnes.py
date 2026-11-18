@@ -59,7 +59,7 @@ ECHELLE_OCR = 3            # agrandissement avant Tesseract (mesuré : ×3 suffi
 CONFIANCE_MIN_LIGNE = 55   # sous ce seuil, la ligne est du bruit (illustration, ombre de reliure)
 CONFIANCE_MIN_ZONE = 40    # dans une zone déclarée texte par l'utilisateur (voir ocr_lignes)
 CONFIANCE_MIN_TITRE = 70   # idem pour une bande de titre (voir ocr_titre)
-VERSION_ALGO = 9           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
+VERSION_ALGO = 11           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
 RATIO_DOUBLE_PAGE = 1.25   # largeur/hauteur au-delà duquel la page est une double page
 # Page qui n'est pas du texte courant (page titre, couverture) : peu de bandes horizontales ont la forme
 # d'un texte en colonnes. Mesuré sur le Cycle I : page titre 5/41, page avec grande illustration 7/20,
@@ -127,6 +127,8 @@ HAUTEUR_INTERTITRE_CAPITALES = 1.3
 MOTS_MAX_INTERTITRE = 8
 CHIFFRES_LUS = str.maketrans("OoQDIl|!SZB", "00001111528")
 _RE_GRAS_SEUL = re.compile(r"^\*\*(.+)\*\*$")
+LIGNE_BASSE_PIED = 0.955       # = reconstruction.MARGE_BAS : rien du texte recréé n'est coulé plus bas
+_RE_PUCE = re.compile(r"^(?:[-–•·]\s|\d{1,2}[.)]\s)")
 _RE_PIED = re.compile(r"^(\d{1,3}\s+\D{3,40}|\D{3,40}\s+\d{1,3})$")
 _RE_TITRE = re.compile(r"^\d{1,2} [A-Z]\S*(\s\S+)*$")
 # numéro d'entrée en gros caractères que Tesseract espace : « 0 2 8 1 As the… » → « 0281 As the… »
@@ -482,12 +484,18 @@ def est_pied_de_page(texte: str, y_abs: float, hauteur_page: int) -> bool:
     """En-tête/pied courant (« 92 Titre du livre ») : court, numéroté, en bord de page."""
     if not (y_abs > 0.93 * hauteur_page or y_abs < 0.04 * hauteur_page):
         return False
-    return bool(_RE_PIED.match(texte)) and len(texte.split()) <= 6
+    # 8 mots : « 6 Truth of the Labyrinth Main Story » (7) passait pour du texte et revenait traduit (Cycle I p. 3)
+    en_bas = y_abs > 0.93 * hauteur_page
+    if len(texte.split()) > (8 if en_bas else 6):     # en haut, 6 : « 3 apples were eaten by the crew » est du texte
+        return False
+    # Sous la limite basse du texte recréé (reconstruction.MARGE_BAS), une ligne courte est un titre courant même
+    # quand l'OCR a perdu son numéro (« Truth of the Labyrinth Main Story », folio de droite des p. 3, 4, 7).
+    return bool(_RE_PIED.match(texte)) or y_abs > LIGNE_BASSE_PIED * hauteur_page
 
 
 def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int,
                       filtrer: bool = True, icones: dict | None = None,
-                      corps_defaut: float | None = None) -> list[tuple[str, str]]:
+                      corps_defaut: float | None = None, pieds: list | None = None) -> list[tuple[str, str]]:
     """Lignes → paragraphes. Nouveau paragraphe sur retrait ou sur ligne courte finissant
     une phrase ; les mots coupés en fin de ligne sont recollés."""
     blocs: list[tuple[str, str]] = []
@@ -520,7 +528,14 @@ def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int,
                 prec = None
                 continue
         txt = texte_ligne(L, icones)
-        if not txt or est_pied_de_page(txt, L["haut"], hauteur_page):
+        if txt and est_pied_de_page(txt, L["haut"], hauteur_page):
+            # pas traduit, mais recopié à sa place par la reconstruction (folio « 4 What is this book? »)
+            boites = [m["boite"] for m in L["mots"] if "boite" in m]
+            if pieds is not None and boites:
+                pieds.append([min(b[0] for b in boites), min(b[1] for b in boites),
+                              max(b[2] for b in boites), max(b[3] for b in boites)])
+            continue
+        if not txt:
             continue
         if not num and est_intertitre(L, corps, txt):
             vider()
@@ -531,9 +546,11 @@ def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int,
             prec = dict(L, _intertitre=True)
             continue
         retrait = L["gauche"] - gauche0 > 0.05 * largeur_col and not lignes_sous_numero
+        # Élément de liste (« - 4+ tokens: … », « · 2 tokens », « 1. Un groupe… ») : toujours un nouveau paragraphe.
+        puce = bool(_RE_PUCE.match(txt))
         lignes_sous_numero = max(0, lignes_sous_numero - 1)
         courte = prec and (prec["droite"] - gauche0) < 0.80 * largeur_col and re.search(r"[.!?”\"]$", cur)
-        if cur and (retrait or courte) and not num:
+        if cur and (retrait or courte or puce) and not num:
             vider()
         if cur.endswith("-") and txt[:1].islower():
             cur = cur[:-1] + txt
@@ -846,28 +863,33 @@ def traiter_page(image, langue: str = "eng", double_page: bool | None = None, re
     # isolé « HOW TO USE THIS BOOK? » dans un segment d'une ligne, qui ne savait plus qu'il était plus gros.
     medianes = [st.median(m["h"] for m in L["mots"]) for _, _, lignes, _ in lus for L in lignes if L["mots"]]
     corps_page = st.median(medianes) if len(medianes) >= 3 else None
+    pieds: list = []
     for cle, sk, lignes, largeur in lus:
-        for k, t in lignes_vers_blocs(lignes, largeur, h, icones=icones, corps_defaut=corps_page):
+        for k, t in lignes_vers_blocs(lignes, largeur, h, icones=icones, corps_defaut=corps_page, pieds=pieds):
             # lignes_vers_blocs renvoie des 'para' (et numéros, intertitres) ; dans un encadré, 'para' → 'encadre'
             blocs.append((cle, "encadre" if sk == "encadre" and k == "para" else k, t))
     for z in zones:
         blocs += [(_cle_zone(mise, z["rect"]), k, t) for k, t in _lire_zone(image, z, langue, h, avert, icones)]
     blocs.sort(key=lambda b: b[0])      # tri stable : sans zone, l'ordre est celui de la boucle
     return {"blocs": [(k, t) for _, k, t in blocs], "avertissements": avert,
-            "icones": icones["boites"] if icones else []}
+            "icones": icones["boites"] if icones else [], "pieds": pieds}
 
 
 def _masquer_zones(gris, image, zones: list[dict]):
-    """Copies de la page où chaque zone dessinée à la main est passée en blanc : les colonnes ne la lisent plus
-    (c'est la zone elle-même qui est lue, ou recopiée, ou ignorée)."""
+    """Copies de la page où chaque zone dessinée à la main est passée à la couleur du PAPIER : les colonnes ne la
+    lisent plus (c'est la zone elle-même qui est lue, ou recopiée, ou ignorée). Pas en blanc : une zone blanche
+    couvrant plus du quart d'une colonne était prise pour un encadré, dont le bord coupait la ligne voisine
+    (« 4+ tokens: Your Titan dies. », à côté du jeton Désespoir, Cycle I p. 2 — 17/11/2026)."""
     from PIL import ImageDraw
+    np = _numpy()
+    papier = int(np.percentile(gris, 85))
     gris = gris.copy()
     image = image.copy()
     d = ImageDraw.Draw(image)
     for z in zones:
         x0, y0, x1, y1 = z["rect"]
-        gris[y0:y1, x0:x1] = 255
-        d.rectangle([x0, y0, x1 - 1, y1 - 1], fill=(255, 255, 255) if image.mode == "RGB" else 255)
+        gris[y0:y1, x0:x1] = papier
+        d.rectangle([x0, y0, x1 - 1, y1 - 1], fill=(papier,) * 3 if image.mode == "RGB" else papier)
     return gris, image
 
 

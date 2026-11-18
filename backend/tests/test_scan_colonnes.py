@@ -674,3 +674,16 @@ def test_intertitre_seul_dans_son_segment_reconnu_avec_le_corps_de_la_page():
 def test_intertitre_en_capitales_seuil_plus_bas():
     assert S.est_intertitre(_ligne_h([("HOW", 38), ("TO", 38), ("USE", 38)]), 27, "HOW TO USE THIS BOOK?")
     assert not S.est_intertitre(_ligne_h([("How", 38), ("to", 38)]), 27, "How to use")
+
+
+def test_element_de_liste_nouveau_paragraphe():
+    lignes = [_ligne_h([("-", 27), ("3", 27), ("tokens:", 27), ("You", 27), ("cannot", 27), ("perform", 27)], haut=0),
+              _ligne_h([("-", 27), ("4+", 27), ("tokens:", 27), ("Your", 27), ("Titan", 27), ("dies.", 27)], haut=30)]
+    blocs = S.lignes_vers_blocs(lignes, 200, 1000)
+    assert [t for _, t in blocs] == ["- 3 tokens: You cannot perform", "- 4+ tokens: Your Titan dies."]
+
+
+def test_titre_courant_sans_numero_en_bas_de_page():
+    assert S.est_pied_de_page("6 Truth of the Labyrinth Main Story", 1122, 1160)
+    assert S.est_pied_de_page("Truth of the Labyrinth Main Story", 1120, 1160)       # numéro perdu par l'OCR
+    assert not S.est_pied_de_page("Truth of the Labyrinth Main Story", 1090, 1160)   # au-dessus : du texte

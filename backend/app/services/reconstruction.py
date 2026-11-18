@@ -33,7 +33,7 @@ from app.services import scan_colonnes
 from app.services.persistance import ecrire_binaire_atomique, ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
 
 SUFFIXE_SCAN = "_scan_colonnes"
-VERSION_CACHE = 8           # à incrémenter quand la détection change (invalide le cache)
+VERSION_CACHE = 9           # à incrémenter quand la détection change (invalide le cache)
 DPI_APERCU = 90              # scan d'origine embarqué dans le HTML (mode « Pages »)
 QUALITE_ILLUS = 85
 QUALITE_APERCU = 65
@@ -79,7 +79,12 @@ BORD_PAGE_ILLUS = 0.012
 ECART_PAPIER = 25                       # niveaux de gris autour du ton du papier
 # Une illustration qui couvre plus de cette part de la largeur d'une colonne y interrompt le texte.
 PART_COLONNE_COUPEE = 0.15
-PART_COTE_MIN = 0.35            # largeur minimale (part de la colonne) laissée au texte à côté d'une figure
+PART_COTE_MIN = 0.35
+# Gouttière centrale d'une double page : la colonne qui la borde est élargie jusqu'à cette distance du pli (part de la
+# largeur de page). Cycle I p. 2 : 88 px de blanc à gauche du pli, 23 à droite ; le PDF recréé gardait tout ce blanc
+# (« la marge au centre prend beaucoup d'espace », 17/11/2026).
+MARGE_GOUTTIERE = 0.012
+COLONNE_PRES_GOUTTIERE = 0.1    # une colonne qui finit (ou commence) à moins de cette part de la page du pli la borde            # largeur minimale (part de la colonne) laissée au texte à côté d'une figure
 HAUTEUR_MIN_CADRE_COTE = 0.03   # part de la hauteur de page : un cadre à côté d'une figure basse reste utile
 # Le texte n'est jamais coulé dans le titre courant / folio. Bas relevé de 0,93 à 0,955 le 17/11/2026 : les colonnes
 # laissaient une bande vide sous le texte (demande de réduire les marges ; le folio du scan n'est pas recopié).
@@ -347,9 +352,16 @@ def cadres_texte(mise: dict, illustrations: list[tuple[int, int, int, int]]) -> 
     l'encre réelle, privée des bandes occupées par une illustration qui la recouvre.
     """
     gris, h = mise["gris"], mise["h"]
+    largeur = gris.shape[1]
+    gx = mise.get("gouttiere")
     cadres = []
     for moitie in mise["moities"]:
         for a, b in moitie["colonnes"]:
+            if gx:      # colonne qui borde le pli : rapprochée du pli (voir MARGE_GOUTTIERE)
+                if b <= gx and gx - b <= COLONNE_PRES_GOUTTIERE * largeur:
+                    b = max(b, int(gx - MARGE_GOUTTIERE * largeur))
+                elif a >= gx and a - gx <= COLONNE_PRES_GOUTTIERE * largeur:
+                    a = min(a, int(gx + MARGE_GOUTTIERE * largeur))
             lignes = ((gris[:, a:b] < 120).mean(axis=1) > 0.004).nonzero()[0]
             haut = max(int(lignes[0]) if len(lignes) else 0, int(h * MARGE_HAUT))
             bas = min(int(lignes[-1]) if len(lignes) else h, int(h * MARGE_BAS))
@@ -412,6 +424,16 @@ def _icones_du_scan(dossier_pages: str | None, numero: int) -> list[list[int]]:
     return [list(b) for b in boites] if isinstance(boites, list) else []
 
 
+def _pieds_du_scan(dossier_pages: str | None, numero: int) -> list[list[int]]:
+    """Boîtes des folios et titres courants que le scan a écartés du texte (`page-NNNN.json` › pieds) : recopiés tels
+    quels à leur place dans le PDF recréé (pagination du livre)."""
+    if not dossier_pages:
+        return []
+    d = lire_json_tolerant(os.path.join(dossier_pages, f"page-{numero:04d}.json"))
+    boites = d.get("pieds") if isinstance(d, dict) else None
+    return [list(b) for b in boites] if isinstance(boites, list) else []
+
+
 def _sources_icones(manifeste: dict, src) -> dict[tuple[int, int], str]:
     """(page, k) → source d'image du pictogramme, `src(fichier)` donnant l'URL (nom d'archive ou data-URI)."""
     return {(int(n), int(k)): src(f) for n, info in manifeste["pages"].items()
@@ -434,9 +456,11 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_p
     # Une page relue par le scan avec d'autres régions est refaite (le reste du cache tient).
     manuels = {n: _regions_du_scan(chemin_pdf, dossier_pages, n) for n in pages}
     icones = {n: _icones_du_scan(dossier_pages, n) for n in pages}
+    pieds = {n: _pieds_du_scan(dossier_pages, n) for n in pages}
     a_faire = [n for n in pages if str(n) not in manifeste["pages"]
                or manifeste["pages"][str(n)].get("regions") != manuels[n]
-               or manifeste["pages"][str(n)].get("icones_scan", []) != icones[n]]
+               or manifeste["pages"][str(n)].get("icones_scan", []) != icones[n]
+               or manifeste["pages"][str(n)].get("pieds_scan", []) != pieds[n]]
     if a_faire:
         os.makedirs(dossier, exist_ok=True)
         doc = scan_colonnes._ouvrir_pdf(chemin_pdf)
@@ -450,6 +474,13 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_p
                     nom = f"page-{n:04d}-illus-{i + 1}.jpg"
                     image.crop((x0, y0, x1, y1)).save(os.path.join(dossier, nom), "JPEG", quality=QUALITE_ILLUS)
                     fichiers.append({"rect": [x0, y0, x1, y1], "fichier": nom})
+                fichiers_pieds = []
+                for k, boite in enumerate(pieds[n], start=1):
+                    x0, y0, x1, y1 = boite
+                    rect = (max(0, x0 - 4), max(0, y0 - 4), min(image.width, x1 + 4), min(image.height, y1 + 4))
+                    nom = f"page-{n:04d}-pied-{k}.png"
+                    image.crop(rect).save(os.path.join(dossier, nom), "PNG")
+                    fichiers_pieds.append({"rect": list(rect), "fichier": nom})
                 pictos = {}
                 for k, boite in enumerate(icones[n], start=1):
                     nom = f"page-{n:04d}-ico-{k}.png"
@@ -463,7 +494,10 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_p
                     "largeur": image.width, "hauteur": image.height,
                     "papier": _couleur_papier(image),
                     "illustrations": fichiers,
-                    "cadres": [list(c) for c in cadres_texte(mise, illus)],
+                    # le texte ne coule ni sur une illustration ni sur un folio recopié
+                    "cadres": [list(c) for c in cadres_texte(mise, illus + [tuple(p["rect"]) for p in fichiers_pieds])],
+                    "pieds": fichiers_pieds,
+                    "pieds_scan": pieds[n],
                     "apercu": apercu,
                     "regions": manuels[n],
                     "icones": pictos,
@@ -773,6 +807,10 @@ def generer_pdf(chemin_traduit: str) -> dict:
             page.insert_image(pymupdf.Rect(x0 * ech, y0 * ech, x1 * ech, y1 * ech),
                               filename=os.path.join(loc["dossier_illus"], ill["fichier"]))
             nb_illus += 1
+        for pied in info.get("pieds") or []:      # folio et titre courant du livre, tels quels
+            x0, y0, x1, y1 = pied["rect"]
+            page.insert_image(pymupdf.Rect(x0 * ech, y0 * ech, x1 * ech, y1 * ech),
+                              filename=os.path.join(loc["dossier_illus"], pied["fichier"]))
         blocs = par_page.get(n) or []
         if not blocs:
             continue

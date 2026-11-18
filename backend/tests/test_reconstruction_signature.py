@@ -788,3 +788,14 @@ def test_texte_coule_a_cote_d_une_petite_figure():
     # une figure qui occupe toute la largeur coupe la colonne, sans cadre à côté
     cadres = reconstruction.cadres_texte(mise, [(416, 558, 773, 614)])
     assert all(c[0] == 409 and c[2] == 775 for c in cadres)
+
+
+def test_colonne_rapprochee_de_la_gouttiere():
+    import numpy as np
+    gris = np.full((1160, 1631), 232, np.uint8)
+    gris[100:1100:20, 410:770] = 40
+    gris[100:1100:20, 890:1240] = 40
+    mise = {"gris": gris, "h": 1160, "gouttiere": 863, "moities": [{"colonnes": [(409, 775)]}, {"colonnes": [(886, 1246)]}]}
+    cadres = reconstruction.cadres_texte(mise, [])
+    assert 840 <= max(c[2] for c in cadres if c[0] < 863) < 863                     # bord droit de la page gauche, près du pli
+    assert 863 < min(c[0] for c in cadres if c[0] > 863) <= 886                    # jamais au-delà du pli

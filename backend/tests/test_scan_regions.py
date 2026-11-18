@@ -283,9 +283,10 @@ def test_contenu_d_une_zone_masque_pour_les_colonnes():
     mise = S.analyser_mise_en_page(img, double_page=False)
     zone = {"type": "ignorer", "rect": [cols[1][0], 100, cols[1][1], 400]}
     gris, image = S._masquer_zones(mise["gris"], img, [zone])
-    assert gris[100:400, cols[1][0]:cols[1][1]].min() == 255
+    zone_gris = gris[100:400, cols[1][0]:cols[1][1]]
+    assert zone_gris.min() == zone_gris.max() >= 200       # couleur du papier, uniforme (pas un blanc d'encadré)
     assert mise["gris"][100:400, cols[1][0]:cols[1][1]].min() < 100          # l'original n'est pas touché
-    assert min(image.crop((cols[1][0], 100, cols[1][1], 400)).getdata()) == 255
+    assert min(image.crop((cols[1][0], 100, cols[1][1], 400)).convert("L").getdata()) >= 200
 
 
 def test_zone_vide_signalee(monkeypatch):

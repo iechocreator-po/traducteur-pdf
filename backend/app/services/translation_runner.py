@@ -312,13 +312,21 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
     # en deux moitiés, il passe. D'où : jusqu'à NB_TENTATIVES_LANGUE essais entiers, puis les deux moitiés.
     cible = state.langue_cible.value
     # Même traitement pour un numéro d'entrée éloigné de son texte (translator.entrees_deplacees).
+    # Marqueur perdu (début d'encadré, pictogramme) : le modèle supprimait parfois toutes les sentinelles d'un morceau
+    # (8 encadrés sur 8, Cycle I, 17/11/2026) ; même traitement que les autres défauts de structure.
+    def perdus_str(source: str, t: str) -> str | None:
+        p = marqueurs_perdus(source, t)
+        return f"marqueur(s) perdu(s) : {', '.join(sorted(set(p)))}" if p else None
+
     defaut = (controle_langue.langue_inattendue(texte, traduit, cible) or entrees_deplacees(texte, traduit)
-              or ("ligne en gras ajoutée par le modèle" if gras_en_trop(texte, traduit) else None))
+              or ("ligne en gras ajoutée par le modèle" if gras_en_trop(texte, traduit) else None)
+              or perdus_str(texte, traduit))
 
     def acceptable(t: str, source: str) -> bool:
         r = len(t) / max(len(source), 1)
         return (not controle_langue.langue_inattendue(source, t, cible) and not entrees_deplacees(source, t)
-                and not gras_en_trop(source, t) and RATIO_TRADUCTION_SUSPECT <= r <= RATIO_TRADUCTION_MAX)
+                and not gras_en_trop(source, t) and not marqueurs_perdus(source, t)
+                and RATIO_TRADUCTION_SUSPECT <= r <= RATIO_TRADUCTION_MAX)
 
     def traduire(t: str, temperature: float = TEMPERATURES_LANGUE[-1]) -> str:
         return traduire_texte(t, state.modele_ollama, state.langue_source.value, cible,
