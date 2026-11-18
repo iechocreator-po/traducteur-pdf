@@ -747,3 +747,44 @@ def test_numero_d_entree_sur_la_page_de_son_texte(tmp_path):
     md = "Un " + "a" * 400 + "\n\nDeux " + "c" * 50 + "\n\n**0001**\n\nAinsi commence " + "b" * 400   # 4 blocs ≠ 3
     par_page = reconstruction.repartir_par_page(str(tmp_path), [1, 2], md)
     assert ("para", "**0001**") in par_page[2] and ("para", "**0001**") not in par_page[1]
+
+
+def test_bande_de_papier_sous_une_illustration_rognee():
+    """Cycle I p. 3 : la bande blanche (« 0001 So it begins ») restait collée sous le bandeau."""
+    import numpy as np
+    gris = np.full((1000, 1000), 235, np.uint8)
+    gris[0:450, 0:800] = 60                     # image pleine à fond perdu (haut, gauche)
+    gris[452:464, 100:300] = 30                 # texte imprimé dans la bande de papier
+    x0, y0, x1, y1 = reconstruction._rogner_bords(gris, (0, 0, 820, 464), 235)
+    assert 4 <= x0 <= 12 and 3 <= y0 <= 8 and 440 <= y1 <= 450 and 790 <= x1 <= 800   # tranche retirée à gauche et en haut
+
+
+def test_jeton_entoure_de_papier_pas_rogne():
+    import numpy as np
+    gris = np.full((200, 200), 235, np.uint8)
+    yy, xx = np.ogrid[:200, :200]
+    gris[(yy - 100) ** 2 + (xx - 100) ** 2 < 35 ** 2] = 90
+    assert reconstruction._rogner_bords(gris, (60, 60, 140, 140), 235) == (60, 60, 140, 140)
+
+
+def test_table_des_matieres_rendue_en_tableau():
+    blocs = [("para", "SOMMAIRE"), ("para", "Qu'est-ce que ce livre ? 4"), ("para", "Règles spéciales du Cycle I 4"),
+             ("para", "Histoire principale 6"), ("para", "Énigme fatale 31"), ("para", "Texte courant. Voir 0040.")]
+    html = reconstruction._blocs_html(blocs)
+    assert html.count("<tr>") == 4 and '<td class="toc-page">31</td>' in html
+    assert "<p>Texte courant. Voir 0040.</p>" in html and "<p>SOMMAIRE</p>" in html
+    # un renvoi isolé n'est pas une table
+    assert "<table" not in reconstruction._blocs_html([("para", "Va à la bataille 114")])
+
+
+def test_texte_coule_a_cote_d_une_petite_figure():
+    """Schéma « Labyrinth X » (p. 2) calé à gauche de la colonne : un cadre de texte à sa droite."""
+    import numpy as np
+    gris = np.full((1160, 1631), 232, np.uint8)
+    gris[100:1100:20, 410:770] = 40            # lignes de texte de la colonne
+    mise = {"gris": gris, "h": 1160, "moities": [{"colonnes": [(409, 775)]}]}
+    cadres = reconstruction.cadres_texte(mise, [(418, 801, 527, 906)])
+    assert any(c[0] >= 527 and c[2] == 775 and c[1] <= 801 and c[3] >= 906 for c in cadres)
+    # une figure qui occupe toute la largeur coupe la colonne, sans cadre à côté
+    cadres = reconstruction.cadres_texte(mise, [(416, 558, 773, 614)])
+    assert all(c[0] == 409 and c[2] == 775 for c in cadres)

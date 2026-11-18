@@ -943,7 +943,7 @@ def test_traduction_en_chinois_persistante_signalee_et_pas_mise_en_cache(tmp_pat
     cache = {}
     state = _etat_controle(tmp_path)
     translation_runner._traduire_avec_controle(texte, state, cache, "partie 1/1")
-    assert not cache and "autre langue" in state.avertissements[0]
+    assert not cache and "écriture étrangère" in state.avertissements[0]
 
 
 def test_cache_defectueux_retraduit(tmp_path, monkeypatch):
@@ -972,3 +972,17 @@ def test_chinois_persistant_traduit_en_deux_moities(tmp_path, monkeypatch):
     out = translation_runner._traduire_avec_controle(texte, state, cache, "partie 1/1")
     assert out == "Premier paragraphe traduit en français.\n\nSecond paragraphe traduit en français."
     assert not state.avertissements and cache
+
+
+def test_defaut_de_langue_retente_a_temperature_croissante(tmp_path, monkeypatch):
+    monkeypatch.setattr(translation_runner.glossaire, "charger_termes", lambda: [])
+    vues = []
+
+    def faux(texte, *a, temperature=0.3, **k):
+        vues.append(temperature)
+        return ("Voyant vos regards perplexes, il poursuit son récit sans attendre." if temperature >= 1.0
+                else "Voyant vos regards perple克斯, il poursuit son récit sans attendre.")
+    monkeypatch.setattr(translation_runner, "traduire_texte", faux)
+    out = translation_runner._traduire_avec_controle("Seeing your confused looks, he goes on with his story at once.",
+                                                     _etat_controle(tmp_path), {}, "partie 1/1")
+    assert vues == [0.3, 0.7, 1.0] and "perplexes" in out

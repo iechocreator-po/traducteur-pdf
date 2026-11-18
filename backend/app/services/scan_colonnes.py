@@ -59,13 +59,20 @@ ECHELLE_OCR = 3            # agrandissement avant Tesseract (mesuré : ×3 suffi
 CONFIANCE_MIN_LIGNE = 55   # sous ce seuil, la ligne est du bruit (illustration, ombre de reliure)
 CONFIANCE_MIN_ZONE = 40    # dans une zone déclarée texte par l'utilisateur (voir ocr_lignes)
 CONFIANCE_MIN_TITRE = 70   # idem pour une bande de titre (voir ocr_titre)
-VERSION_ALGO = 7           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
+VERSION_ALGO = 9           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
 RATIO_DOUBLE_PAGE = 1.25   # largeur/hauteur au-delà duquel la page est une double page
 # Page qui n'est pas du texte courant (page titre, couverture) : peu de bandes horizontales ont la forme
 # d'un texte en colonnes. Mesuré sur le Cycle I : page titre 5/41, page avec grande illustration 7/20,
 # pages de texte ≥ 44/45. En dessous du seuil, la demi-page est lue en pleine largeur.
 PART_BANDES_TEXTE_MIN = 0.25
 GOUTTIERE_CENTRALE_MIN, GOUTTIERE_CENTRALE_MAX = 0.42, 0.58     # voir _gouttiere_centrale
+# Encadré d'une seule ligne (« Choose a party leader and continue. », « See 0068. ») : 21 à 23 px à 200 dpi sur le
+# Cycle I ; le seuil de 30 px les laissait dans le texte courant (17/11/2026).
+HAUTEUR_MIN_ENCADRE = 18
+# Segment plus bas qu'une ligne de texte : ignoré. À 25 px, une ligne seule entre un intertitre et un encadré (« The
+# keyword “Labyrinth X” instructs you to », p. 2) et les encadrés d'une ligne étaient jetés sans être lus.
+HAUTEUR_MIN_SEGMENT = 12
+DEBORD_ENCADRE = 3      # px lus au-delà d'un encadré détecté (le fond lissé le rogne d'autant)
 PART_MAX_ENCADRE = 0.95        # au-delà, la colonne n'a pas d'encadré : son papier est blanc (Cycle I : vrais encadrés jusqu'à 81 %, page blanche 100 %)
 # Encre clairsemée (numéros d'une table des matières) : invisible au 70ᵉ centile, visible au 85ᵉ.
 CENTILE_ENCRE_CLAIRSEMEE = 85
@@ -115,6 +122,8 @@ CONNECTEURS = {"the", "of", "a", "an", "and", "to", "in", "for", "on", "at", "by
 # de 1,5, des lignes courtes ordinaires (« metropolis. » 1,42, « “Traitor!” » 1,44). « 0001 So it begins » n'avait
 # qu'un mot de 3 lettres : le filtre des paragraphes le jetait.
 HAUTEUR_INTERTITRE = 1.5        # × hauteur médiane des lignes du segment
+# Ligne tout en capitales : pas de jambage, sa boîte est plus basse à corps égal (« HOW TO USE THIS BOOK? » : 1,41).
+HAUTEUR_INTERTITRE_CAPITALES = 1.3
 MOTS_MAX_INTERTITRE = 8
 CHIFFRES_LUS = str.maketrans("OoQDIl|!SZB", "00001111528")
 _RE_GRAS_SEUL = re.compile(r"^\*\*(.+)\*\*$")
@@ -272,7 +281,7 @@ def decouper_segments(gris_colonne) -> list[tuple[str, int, int]]:
     if len(boite) and boite.mean() > PART_MAX_ENCADRE:
         boite = np.zeros_like(boite)
     sortie, y = [], 0
-    for a, b in plages(boite, 30):
+    for a, b in plages(boite, HAUTEUR_MIN_ENCADRE):
         if a > y:
             sortie.append(("texte", y, a))
         sortie.append(("encadre", a, b))
@@ -477,14 +486,15 @@ def est_pied_de_page(texte: str, y_abs: float, hauteur_page: int) -> bool:
 
 
 def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int,
-                      filtrer: bool = True, icones: dict | None = None) -> list[tuple[str, str]]:
+                      filtrer: bool = True, icones: dict | None = None,
+                      corps_defaut: float | None = None) -> list[tuple[str, str]]:
     """Lignes → paragraphes. Nouveau paragraphe sur retrait ou sur ligne courte finissant
     une phrase ; les mots coupés en fin de ligne sont recollés."""
     blocs: list[tuple[str, str]] = []
     cur, prec = "", None
     gauche0 = min((L["gauche"] for L in lignes), default=0)
     medianes = [st.median(m["h"] for m in L["mots"]) for L in lignes if L["mots"]]
-    corps = st.median(medianes) if len(medianes) >= 3 else None
+    corps = st.median(medianes) if len(medianes) >= 3 else corps_defaut
     garder = set()      # index des paragraphes qui suivent un numéro d'entrée : jamais filtrés
     # Le gros numéro occupe deux lignes : la suivante est décalée de sa largeur, ce n'est pas un retrait de paragraphe.
     lignes_sous_numero = 0
@@ -532,7 +542,9 @@ def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int,
         prec = L
     vider()
     return [(k, t) for i, (k, t) in enumerate(blocs)
-            if not filtrer or k != "para" or i in garder or len(re.findall(r"[A-Za-z]{3,}", t)) >= 2]
+            if not filtrer or k != "para" or i in garder
+            # un renvoi à 4 chiffres compte comme un mot : « See 0068. », seul dans son encadré, n'est pas du bruit
+            or len(re.findall(r"[A-Za-z]{3,}", t)) + len(re.findall(r"\b\d{4}\b", t)) >= 2]
 
 
 def numero_entree(mots: list[dict], corps: float | None) -> tuple[str | None, int]:
@@ -572,7 +584,9 @@ def est_intertitre(ligne: dict, corps: float | None, texte: str) -> bool:
         return False
     h = st.median(m["h"] for m in ligne["mots"])
     premiere = next((c for c in texte if c.isalpha()), "")
-    return h >= HAUTEUR_INTERTITRE * corps and premiere.isupper()
+    lettres = [c for c in texte if c.isalpha()]
+    seuil = HAUTEUR_INTERTITRE_CAPITALES if len(lettres) >= 4 and all(c.isupper() for c in lettres) else HAUTEUR_INTERTITRE
+    return h >= seuil * corps and premiere.isupper()
 
 
 def reparer_entrees(blocs: list[tuple[str, str]], journal: list[str]) -> list[tuple[str, str]]:
@@ -797,15 +811,17 @@ def traiter_page(image, langue: str = "eng", double_page: bool | None = None, re
     mise = analyser_mise_en_page(image, double_page, reglage)
     zones = mise["zones"]
     gris, image_lue = (_masquer_zones(mise["gris"], image, zones) if zones else (mise["gris"], image))
+    gris, image_lue = _masquer_illustrations(gris, image_lue, image, mise, reglage)
     h = mise["h"]
     retirees = (reglage or {}).get("detections_retirees")
     blocs, avert = [], []      # blocs : (clé d'ordre de lecture, type, texte)
     icones = {"page": numero, "boites": []} if numero else None
+    lus = []                   # (clé, genre, lignes, largeur) : convertis en blocs une fois la page entière lue
     for mi, moitie in enumerate(mise["moities"]):
         avert += moitie["alertes"]
         for ci, (a, b) in enumerate(moitie["colonnes"]):
             for genre, y0, y1 in _segments_lus(gris, a, b, retirees):
-                if y1 - y0 < 25:
+                if y1 - y0 < HAUTEUR_MIN_SEGMENT:
                     continue
                 sous = (_decouper_titres(gris[y0:y1, a:b], image_lue.crop((a, y0, b, y1)), langue, (a, y0), retirees)
                         if genre == "texte" else [("encadre", 0, y1 - y0, "")])
@@ -817,16 +833,23 @@ def traiter_page(image, langue: str = "eng", double_page: bool | None = None, re
                         blocs.append((cle, "titre", ttxt))
                         continue
                     marge = 4 if sk == "encadre" else 0   # évite les coins arrondis du cadre
-                    if s1 - s0 < 2 * marge + 8:
+                    if s1 - s0 < 8:
                         continue
-                    lignes = _ancrer(ocr_lignes(image_lue.crop((a + marge, y0 + s0 + marge, b - marge,
-                                                                 y0 + s1 - marge)),
-                                                langue, y_decalage=y0 + s0 + marge), a + marge)
-                    if not lignes:
-                        continue
-                    for k, t in lignes_vers_blocs(lignes, b - a, h, icones=icones):
-                        blocs.append((cle, "encadre" if sk == "encadre" and k == "para" else k, t))
-                    # NB : lignes_vers_blocs renvoie des 'para' ; l'encadré est requalifié ici
+                    # verticalement, un encadré est lu un peu AU-DELÀ de ses bords détectés (voir DEBORD_ENCADRE)
+                    haut = max(0, y0 + s0 - DEBORD_ENCADRE) if sk == "encadre" else y0 + s0
+                    bas = min(h, y0 + s1 + DEBORD_ENCADRE) if sk == "encadre" else y0 + s1
+                    lignes = _ancrer(ocr_lignes(image_lue.crop((a + marge, haut, b - marge, bas)),
+                                                langue, y_decalage=haut), a + marge)
+                    if lignes:
+                        lus.append((cle, sk, lignes, b - a))
+    # Corps du texte de la PAGE : sert aux segments trop courts pour mesurer le leur. Masquer les illustrations a
+    # isolé « HOW TO USE THIS BOOK? » dans un segment d'une ligne, qui ne savait plus qu'il était plus gros.
+    medianes = [st.median(m["h"] for m in L["mots"]) for _, _, lignes, _ in lus for L in lignes if L["mots"]]
+    corps_page = st.median(medianes) if len(medianes) >= 3 else None
+    for cle, sk, lignes, largeur in lus:
+        for k, t in lignes_vers_blocs(lignes, largeur, h, icones=icones, corps_defaut=corps_page):
+            # lignes_vers_blocs renvoie des 'para' (et numéros, intertitres) ; dans un encadré, 'para' → 'encadre'
+            blocs.append((cle, "encadre" if sk == "encadre" and k == "para" else k, t))
     for z in zones:
         blocs += [(_cle_zone(mise, z["rect"]), k, t) for k, t in _lire_zone(image, z, langue, h, avert, icones)]
     blocs.sort(key=lambda b: b[0])      # tri stable : sans zone, l'ordre est celui de la boucle
@@ -846,6 +869,31 @@ def _masquer_zones(gris, image, zones: list[dict]):
         gris[y0:y1, x0:x1] = 255
         d.rectangle([x0, y0, x1 - 1, y1 - 1], fill=(255, 255, 255) if image.mode == "RGB" else 255)
     return gris, image
+
+
+def _masquer_illustrations(gris, image_lue, image, mise: dict, reglage: dict | None):
+    """
+    Les illustrations détectées (celles que la reconstruction recopie) sont passées à la couleur du PAPIER avant
+    l'OCR : leur texte imprimé est déjà dans l'image recopiée. Lu, il revenait traduit et hors de propos (« WHAT IS
+    THIS BOOK: » posé sur le navire de la p. 2 → « QU'EST-CE QUE CETTE IMAGE: »), et le bruit d'une figure
+    abaissait la confiance des lignes voisines jusqu'à les faire écarter (« The keyword “Labyrinth X” instructs… »,
+    17/11/2026). Couleur du papier et non blanc : un blanc pur serait pris pour un encadré (decouper_segments).
+    """
+    from app.services.reconstruction import illustrations_page   # import local : reconstruction importe ce module
+    np = _numpy()
+    zones_main = {tuple(z["rect"]) for z in mise["zones"]}
+    rects = [r for r in illustrations_page(image, mise, reglage) if tuple(r) not in zones_main]
+    if not rects:
+        return gris, image_lue
+    papier = int(np.percentile(gris, 85))
+    gris = gris.copy()
+    image_lue = image_lue.copy()
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(image_lue)
+    for x0, y0, x1, y1 in rects:
+        gris[y0:y1, x0:x1] = papier
+        d.rectangle([x0, y0, x1 - 1, y1 - 1], fill=(papier,) * 3 if image_lue.mode == "RGB" else papier)
+    return gris, image_lue
 
 
 def _cle_zone(mise: dict, rect) -> tuple[int, int, int]:

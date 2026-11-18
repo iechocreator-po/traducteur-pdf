@@ -50,6 +50,7 @@
     appliquerLectureVisible();
   });
   document.addEventListener("flags-charges", appliquerLectureVisible);
+  document.addEventListener("montrer-lecture", montrerLecture);   // vue « Mise en page » (bibliotheque-exports.js)
   appliquerLectureVisible();
 
   // ── Poignées de redimensionnement (sidebar | Résumé & Quiz | lecture) ──────

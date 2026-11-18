@@ -5,6 +5,8 @@
  *    Scan multi-colonnes (GET /reconstruction/info). Le backend recrée le document au format
  *    d'origine avec ses illustrations (services/reconstruction.py) ; le fichier est écrit à côté
  *    de la traduction, puis téléchargé par /telecharger.
+ *  - « 🖼 Mise en page » : le même HTML interactif, LU dans la Bibliothèque (cadre à la place du corps de
+ *    lecture) plutôt que téléchargé ; régénéré à chaque ouverture (rapide : géométrie en cache).
  *  - « ✍ Signer un PDF… » : signature VISUELLE (dessinée, tapée ou importée) placée à la souris
  *    sur une ou plusieurs pages ; le backend écrit une copie `_signe.pdf` (services/signature.py).
  *
@@ -22,6 +24,7 @@
     const s = featureFlags.signature_pdf === true;
     $("doc-pdf-mise-en-page").hidden = true;
     $("doc-html-interactif").hidden = true;
+    $("doc-vue-interactive").hidden = true;
     $("doc-signer").hidden = !(s && doc);
     infoReconstruction = null;
     if (!doc || !r) return;
@@ -32,6 +35,7 @@
       infoReconstruction = info;
       $("doc-pdf-mise-en-page").hidden = !info.disponible;
       $("doc-html-interactif").hidden = !info.disponible;
+      $("doc-vue-interactive").hidden = !info.disponible;
     } catch { /* backend absent : boutons masqués */ }
   }
 
@@ -77,7 +81,57 @@
 
   $("doc-pdf-mise-en-page").addEventListener("click", () => generer("pdf"));
   $("doc-html-interactif").addEventListener("click", () => generer("html"));
-  document.addEventListener("doc-actif", (e) => { doc = e.detail; statut(""); majBoutons(); });
+
+  // ── Vue « Mise en page » ──────────────────────────────────────────────────
+  let urlVue = null;
+
+  function fermerVue() {
+    $("lecture-interactif").hidden = true;
+    $("lecture-corps").hidden = false;
+    $("doc-vue-interactive").setAttribute("aria-pressed", "false");
+    $("doc-vue-interactive").classList.remove("is-active");
+    $("lecture-interactif-cadre").removeAttribute("srcdoc");
+    if (urlVue) { URL.revokeObjectURL(urlVue); urlVue = null; }
+  }
+
+  async function ouvrirVue() {
+    if (!doc) return;
+    const courant = doc;
+    const bouton = $("doc-vue-interactive");
+    const etat = $("lecture-interactif-statut");
+    document.dispatchEvent(new CustomEvent("montrer-lecture"));
+    bouton.setAttribute("aria-pressed", "true");
+    bouton.classList.add("is-active");
+    $("lecture-corps").hidden = true;
+    $("lecture-interactif").hidden = false;
+    $("lecture-interactif-onglet").hidden = true;
+    etat.textContent = "⏳ Préparation de la mise en page…";
+    try {
+      const titre = (doc.nom || "").replace(/_scan_colonnes\.md$|\.md$/i, "");
+      const r = await apiPost(
+        `/reconstruction/html?chemin_sortie=${encodeURIComponent(doc.chemin_sortie)}&titre=${encodeURIComponent(titre)}`,
+        {}, TIMEOUT_GENERATION_MS);
+      const rep = await fetch(`${API_BASE}/telecharger?chemin=${encodeURIComponent(r.chemin)}`);
+      if (!rep.ok) throw new Error(`Lecture impossible (${rep.status}).`);
+      const html = await rep.text();
+      if (courant !== doc || bouton.getAttribute("aria-pressed") !== "true") return;   // fermée ou autre document
+      if (urlVue) URL.revokeObjectURL(urlVue);
+      urlVue = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      // srcdoc : le cadre en bac à sable ne chargeait pas l'URL blob: de la page parente (cadre vide)
+      $("lecture-interactif-cadre").srcdoc = html;
+      $("lecture-interactif-onglet").href = urlVue;
+      $("lecture-interactif-onglet").hidden = false;
+      etat.textContent = `${r.pages} page(s) · ${r.illustrations} illustration(s)`;
+    } catch (e) {
+      etat.textContent = `❌ ${e.message}`;
+    }
+  }
+
+  $("doc-vue-interactive").addEventListener("click", () => {
+    if ($("doc-vue-interactive").getAttribute("aria-pressed") === "true") fermerVue();
+    else ouvrirVue();
+  });
+  document.addEventListener("doc-actif", (e) => { doc = e.detail; statut(""); fermerVue(); majBoutons(); });
   document.addEventListener("flags-charges", majBoutons);
 
   // ══ Signature ═══════════════════════════════════════════════════════════════

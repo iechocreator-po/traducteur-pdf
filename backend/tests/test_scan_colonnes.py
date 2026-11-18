@@ -657,3 +657,20 @@ def test_ligne_decalee_sous_le_gros_numero_continue_le_paragraphe():
 def test_numero_suivi_d_un_mot_haut_entre_guillemets():
     mots = [_mot_situe(t, h=66) for t in ("0", "I", "1", "0")] + [_mot_situe("“Phaedra,”", h=60), _mot_situe("says", h=27)]
     assert S.numero_entree(mots, 27) == ("0110", 4)
+
+
+def test_renvoi_seul_garde():
+    """« See 0068. » seul dans un encadré d'une ligne : un mot de 3 lettres et un renvoi, pas du bruit."""
+    assert S.lignes_vers_blocs([_ligne_h([("See", 27), ("0068.", 27)])], 200, 1000) == [("para", "See 0068.")]
+    assert S.lignes_vers_blocs([_ligne_h([("ee", 27), ("a", 27)])], 200, 1000) == []
+
+
+def test_intertitre_seul_dans_son_segment_reconnu_avec_le_corps_de_la_page():
+    seul = [_ligne_h([("HOW", 45), ("TO", 45), ("USE", 45), ("THIS", 45), ("BOOK?", 45)])]
+    assert S.lignes_vers_blocs(seul, 200, 1000) == [("para", "HOW TO USE THIS BOOK?")]
+    assert S.lignes_vers_blocs(seul, 200, 1000, corps_defaut=27) == [("intertitre", "HOW TO USE THIS BOOK?")]
+
+
+def test_intertitre_en_capitales_seuil_plus_bas():
+    assert S.est_intertitre(_ligne_h([("HOW", 38), ("TO", 38), ("USE", 38)]), 27, "HOW TO USE THIS BOOK?")
+    assert not S.est_intertitre(_ligne_h([("How", 38), ("to", 38)]), 27, "How to use")

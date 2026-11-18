@@ -280,7 +280,7 @@ def test_reponse_vide_done_false_est_reessayee(horloge):
 @patch("app.services.translator.requests.post")
 def test_numero_d_entree_masque_et_restaure(mock_post):
     """Le modèle ne voit pas « **0029** » (il lui retirait ses étoiles ou le supprimait)."""
-    mock_post.return_value = _reponse({"response": "⟦IMG0⟧\n\nVous n'avez pas oublié.", "done": True})
+    mock_post.return_value = _reponse({"response": "Vous n'avez pas oublié.", "done": True})
     out = translator.traduire_texte("**0029**\n\nYou have not forgotten.", "m", "anglais", "français")
     assert "0029" not in mock_post.call_args.kwargs["json"]["prompt"]
     assert out == "**0029**\n\nVous n'avez pas oublié."
@@ -294,10 +294,74 @@ def test_marqueurs_perdus():
 
 @patch("app.services.translator.requests.post")
 def test_numero_d_entree_remis_seul_sur_sa_ligne(mock_post):
-    mock_post.return_value = _reponse({"response": "Reviens à la phase du Voyage. ⟦IMG0⟧\n\nAprès le combat.", "done": True})
+    mock_post.side_effect = [_reponse({"response": "Reviens à la phase du Voyage.", "done": True}),
+                             _reponse({"response": "Après le combat.", "done": True})]
     out = translator.traduire_texte("Return to the Voyage Phase.\n\n**0052**\n\nAfter the battle.", "m", "anglais", "français")
     assert out == "Reviens à la phase du Voyage.\n\n**0052**\n\nAprès le combat."
 
 
 def test_numero_colle_a_une_phrase_compte_comme_perdu():
     assert translator.marqueurs_perdus("x\n\n**0052**\n\ny", "Voyage. **0052**\n\nAprès.") == ["**0052**"]
+
+
+def test_restaurer_structure_encadre_et_intertitre():
+    src = "> If Labyrinthians: Unfriendly, see 0015,\n\n**Fear and Dread**\n\nPlain text."
+    tr = "Si Labyrinthiens : Hostiles, voir 0015,\n\nPeur et Effroi\n\nTexte simple."
+    assert translator.restaurer_structure(src, tr) == ("> Si Labyrinthiens : Hostiles, voir 0015,\n\n"
+                                                       "**Peur et Effroi**\n\nTexte simple.")
+    # nombre de paragraphes différent : on ne devine pas l'alignement
+    assert translator.restaurer_structure(src, "Un seul paragraphe.") == "Un seul paragraphe."
+
+
+@patch("app.services.translator.requests.post")
+def test_debut_d_encadre_masque_et_restaure(mock_post):
+    mock_post.return_value = _reponse({"response": "Texte.\n\n⟦IMG0⟧Si Labyrinthiens : voir 0015.", "done": True})
+    out = translator.traduire_texte("Text.\n\n> If Labyrinthians: see 0015.", "m", "anglais", "français")
+    assert "> " not in mock_post.call_args.kwargs["json"]["prompt"].replace("<texte>", "")
+    assert out == "Texte.\n\n> Si Labyrinthiens : voir 0015."
+
+
+def test_numero_suivi_d_une_icone_remis_seul():
+    assert translator.restaurer_structure("**0007**\n\n⟦icône:3.3⟧ x", "**0007** ⟦icône:3.3⟧ y") == "**0007**\n\n⟦icône:3.3⟧ y"
+
+
+def test_gras_jamais_sur_un_paragraphe_entier_ni_numero():
+    src = "**0037**\n\nEven in a foreign place."
+    tr = "Même dans une ville étrangère et hostile, vous trouvez vite vos repères et votre chef parle bien.\n\nSuite."
+    assert translator.restaurer_structure(src, tr) == tr
+    assert translator.restaurer_structure("x\n\n**0037**", "y\n\n> **0037**") == "y\n\n**0037**"
+
+
+def test_entree_eloignee_de_son_texte():
+    src = "> Return.\n\n**0037**\n\nEven in a foreign place.\n\n**0038**"
+    assert translator.entrees_deplacees(src, "> Retour.\n\n**0037**\n\nMême ailleurs.\n\n**0038**") is None
+    assert "0037" in translator.entrees_deplacees(src, "Même ailleurs.\n\n> Retour.\n\n**0037**\n\n**0038**")
+    assert translator.restaurer_structure("x\n\n**0037**", "y\n\n> \n\n**0037**") == "y\n\n**0037**"
+
+
+def test_gras_en_trop():
+    assert translator.gras_en_trop("**0037**\n\nText.", "**0037**\n\n**Texte entier en gras.**")
+    assert not translator.gras_en_trop("**0037**\n\nText.", "**0037**\n\nTexte.")
+
+
+@patch("app.services.translator.appeler_ollama")
+def test_morceau_coupe_aux_numeros_d_entree(mock_appel):
+    """Chaque partie entre deux numéros est traduite à part : un numéro ne peut plus être déplacé."""
+    mock_appel.side_effect = lambda p, **k: {"response": p["prompt"].replace("<texte>\n", "").replace("\n</texte>", "")
+                                             .replace("Intro", "Introduction").replace("Body", "Corps"), "done": True}
+    out = translator.traduire_texte("Intro.\n\n**0001**\n\nBody one.\n\n**0002**\n\nBody two.", "m", "anglais", "français")
+    assert out == "Introduction.\n\n**0001**\n\nCorps one.\n\n**0002**\n\nCorps two."
+    assert mock_appel.call_count == 3 and all("0001" not in c[0][0]["prompt"] for c in mock_appel.call_args_list)
+
+
+def test_entree_en_double_ou_deplacee():
+    src = "Intro.\n\n**0001**\n\nBody."
+    assert translator.entrees_deplacees(src, "**0001**\n\nIntro.\n\n**0001**\n\nCorps.")
+
+
+def test_numero_invente_sous_un_intertitre():
+    assert translator.entrees_deplacees("**Starting a Campaign**\n\nPrepare.", "**Début d'une Campagne**\n**0001**\n\nPréparez.")
+
+
+def test_gras_ajoute_sous_un_intertitre():
+    assert translator.gras_en_trop("**Starting a Campaign**\n\nPrepare.", "**Début d'une Campagne**\n**END**\n\nPréparez.")

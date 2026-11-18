@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/components.css?v=1">
   <link rel="stylesheet" href="css/theme-toledo.css?v=2">
-  <link rel="stylesheet" href="css/style.css?v=41">
+  <link rel="stylesheet" href="css/style.css?v=42">
   <link rel="stylesheet" href="css/styles-visuels.css?v=5">
   <link rel="stylesheet" href="css/commutateurs.css?v=2">
   <script>
@@ -382,6 +382,8 @@
           <button id="doc-exporter" class="ds-btn ds-btn--sm" hidden>⬇ Exporter (HTML)…</button>
           <!-- Traduction issue du Scan multi-colonnes : document recréé avec ses illustrations
                (js/bibliotheque-exports.js, services/reconstruction.py). -->
+          <button id="doc-vue-interactive" class="ds-btn ds-btn--sm" hidden aria-pressed="false"
+                  title="Lire la version mise en page (illustrations, colonnes, scan d'origine en regard) ici même">🖼 Mise en page</button>
           <button id="doc-pdf-mise-en-page" class="ds-btn ds-btn--sm" hidden
                   title="PDF au format d'origine : illustrations replacées, texte traduit dans les colonnes">⬇ PDF mis en page</button>
           <button id="doc-html-interactif" class="ds-btn ds-btn--sm" hidden
@@ -395,7 +397,19 @@
           <span id="lecture-echec-texte"></span>
           <button id="lecture-echec-reprendre" class="ds-btn ds-btn--sm">⏯ Reprendre</button>
         </div>
-        <div class="lecture-corps">
+        <!-- Vue « Mise en page » : le HTML interactif de la reconstruction, affiché dans la Bibliothèque
+             (js/bibliotheque-exports.js). Remplace le corps de lecture tant que le bouton est enfoncé. -->
+        <div class="lecture-interactif" id="lecture-interactif" hidden>
+          <div class="lecture-interactif-barre">
+            <span id="lecture-interactif-statut" class="aide" role="status"></span>
+            <a id="lecture-interactif-onglet" class="bouton-lien" target="_blank" rel="noopener" hidden>↗ Ouvrir dans un onglet</a>
+          </div>
+          <!-- allow-same-origin : sans lui, la page (générée par l'app, texte échappé par reconstruction.inline_html)
+               restait blanche dans le cadre (mesuré le 17/11/2026). -->
+          <iframe id="lecture-interactif-cadre" title="Version mise en page du document"
+                  sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
+        </div>
+        <div class="lecture-corps" id="lecture-corps">
           <div id="lecture-vide" class="lecture-vide">
             <p>Sélectionne un document dans la colonne de gauche.</p>
             <p class="aide">Les documents apparaissent ici une fois traduits dans « Nouveau document ».</p>
@@ -892,8 +906,8 @@
 
   <script src="js/commun.js?v=12"></script>
   <script src="js/module-import.js?v=20"></script>
-  <script src="js/module-bibliotheque.js?v=14"></script>
-  <script src="js/bibliotheque-exports.js?v=3"></script>
+  <script src="js/module-bibliotheque.js?v=15"></script>
+  <script src="js/bibliotheque-exports.js?v=6"></script>
   <script src="js/module-laboratoire.js?v=13"></script>
   <script src="js/module-chronique.js?v=1"></script>
   <script src="js/module-anticipation.js?v=4"></script>

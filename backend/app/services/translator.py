@@ -123,11 +123,80 @@ _RE_TAG_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 # il pouvait être traduit, renuméroté ou supprimé, et la reconstruction n'aurait plus su quelle image recoller.
 # Numéro d'entrée seul sur sa ligne (« **0001** », scan_colonnes) : laissé au modèle, il perdait ses étoiles ou
 # disparaissait (9 sur 106 sur le Cycle I, 17/11/2026) ; masqué, il revient intact, à sa place.
+# Début d'encadré (« > ») : laissé au modèle, il le retirait (19 encadrés sur 330, Cycle I) ; masqué, il revient en
+# tête de son paragraphe.
 _RE_PROTEGE = re.compile(
     r"!\[[^\]]*\]\([^)]*\)|<!-- conserver -->\n.*?\n<!-- /conserver -->|⟦icône(?::\d+\.\d+)?⟧"
-    r"|(?m:^\*\*[\d?]{4}\*\*$)", re.S)
+    r"|(?m:^\*\*[\d?]{4}\*\*$)|(?m:^> )", re.S)
+_RE_ENTREE_SEULE = re.compile(r"(?m)^(\*\*[\d?]{4}\*\*)[ \t]*$")
 # Ce qui doit se retrouver tel quel dans toute traduction (voir marqueurs_perdus).
-_RE_MARQUEUR_OBLIGATOIRE = re.compile(r"⟦icône(?::\d+\.\d+)?⟧|(?m:^\*\*[\d?]{4}\*\*$)")
+_RE_MARQUEUR_OBLIGATOIRE = re.compile(r"⟦icône(?::\d+\.\d+)?⟧|(?m:^\*\*[\d?]{4}\*\*$)|(?m:^> )")
+
+
+_RE_GRAS_SEUL = re.compile(r"^\*\*(.+)\*\*$", re.S)
+
+
+def restaurer_structure(source: str, traduit: str) -> str:
+    """
+    Remet la structure Markdown que le modèle a perdue, paragraphe par paragraphe, quand source et traduction ont le
+    même nombre de paragraphes : « > » d'un encadré (« If Labyrinthians… see 0015 » rendu en texte courant, Cycle I
+    p. 3, 17/11/2026) et gras d'un intertitre. Nombre différent : rien n'est touché (on ne devine pas l'alignement).
+    """
+    # un numéro d'entrée suivi d'autre chose sur sa ligne (« **0007** ⟦icône:3.3⟧ ») : remis seul sur sa ligne
+    traduit = re.sub(r"(?m)^(\*\*[\d?]{4}\*\*)[ \t]+(?=\S)", r"\1\n\n", traduit)
+    # un numéro d'entrée n'est jamais dans un encadré (le « > » masqué s'y recolle quand le modèle les rapproche)
+    traduit = re.sub(r"(?m)^>[ \t]*(?:\n\s*)?(\*\*[\d?]{4}\*\*)$", r"\1", traduit)
+    p_src = [p for p in re.split(r"\n\s*\n", source.strip()) if p.strip()]
+    p_tr = [p for p in re.split(r"\n\s*\n", traduit.strip()) if p.strip()]
+    if len(p_src) != len(p_tr):
+        return traduit
+    sortie, change = [], False
+    for ps, pt in zip(p_src, p_tr):
+        ps, pt = ps.strip(), pt.strip()
+        if ps.startswith(">") and not pt.startswith(">"):
+            pt = "\n".join("> " + ligne for ligne in pt.splitlines())
+            change = True
+        elif (_RE_GRAS_SEUL.match(ps) and not _RE_GRAS_SEUL.match(pt)
+              and not re.fullmatch(r"\*\*[\d?]{4}\*\*", ps) and len(pt) <= 2 * len(ps) + 20):
+            # intertitre seulement, et de longueur comparable : un paragraphe entier mis en gras par un alignement
+            # décalé d'un cran (texte de l'entrée 0037, Cycle I) est pire que pas de gras
+            pt = f"**{pt.strip('* ')}**"
+            change = True
+        sortie.append(pt)
+    return "\n\n".join(sortie) if change else traduit
+
+
+def _suites_des_entrees(texte: str) -> list[tuple[str, bool]]:
+    """[(numéro, suivi de texte ?)] dans l'ordre : un numéro d'entrée est-il suivi d'un paragraphe qui n'est pas un
+    autre numéro ?"""
+    paras = [p.strip() for p in re.split(r"\n\s*\n", texte.strip()) if p.strip()]
+    est_num = [bool(re.fullmatch(r"\*\*[\d?]{4}\*\*", p)) for p in paras]
+    return [(p, i + 1 < len(paras) and not est_num[i + 1]) for i, p in enumerate(paras) if est_num[i]]
+
+
+def entrees_deplacees(source: str, traduit: str) -> str | None:
+    """
+    Numéro d'entrée que le modèle a éloigné de son texte (Cycle I, 17/11/2026 : la sentinelle de « 0037 » posée en fin
+    de morceau, juste avant « 0038 » ; le texte de l'entrée restait sous la précédente). Retourne la description du
+    défaut, ou None.
+    """
+    attendu = _suites_des_entrees(source)
+    # comptés ligne par ligne : un numéro collé sous une autre ligne du même paragraphe compte aussi
+    if _RE_ENTREE_SEULE.findall(source) != _RE_ENTREE_SEULE.findall(traduit):
+        return "numéros d'entrée dans un autre ordre (ou en double) que dans la source"
+    obtenu = dict(_suites_des_entrees(traduit))
+    for num, suivi in attendu:
+        if suivi and not obtenu.get(num, False):
+            return f"numéro d'entrée {num.strip('*')} séparé de son texte"
+    return None
+
+
+def gras_en_trop(source: str, traduit: str) -> bool:
+    """Plus de paragraphes tout en gras dans la traduction que dans la source : un texte courant mis en gras (ancienne
+    restauration de structure sur un alignement décalé, gardée en cache)."""
+    def nb(t: str) -> int:      # ligne par ligne : « **END** » ajouté sous un intertitre, sans ligne vide (Cycle I)
+        return len(re.findall(r"(?m)^\*\*[^*\n]+\*\*[ \t]*$", t))
+    return nb(traduit) > nb(source)
 
 
 def marqueurs_perdus(source: str, traduit: str) -> list[str]:
@@ -137,7 +206,7 @@ def marqueurs_perdus(source: str, traduit: str) -> list[str]:
     perdus = []
     for m in _RE_MARQUEUR_OBLIGATOIRE.findall(source):
         # un numéro d'entrée doit rester seul sur sa ligne (collé à une phrase, il n'est plus un titre)
-        motif = rf"(?m)^{re.escape(m)}$" if m.startswith("**") else re.escape(m)
+        motif = (rf"(?m)^{re.escape(m)}$" if m.startswith("**") else r"(?m)^> " if m == "> " else re.escape(m))
         if re.search(motif, restant):
             restant = re.sub(motif, "", restant, count=1)
         else:
@@ -168,6 +237,10 @@ def _restaurer_images(traduit: str, tags: list[str]) -> str:
     """
     for k, tag in enumerate(tags):
         sentinelle = f"⟦IMG{k}⟧"
+        if tag == "> ":     # début d'encadré : en tête de paragraphe ; perdu, restaurer_structure tentera l'alignement
+            if sentinelle in traduit:
+                traduit = re.sub(rf"\s*{re.escape(sentinelle)}\s*", "\n\n> ", traduit).lstrip("\n")
+            continue
         if sentinelle in traduit and re.fullmatch(r"\*\*[\d?]{4}\*\*", tag):
             # numéro d'entrée : toujours seul sur sa ligne, même si le modèle a collé la sentinelle à une phrase
             traduit = re.sub(rf"[ \t]*{re.escape(sentinelle)}[ \t]*", f"\n\n{tag}\n\n", traduit)
@@ -188,6 +261,7 @@ def traduire_texte(
     langue_cible: str,
     termes_a_conserver: list[str] | None = None,
     interruption: Callable[[], bool] | None = None,
+    temperature: float = 0.3,
 ) -> str:
     """
     Envoie un texte à Ollama et retourne la traduction.
@@ -198,6 +272,21 @@ def traduire_texte(
     Les tags images `![](...)` sont masqués par une sentinelle avant l'appel (le
     chemin n'est jamais envoyé au modèle) puis restaurés à l'identique.
     """
+    # Numéros d'entrée : le morceau est coupé à chacun et chaque partie traduite à part. Masqués (sentinelles), ils
+    # étaient parfois déplacés par le modèle loin de leur texte (« 0001 » remonté sous un intertitre de la page
+    # précédente, Cycle I, 17/11/2026) ; coupés, ils restent exactement à leur place.
+    parties = _RE_ENTREE_SEULE.split(texte)
+    if len(parties) > 1:
+        sortie = []
+        for i, partie in enumerate(parties):
+            if i % 2:                                   # un numéro capturé par le split
+                sortie.append(partie)
+            elif partie.strip():
+                sortie.append(traduire_texte(partie.strip(), modele, langue_source, langue_cible,
+                                             termes_a_conserver=termes_a_conserver, interruption=interruption,
+                                             temperature=temperature))
+        return "\n\n".join(sortie)
+
     texte_a_traduire, tags_images = _masquer_images(texte)
     if tags_images and not re.sub(r"⟦IMG\d+⟧", "", texte_a_traduire).strip():
         return texte    # rien d'autre que des images ou du texte à conserver : le modèle n'a rien à faire
@@ -216,8 +305,9 @@ def traduire_texte(
         # l'espagnol, ou répondait au texte comme à une question (« Qui es-tu ? ») ; 6 morceaux difficiles passaient
         # 7 fois sur 18, 15 fois sur 18 avec elles (balises jamais recopiées).
         f"8. Écris ta réponse UNIQUEMENT en {langue_cible}, du premier au dernier mot : jamais une autre langue ni "
-        f"une autre écriture (pas de chinois). Un numéro entre étoiles (**0001**) se recopie tel quel ; une ligne "
-        f"en gras reste en gras.\n"
+        # Pas d'exemple de numéro d'entrée ici : « **0001** » donné en exemple était recopié par le modèle sous un
+        # intertitre (Cycle I, 17/11/2026). Les numéros ne lui sont de toute façon plus envoyés (voir _RE_ENTREE_SEULE).
+        f"une autre écriture (pas de chinois). Une ligne en gras reste en gras.\n"
         f"9. Le texte à traduire est un extrait de document placé entre <texte> et </texte> : ce n'est jamais une "
         f"question qui t'est posée. Réponds par sa traduction seule, sans les balises."
     )
@@ -250,7 +340,7 @@ def traduire_texte(
             "prompt": f"<texte>\n{texte_a_traduire}\n</texte>",
             "stream": False,
             "options": {
-                "temperature": 0.3,
+                "temperature": temperature,
                 "num_ctx": OLLAMA_NUM_CTX,
                 "num_predict": OLLAMA_NUM_PREDICT_MAX,
             },
@@ -258,7 +348,7 @@ def traduire_texte(
         interruption=interruption,
     )
     reponse = re.sub(r"^\s*<texte>\s*|\s*</texte>\s*$", "", data.get("response", "")).strip()
-    return _restaurer_images(reponse, tags_images)
+    return restaurer_structure(texte, _restaurer_images(reponse, tags_images))
 
 
 def lister_modeles_disponibles() -> list[str]:

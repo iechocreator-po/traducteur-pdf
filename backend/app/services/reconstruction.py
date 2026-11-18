@@ -33,7 +33,7 @@ from app.services import scan_colonnes
 from app.services.persistance import ecrire_binaire_atomique, ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
 
 SUFFIXE_SCAN = "_scan_colonnes"
-VERSION_CACHE = 6           # à incrémenter quand la détection change (invalide le cache)
+VERSION_CACHE = 8           # à incrémenter quand la détection change (invalide le cache)
 DPI_APERCU = 90              # scan d'origine embarqué dans le HTML (mode « Pages »)
 QUALITE_ILLUS = 85
 QUALITE_APERCU = 65
@@ -65,15 +65,31 @@ COTE_MIN_FIGURE = 0.035                 # × hauteur de page, pour chaque côté
 # à un bord de la page et 3 à 25 fois plus hautes que larges ; aucune vraie figure dans ce cas).
 ALLONGEMENT_MAX_AU_BORD = 2.5
 RECOUVREMENT_MAX_FIGURE = 0.3           # part d'une figure déjà couverte par une illustration : c'est la même
+# Bords d'une illustration pleine (photo, peinture) : la détection, lissée, déborde de quelques lignes sur le papier
+# (Cycle I p. 3 : la bande blanche portant « 0001 So it begins » restait sous le bandeau, à 97 % de papier). Une
+# ligne ou colonne de bord faite de papier à PART_PAPIER_BORD ou plus est retirée, puis un liseré de LISERE_ILLUS du
+# plus petit côté (bord du scan irrégulier). Seulement si l'image a moins de PAPIER_MAX_IMAGE_PLEINE de papier : un
+# jeton ou une tuile, entourés de papier par nature, seraient entamés.
+PART_PAPIER_BORD = 0.5
+PAPIER_MAX_IMAGE_PLEINE = 0.15
+LISERE_ILLUS = 0.006
+# Côté collé au bord de la page scannée : bande de tranche ou d'ombre de reliure (≈ 8 px à 200 dpi, Cycle I p. 2-3),
+# retirée sur cette part de la largeur (ou hauteur) de l'image.
+BORD_PAGE_ILLUS = 0.012
+ECART_PAPIER = 25                       # niveaux de gris autour du ton du papier
 # Une illustration qui couvre plus de cette part de la largeur d'une colonne y interrompt le texte.
 PART_COLONNE_COUPEE = 0.15
-MARGE_HAUT, MARGE_BAS = 0.03, 0.93   # le texte n'est jamais coulé dans le titre courant / folio
+PART_COTE_MIN = 0.35            # largeur minimale (part de la colonne) laissée au texte à côté d'une figure
+HAUTEUR_MIN_CADRE_COTE = 0.03   # part de la hauteur de page : un cadre à côté d'une figure basse reste utile
+# Le texte n'est jamais coulé dans le titre courant / folio. Bas relevé de 0,93 à 0,955 le 17/11/2026 : les colonnes
+# laissaient une bande vide sous le texte (demande de réduire les marges ; le folio du scan n'est pas recopié).
+MARGE_HAUT, MARGE_BAS = 0.03, 0.955
 # Colonnes du PDF recréé un peu plus étroites que celles du scan (retrait de chaque côté, en part de la largeur de
 # colonne) : coulé bord à bord, le texte traduit touchait la colonne voisine et la gouttière (demande du 17/11/2026).
 # Mesuré sur le Cycle I p. 1-10 avec numéros d'entrée et intertitres : retrait 3 %, minimum 7 pt, interligne 1,18 →
 # 8 pages sur 10 débordaient sur une page « suite » ; retrait 2 %, minimum 6,5 pt, interligne 1,12 → aucune, et le
 # texte reste à 7 pt sur 9 pages.
-RETRAIT_COLONNE = 0.02
+RETRAIT_COLONNE = 0.01           # ramené de 2 % à 1 % avec les marges (17/11/2026)
 NB_MAX_SUITES = 200          # par page source ; au-delà, échec explicite plutôt qu'un texte coupé
 SEUIL_TITRE = 0.6            # ressemblance minimale pour rattacher un chapitre à un titre du scan
 LANGUES_HTML = {"français": "fr", "anglais": "en", "espagnol": "es"}
@@ -181,7 +197,37 @@ def detecter_illustrations(image) -> list[tuple[int, int, int, int]]:
             continue
         rects.append((int(x0), int(y0), int(x1), int(y1)))
     rects = _ajouter_figures_pleines(rects, gris, sat, fond, sat_papier)
+    rects = [_rogner_bords(gris, r, fond) for r in rects]
     return sorted(rects, key=lambda r: (r[0] >= w // 2, r[1], r[0]))
+
+
+def _rogner_bords(gris, rect, fond: float) -> tuple[int, int, int, int]:
+    """Rectangle d'une illustration pleine débarrassé des bandes de papier de ses bords (voir PART_PAPIER_BORD)."""
+    import numpy as np
+
+    x0, y0, x1, y1 = rect
+    papier = np.abs(gris[y0:y1, x0:x1].astype(np.int16) - int(fond)) < ECART_PAPIER
+    if papier.size == 0 or papier.mean() >= PAPIER_MAX_IMAGE_PLEINE:
+        return rect
+    lignes, cols = papier.mean(axis=1), papier.mean(axis=0)
+    h0, h1, g0, g1 = 0, len(lignes), 0, len(cols)
+    while h1 - h0 > 2 and lignes[h0] >= PART_PAPIER_BORD:
+        h0 += 1
+    while h1 - h0 > 2 and lignes[h1 - 1] >= PART_PAPIER_BORD:
+        h1 -= 1
+    while g1 - g0 > 2 and cols[g0] >= PART_PAPIER_BORD:
+        g0 += 1
+    while g1 - g0 > 2 and cols[g1 - 1] >= PART_PAPIER_BORD:
+        g1 -= 1
+    marge = int(LISERE_ILLUS * min(h1 - h0, g1 - g0))
+    bord_h, bord_l = int(BORD_PAGE_ILLUS * (h1 - h0)), int(BORD_PAGE_ILLUS * (g1 - g0))
+    H, W = gris.shape
+    # côté sur papier : liseré ; côté collé au bord de la page (fond perdu) : bande de tranche ou de reliure
+    m_haut = marge if y0 + h0 > 2 else bord_h
+    m_bas = marge if y0 + h1 < H - 2 else bord_h
+    m_gauche = marge if x0 + g0 > 2 else bord_l
+    m_droite = marge if x0 + g1 < W - 2 else bord_l
+    return (int(x0 + g0 + m_gauche), int(y0 + h0 + m_haut), int(x0 + g1 - m_droite), int(y0 + h1 - m_bas))
 
 
 def _ajouter_figures_pleines(rects: list, gris, sat, fond: float, sat_papier: float) -> list:
@@ -307,22 +353,32 @@ def cadres_texte(mise: dict, illustrations: list[tuple[int, int, int, int]]) -> 
             lignes = ((gris[:, a:b] < 120).mean(axis=1) > 0.004).nonzero()[0]
             haut = max(int(lignes[0]) if len(lignes) else 0, int(h * MARGE_HAUT))
             bas = min(int(lignes[-1]) if len(lignes) else h, int(h * MARGE_BAS))
-            intervalles = [(haut, bas)]
+            intervalles = [(haut, bas, a, b)]
             for x0, y0, x1, y1 in illustrations:
                 if min(b, x1) - max(a, x0) <= PART_COLONNE_COUPEE * (b - a):
                     continue
                 coupe0, coupe1 = y0 - 12, y1 + 12
+                # Figure calée sur un bord de la colonne et laissant de la place : le texte coule À CÔTÉ d'elle,
+                # comme dans le livre (« The keyword “Labyrinth X”… » à droite du schéma, p. 2), pas en dessous.
+                cote = None
+                if x0 - a <= PART_COLONNE_COUPEE * (b - a) and b - (x1 + 12) >= PART_COTE_MIN * (b - a):
+                    cote = (x1 + 12, b)
+                elif b - x1 <= PART_COLONNE_COUPEE * (b - a) and (x0 - 12) - a >= PART_COTE_MIN * (b - a):
+                    cote = (a, x0 - 12)
                 nouveaux = []
-                for p, q in intervalles:
-                    if coupe1 <= p or coupe0 >= q:
-                        nouveaux.append((p, q))
+                for p, q, xa, xb in intervalles:
+                    if coupe1 <= p or coupe0 >= q or (xa, xb) != (a, b):
+                        nouveaux.append((p, q, xa, xb))
                         continue
                     if coupe0 > p:
-                        nouveaux.append((p, coupe0))
+                        nouveaux.append((p, coupe0, a, b))
+                    if cote:
+                        nouveaux.append((max(p, coupe0), min(q, coupe1), *cote))
                     if coupe1 < q:
-                        nouveaux.append((coupe1, q))
+                        nouveaux.append((coupe1, q, a, b))
                 intervalles = nouveaux
-            cadres += [(a, p, b, q) for p, q in intervalles if q - p > 0.05 * h]
+            cadres += [(xa, p, xb, q) for p, q, xa, xb in intervalles
+                       if q - p > (HAUTEUR_MIN_CADRE_COTE if (xa, xb) != (a, b) else 0.05) * h]
     return cadres
 
 
@@ -593,13 +649,31 @@ def inline_html(texte: str, icones: dict[tuple[int, int], str] | None = None) ->
 
 
 _RE_GRAS_SEUL = re.compile(r"^\*\*(.+?)\*\*$")
+# Ligne de table des matières : un titre court suivi de son numéro de page (« Qu'est-ce que ce livre ? 4 »). Une table
+# n'est reconnue qu'à partir de LIGNES_MIN_SOMMAIRE lignes consécutives (un renvoi « Voir 0040 » isolé n'en est pas).
+_RE_LIGNE_SOMMAIRE = re.compile(r"^(?P<titre>[^.!:;]{2,80}?[^\d\s.])\s+(?P<page>\d{1,4})$")
+LIGNES_MIN_SOMMAIRE = 4
 
 
 def _blocs_html(blocs: list[tuple[str, str]], ancre_chap=None, icones=None) -> str:
     """Un paragraphe tout en gras est un numéro d'entrée (« **0001** ») ou un intertitre (scan_colonnes) : rendu en
-    titre, plus gros que le texte, au début de ce qu'il introduit."""
+    titre, plus gros que le texte, au début de ce qu'il introduit. Une suite de lignes « titre … page » est rendue
+    en table des matières (titre à gauche, page à droite)."""
     sortie = []
-    for k, t in blocs:
+    i = 0
+    while i < len(blocs):
+        j = i
+        while j < len(blocs) and blocs[j][0] == "para" and _RE_LIGNE_SOMMAIRE.match(blocs[j][1].strip()):
+            j += 1
+        if j - i >= LIGNES_MIN_SOMMAIRE:
+            lignes = "".join(
+                f'<tr><td class="toc-titre">{inline_html(m.group("titre"), icones)}</td><td class="toc-page">{m.group("page")}</td></tr>'
+                for m in (_RE_LIGNE_SOMMAIRE.match(t.strip()) for _, t in blocs[i:j]))
+            sortie.append(f'<table class="toc">{lignes}</table>')
+            i = j
+            continue
+        i += 1
+        k, t = blocs[i - 1]
         gras = _RE_GRAS_SEUL.match(t.strip()) if k == "para" else None
         if gras:
             classe = "entree" if re.fullmatch(r"[\d?]{3,5}", gras.group(1).strip()) else "intertitre"
@@ -628,12 +702,16 @@ h3 {{ font-size: {titre}pt; color: #7a2418; font-weight: bold; margin: {espace}p
 img.ico {{ height: 1.1em; vertical-align: middle; }}
 h4.entree {{ font-size: {entree}pt; color: #7a2418; font-weight: bold; margin: {espace}pt 0 1pt 0; text-align: left; }}
 h4.intertitre {{ font-size: {inter}pt; color: #3a2a1c; font-weight: bold; margin: {espace}pt 0 1pt 0; text-align: left; }}
+table.toc {{ width: 100%; border-collapse: collapse; margin: 0 0 {espace}pt 0; }}
+table.toc td {{ padding: 1pt 0; border-bottom: 0.4pt dotted #8a6d3b; text-align: left; }}
+table.toc td.toc-page {{ text-align: right; width: 12%; }}
 """
 
 
 def _css_pdf(taille: float) -> str:
-    return _CSS_PDF.format(taille=taille, titre=round(taille * 1.25, 1), espace=round(taille * 0.3, 1),
-                           entree=round(taille * 1.3, 1), inter=round(taille * 1.15, 1))
+    # Titres agrandis le 17/11/2026 (demande : « agrandir les titres pour l'ensemble du document »).
+    return _CSS_PDF.format(taille=taille, titre=round(taille * 1.6, 1), espace=round(taille * 0.3, 1),
+                           entree=round(taille * 1.7, 1), inter=round(taille * 1.45, 1))
 
 
 def _tient(html: str, taille: float, cadres, archive=None) -> bool:
@@ -882,13 +960,16 @@ main { padding:16px 24px 80px; min-width:0; }
 .bascule-original { font:inherit; border:1px solid var(--bord); background:transparent; color:var(--doux); border-radius:6px; padding:3px 8px; cursor:pointer; }
 .page-corps { display:block; }
 .texte { max-width:44em; margin:0 auto; text-align:justify; hyphens:auto; }
-h3 { color:var(--accent); font-size:1.25em; margin:1.4em 0 .5em; text-align:left; scroll-margin-top:70px; }
+h3 { color:var(--accent); font-size:1.5em; margin:1.4em 0 .5em; text-align:left; scroll-margin-top:70px; }
 .encadre { border:1px solid var(--bord); border-left:4px solid var(--accent); background:var(--papier); padding:.6em 1em; border-radius:6px; margin:1em 0; }
 .encadre p { margin:0; }
 .ico { color:var(--accent); font-size:.8em; }
 img.ico { height:1.25em; width:auto; vertical-align:-.3em; font-size:1em; }
-h4.entree { font-size:1.5em; color:var(--accent); margin:1.1em 0 .2em; }
-h4.intertitre { font-size:1.2em; margin:1em 0 .2em; }
+h4.entree { font-size:1.8em; color:var(--accent); margin:1.1em 0 .2em; }
+h4.intertitre { font-size:1.45em; margin:1em 0 .2em; }
+table.toc { width:100%; border-collapse:collapse; margin:.4em 0 1em; }
+table.toc td { padding:.25em 0; border-bottom:1px dotted var(--bord); }
+table.toc td.toc-page { text-align:right; width:4em; font-variant-numeric:tabular-nums; }
 figure { margin:1.2em 0; text-align:center; }
 figure img { max-width:100%; height:auto; border-radius:6px; cursor:zoom-in; box-shadow:0 2px 10px rgba(0,0,0,.15); }
 figcaption { font:12px -apple-system, system-ui, sans-serif; color:var(--doux); margin-top:4px; }

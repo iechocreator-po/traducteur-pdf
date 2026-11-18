@@ -551,6 +551,15 @@ html.avance .biblio-lecture {
   padding: 0.9rem 2.4rem 2rem;
 }
 .lecture-corps h2 { font-size: 1.35rem; margin: 0.4rem 0 0.8rem; }
+/* Vue « Mise en page » : le HTML interactif occupe la place du corps de lecture. */
+.lecture-interactif { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0.6rem 2.4rem 1rem; }
+.lecture-interactif[hidden] { display: none; }
+.lecture-interactif-barre { display: flex; align-items: center; gap: 12px; min-height: 1.6rem; }
+.lecture-interactif-barre a { margin-left: auto; }
+.lecture-interactif iframe {
+  flex: 1; width: 100%; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface);
+}
 .lecture-vide {
   color: var(--text-2);
   text-align: center;

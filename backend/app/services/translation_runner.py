@@ -46,7 +46,10 @@ from app.services.pdf_extractor import (
     chapitres_avec_contenu,
 )
 from app.services.translator import (
+    entrees_deplacees,
+    gras_en_trop,
     marqueurs_perdus,
+    restaurer_structure,
     traduire_texte,
     OllamaIndisponible,
     AppelInterrompu,
@@ -216,6 +219,10 @@ def _interruption_pour(state: EtatJob):
 
 
 NB_TENTATIVES_LANGUE = 3
+# Température des tentatives 2, 3… sur un défaut de langue. Mesuré sur le Cycle I (morceau 86, 17/11/2026) : « Seeing
+# your confused looks » donnait « perple克斯 » à chaque essai à 0,3 et même à 0 (déterministe) ; 2 fois sur 4 à 0,7,
+# 4 fois sur 4 à 1,0. La traduction normale reste à 0,3 ; seul un morceau déjà fautif est retenté plus librement.
+TEMPERATURES_LANGUE = (0.7, 1.0)
 
 
 def _deux_moities(texte: str) -> list[str] | None:
@@ -257,13 +264,14 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
     # Une entrée de cache faite avant un contrôle (langue, marqueurs) n'en est pas exemptée : défectueuse, elle est
     # retraduite (mesuré le 17/11/2026 : « perple克斯 » et des numéros d'entrée perdus revenaient du cache).
     if cle in cache and (controle_langue.langue_inattendue(texte, cache[cle], state.langue_cible.value)
-                         or marqueurs_perdus(texte, cache[cle])):
+                         or marqueurs_perdus(texte, cache[cle]) or entrees_deplacees(texte, cache[cle])
+                         or gras_en_trop(texte, cache[cle])):
         _journaliser(state, f"{etiquette} : entrée de cache défectueuse (langue ou marqueurs) — retraduite")
         del cache[cle]
     if cle in cache:
         _journaliser(state, f"{etiquette} : reprise depuis le cache")
         metriques.enregistrer_cache(len(texte))
-        return cache[cle]
+        return restaurer_structure(texte, cache[cle])
 
     interruption = _interruption_pour(state)
     traduit = traduire_texte(
@@ -303,34 +311,52 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
     # Mesuré sur le Cycle I : un morceau qui glisse vers le chinois y retombe souvent (1 réussite sur 3) ; traduit
     # en deux moitiés, il passe. D'où : jusqu'à NB_TENTATIVES_LANGUE essais entiers, puis les deux moitiés.
     cible = state.langue_cible.value
-    defaut = controle_langue.langue_inattendue(texte, traduit, cible)
+    # Même traitement pour un numéro d'entrée éloigné de son texte (translator.entrees_deplacees).
+    defaut = (controle_langue.langue_inattendue(texte, traduit, cible) or entrees_deplacees(texte, traduit)
+              or ("ligne en gras ajoutée par le modèle" if gras_en_trop(texte, traduit) else None))
 
     def acceptable(t: str, source: str) -> bool:
         r = len(t) / max(len(source), 1)
-        return not controle_langue.langue_inattendue(source, t, cible) and RATIO_TRADUCTION_SUSPECT <= r <= RATIO_TRADUCTION_MAX
+        return (not controle_langue.langue_inattendue(source, t, cible) and not entrees_deplacees(source, t)
+                and not gras_en_trop(source, t) and RATIO_TRADUCTION_SUSPECT <= r <= RATIO_TRADUCTION_MAX)
 
-    def traduire(t: str) -> str:
+    def traduire(t: str, temperature: float = TEMPERATURES_LANGUE[-1]) -> str:
         return traduire_texte(t, state.modele_ollama, state.langue_source.value, cible,
                               termes_a_conserver=glossaire.termes_presents(t, termes) if t != texte else termes,
-                              interruption=interruption)
+                              interruption=interruption, temperature=temperature)
 
     if defaut:
         reussi = False
         for essai in range(2, NB_TENTATIVES_LANGUE + 1):
             _journaliser(state, f"{etiquette} : {defaut} — tentative {essai}")
             metriques.enregistrer_nouvelle_tentative()
-            nouvelle = traduire(texte)
+            nouvelle = traduire(texte, TEMPERATURES_LANGUE[min(essai - 2, len(TEMPERATURES_LANGUE) - 1)])
             if acceptable(nouvelle, texte):
                 traduit, reussi = nouvelle, True
                 break
-        moities = _deux_moities(texte) if not reussi else None
-        if moities:
-            _journaliser(state, f"{etiquette} : {defaut} — traduit en deux moitiés")
-            parties = [traduire(m) for m in moities]
-            if all(acceptable(t, m) for t, m in zip(parties, moities)):
-                traduit, reussi = "\n\n".join(parties), True
+        def par_moities(t: str, profondeur: int) -> str | None:
+            """Traduction de `t` en deux moitiés, chacune recoupée une fois de plus si elle échoue encore
+            (Cycle I, morceau 86 : les deux moitiés retombaient dans le chinois)."""
+            moities = _deux_moities(t)
+            if not moities:
+                return None
+            parties = []
+            for m in moities:
+                tm = traduire(m)
+                if not acceptable(tm, m):
+                    tm = par_moities(m, profondeur - 1) if profondeur > 1 else None
+                    if tm is None:
+                        return None
+                parties.append(tm)
+            return "\n\n".join(parties)
+
         if not reussi:
-            avertissement = f"{etiquette} : traduction dans une autre langue ({defaut})"
+            _journaliser(state, f"{etiquette} : {defaut} — traduit par moitiés")
+            morceaux = par_moities(texte, 2)
+            if morceaux is not None:
+                traduit, reussi = morceaux, True
+        if not reussi:
+            avertissement = f"{etiquette} : traduction défectueuse ({defaut})"
             state.avertissements.append(avertissement)
             journaliser_erreur(state.chemin_sortie, avertissement)
             return traduit
