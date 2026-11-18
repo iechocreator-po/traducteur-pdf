@@ -140,7 +140,7 @@ Resynchroniser : recopier `tokens.css` et réaligner `Theme.swift`.
 Les pièges vécus (moteur unique, options sur le document, uploads indexés par contenu, marqueurs pas forcément en fin de
 fichier, écriture atomique, double source JSON/SQLite, plafonds Ollama, `use_ocr=OCRMode.NEVER`, planificateur, récupération
 au démarrage, timeouts clients, « un 0 qui ment », `.gitignore` ancré, données et secrets) sont dans
-[`.claude/revue-pieges.md`](.claude/revue-pieges.md), lu par `/revue-code` (zones `moteur`, `extraction`, `etude-tts`, `api`,
+[`.claude/revue-pieges.md`](.claude/revue-pieges.md), lu par `/revue-code` (zones `moteur`, `extraction`, `mise-en-page`, `etude-tts`, `api`,
 `frontend`, `macos`). Mécanique : `cd backend && ./venv/bin/python -m pytest tests/ -q`.
 
 À retenir hors de ce fichier : **l'extraction texte d'un PDF ne rend que le texte** (pictogrammes, tableaux en image perdus) ;

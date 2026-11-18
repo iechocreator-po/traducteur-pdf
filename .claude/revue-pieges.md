@@ -90,7 +90,8 @@ Chemins relatifs à `traducteur-pdf/`. Plafond d'environ 3 000 lignes par sous-a
 | Zone | Chemins | Lignes |
 |---|---|---|
 | `moteur` | `backend/app/services/{translation_runner,translator,store,persistance,job_manager,cache_traduction,recuperation,scheduler,soumission,energie,bibliotheque}.py` | ~3 000 (auditée le 26/10/2026) |
-| `extraction` | `backend/app/services/{pdf_extractor,scan_colonnes,segmentation,uploads}.py` | ~1 900 |
+| `extraction` | `backend/app/services/{pdf_extractor,scan_colonnes,segmentation,uploads}.py` | ~2 850 |
+| `mise-en-page` | `backend/app/services/reconstruction.py` (vue « Mise en page », PDF et HTML reconstruits, signature) | ~1 150 |
 | `etude-tts` | `backend/app/services/{etude,study_runner,tts,tts_runner,voix_clonees,voix_clonage_runner,stats,metriques,glossaire}.py`, `backend/app/agents/` | ~2 300 |
 | `api` | `backend/app/api/`, `backend/app/config/`, `backend/app/models/`, `backend/app/main.py`, `backend/scripts/` | ~2 000 |
 | `frontend` | `frontend/js/`, `frontend/index.html`, `frontend/css/` | ~4 500 (2 sous-agents) |
