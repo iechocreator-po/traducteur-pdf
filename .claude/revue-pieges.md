@@ -78,6 +78,10 @@ Dossier de travail : `traducteur-pdf/backend/`. Un échec est un constat à 100.
     (`pymupdf4llm` 2.0 du 19/10/2026 : roue vide, import impossible sur le runner, le `venv` local restant sur 1.28). Toute
     dépendance ajoutée porte au moins une borne de version majeure (`<N+1`) ; une CI rouge sans diff suspect → comparer
     `pip show` local et la version installée par le runner.
+19. **Texte avant le premier titre = début du chapitre 0.** L'extraction ne crée pas de chapitre pour ce préambule : il est
+    collé au chapitre 0. Tout code qui place un chapitre à partir de son titre (mise en page, HTML, ancres, sommaire) doit le
+    traiter à part, sinon les pages du début restent vides et la suite déborde (Cycle I, section 2 : 5 pages blanches,
+    16 pages au lieu de 10 ; corrigé dans `reconstruction.repartir_par_page`).
 
 ## Zones d'audit
 
