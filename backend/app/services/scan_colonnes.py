@@ -59,7 +59,7 @@ ECHELLE_OCR = 3            # agrandissement avant Tesseract (mesuré : ×3 suffi
 CONFIANCE_MIN_LIGNE = 55   # sous ce seuil, la ligne est du bruit (illustration, ombre de reliure)
 CONFIANCE_MIN_ZONE = 40    # dans une zone déclarée texte par l'utilisateur (voir ocr_lignes)
 CONFIANCE_MIN_TITRE = 70   # idem pour une bande de titre (voir ocr_titre)
-VERSION_ALGO = 11           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
+VERSION_ALGO = 12           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
 RATIO_DOUBLE_PAGE = 1.25   # largeur/hauteur au-delà duquel la page est une double page
 # Page qui n'est pas du texte courant (page titre, couverture) : peu de bandes horizontales ont la forme
 # d'un texte en colonnes. Mesuré sur le Cycle I : page titre 5/41, page avec grande illustration 7/20,
@@ -127,7 +127,10 @@ HAUTEUR_INTERTITRE_CAPITALES = 1.3
 MOTS_MAX_INTERTITRE = 8
 CHIFFRES_LUS = str.maketrans("OoQDIl|!SZB", "00001111528")
 _RE_GRAS_SEUL = re.compile(r"^\*\*(.+)\*\*$")
-LIGNE_BASSE_PIED = 0.955       # = reconstruction.MARGE_BAS : rien du texte recréé n'est coulé plus bas
+# Ligne courte plus basse que cette part de la page : titre courant même sans numéro lu. Mesuré sur le Cycle I
+# (17/11/2026) : titres courants à 0,962 et plus bas ; dernières lignes de texte d'une colonne jusqu'à 0,956
+# (« shell. It makes sense… », p. 5) — à 0,955, elles étaient prises pour un titre courant et jamais traduites.
+LIGNE_BASSE_PIED = 0.96
 _RE_PUCE = re.compile(r"^(?:[-–•·]\s|\d{1,2}[.)]\s)")
 _RE_PIED = re.compile(r"^(\d{1,3}\s+\D{3,40}|\D{3,40}\s+\d{1,3})$")
 _RE_TITRE = re.compile(r"^\d{1,2} [A-Z]\S*(\s\S+)*$")

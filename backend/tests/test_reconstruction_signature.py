@@ -799,3 +799,14 @@ def test_colonne_rapprochee_de_la_gouttiere():
     cadres = reconstruction.cadres_texte(mise, [])
     assert 840 <= max(c[2] for c in cadres if c[0] < 863) < 863                     # bord droit de la page gauche, près du pli
     assert 863 < min(c[0] for c in cadres if c[0] > 863) <= 886                    # jamais au-delà du pli
+
+
+def test_folio_etendu_au_numero_non_lu():
+    """L'OCR lit le titre courant mais pas le numéro en gras qui le suit : la découpe va jusqu'au numéro."""
+    import numpy as np
+    gris = np.full((1160, 1631), 232, np.uint8)
+    gris[1120:1130, 1482:1608] = 60          # « Truth of the Labyrinth Main Story » (lu)
+    gris[1117:1131, 1614:1624] = 30          # « 11 » en gras, plus haut (non lu)
+    gris[1000:1010, 1400:1600] = 40          # texte plus haut : hors de la bande
+    x0, y0, x1, y1 = reconstruction._etendre_pied(gris, [1482, 1119, 1608, 1130])
+    assert x1 >= 1624 and y0 <= 1117 and y1 >= 1131 and y0 > 1010

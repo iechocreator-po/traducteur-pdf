@@ -33,7 +33,7 @@ from app.services import scan_colonnes
 from app.services.persistance import ecrire_binaire_atomique, ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
 
 SUFFIXE_SCAN = "_scan_colonnes"
-VERSION_CACHE = 9           # à incrémenter quand la détection change (invalide le cache)
+VERSION_CACHE = 10           # à incrémenter quand la détection change (invalide le cache)
 DPI_APERCU = 90              # scan d'origine embarqué dans le HTML (mode « Pages »)
 QUALITE_ILLUS = 85
 QUALITE_APERCU = 65
@@ -424,6 +424,43 @@ def _icones_du_scan(dossier_pages: str | None, numero: int) -> list[list[int]]:
     return [list(b) for b in boites] if isinstance(boites, list) else []
 
 
+ECART_MAX_PIED = 30          # px de blanc franchis pour rattacher de l'encre voisine à un folio
+EXTENSION_MAX_PIED = 120     # px au plus de chaque côté
+
+
+def _etendre_pied(gris, boite) -> tuple[int, int, int, int]:
+    """
+    Rectangle à recopier pour un folio : la boîte des mots LUS, étendue à l'encre contiguë de la même bande. L'OCR
+    lisait « Truth of the Labyrinth Main Story » sans le numéro en gras qui le suit : recadré sur les mots lus, le
+    folio était coupé au milieu du « 11 » (Cycle I p. 3 à 5, 17/11/2026).
+    """
+    import numpy as np
+
+    H, W = gris.shape
+    x0, y0, x1, y1 = boite
+    b0, b1 = max(0, y0 - 6), min(H, y1 + 6)
+    encre = (gris[b0:b1] < 150).any(axis=0)
+
+    def avancer(depart: int, pas: int) -> int:
+        """Dernière colonne d'encre atteinte depuis `depart` dans la direction `pas`, sans franchir plus de
+        ECART_MAX_PIED px de blanc ni s'éloigner de plus de EXTENSION_MAX_PIED px."""
+        dernier, vide, x = depart, 0, depart
+        while 0 <= x + pas < W and abs(x + pas - depart) <= EXTENSION_MAX_PIED:
+            x += pas
+            if encre[x]:
+                dernier, vide = x, 0
+            else:
+                vide += 1
+                if vide > ECART_MAX_PIED:
+                    break
+        return dernier
+
+    gauche, droite = avancer(x0, -1), avancer(x1 - 1, 1)
+    lignes = np.nonzero((gris[b0:b1, gauche:droite + 1] < 150).any(axis=1))[0]
+    haut, bas = (b0 + int(lignes[0]), b0 + int(lignes[-1]) + 1) if len(lignes) else (y0, y1)
+    return (max(0, gauche - 4), max(0, min(haut, y0) - 4), min(W, droite + 1 + 4), min(H, max(bas, y1) + 4))
+
+
 def _pieds_du_scan(dossier_pages: str | None, numero: int) -> list[list[int]]:
     """Boîtes des folios et titres courants que le scan a écartés du texte (`page-NNNN.json` › pieds) : recopiés tels
     quels à leur place dans le PDF recréé (pagination du livre)."""
@@ -476,8 +513,7 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_p
                     fichiers.append({"rect": [x0, y0, x1, y1], "fichier": nom})
                 fichiers_pieds = []
                 for k, boite in enumerate(pieds[n], start=1):
-                    x0, y0, x1, y1 = boite
-                    rect = (max(0, x0 - 4), max(0, y0 - 4), min(image.width, x1 + 4), min(image.height, y1 + 4))
+                    rect = _etendre_pied(mise["gris"], boite)
                     nom = f"page-{n:04d}-pied-{k}.png"
                     image.crop(rect).save(os.path.join(dossier, nom), "PNG")
                     fichiers_pieds.append({"rect": list(rect), "fichier": nom})
