@@ -485,6 +485,17 @@ def test_chapitre_du_milieu_traduit_seul_sur_sa_page(tmp_path):
     assert par_page == {1: [], 2: [("titre", "Dos"), ("para", "Texto")], 3: []}
 
 
+def test_texte_avant_le_premier_titre_reste_sur_ses_pages(tmp_path):
+    _page_json(tmp_path, 1, [["para", "a" * 100], ["para", "b" * 100]])
+    _page_json(tmp_path, 2, [["para", "c" * 100]])
+    _page_json(tmp_path, 3, [["titre", "Un"], ["para", "d" * 100]])
+    md = ("<!-- === chapitre 0 : Un === -->\n\n" + "A" * 100 + "\n\n" + "B" * 100 + "\n\n" + "C" * 100
+          + "\n\n## Uno\n\n" + "D" * 100 + "\n")
+    par_page = reconstruction.repartir_par_page(str(tmp_path), [1, 2, 3], md)
+    assert par_page == {1: [("para", "A" * 100), ("para", "B" * 100)], 2: [("para", "C" * 100)],
+                        3: [("titre", "Uno"), ("para", "D" * 100)]}
+
+
 def test_titre_du_scan_en_trop_avant_le_chapitre_est_saute():
     assert reconstruction._aligner_titres(["Chapter one"], ["Preface", "Chapter one"]) == [1]
 

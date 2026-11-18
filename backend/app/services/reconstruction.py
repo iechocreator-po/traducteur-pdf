@@ -669,28 +669,21 @@ def repartir_par_page(dossier_pages: str, pages: list[int], md_traduit: str,
         suivants = [a for e, a in zip(liste[rang + 1:], ancres[rang + 1:])
                     if a is not None and a > debut and e["niveau"] <= liste[rang]["niveau"]]
         fin = suivants[0] if suivants else len(plat)
-        source = [b for b in plat[debut:fin] if b[1] != "titre"] or [plat[debut]]
         traduits = chap["blocs"]
+        # Préambule : le texte placé AVANT le premier titre du document est rattaché au premier chapitre par
+        # l'extraction. Il appartient aux pages qui précèdent ce titre ; réparti depuis le titre, il laissait ces pages
+        # vides et faisait déborder la suite (Cycle I, section 2 : 5 pages blanches, 16 pages au lieu de 10).
+        premier_titre = next((i for i, (k, _) in enumerate(traduits) if k == "titre"), 0)
+        preambule = traduits[:premier_titre]
+        avant = [b for b in plat[:debut] if b[1] != "titre"]
+        if preambule and ancres[rang] is not None and avant \
+                and not any(a is not None and a < debut for a in ancres[:rang]):
+            for (k, t), p in zip(preambule, _pages_des_blocs(preambule, avant)):
+                par_page[p].append((k, t))
+            traduits = traduits[premier_titre:]
+        source = [b for b in plat[debut:fin] if b[1] != "titre"] or [plat[debut]]
         corps = [b for b in traduits if b[0] != "titre"]
-        if len(corps) == len(source):
-            pages_corps = [s[0] for s in source]
-        else:
-            cumul, total = [], 0
-            for s in source:
-                total += len(s[2])
-                cumul.append(total)
-            t_total = sum(len(b[1]) for b in corps) or 1
-            pages_corps, vu = [], 0
-            for b in corps:
-                milieu = (vu + len(b[1]) / 2) / t_total * total
-                vu += len(b[1])
-                j = next((j for j, v in enumerate(cumul) if v >= milieu), len(source) - 1)
-                pages_corps.append(source[j][0])
-        # Un numéro d'entrée ou un intertitre (paragraphe tout en gras) va sur la page de ce qu'il introduit : réparti
-        # au prorata des caractères, ce bloc de 4 caractères tombait en bas de la page précédente (« 0001 », Cycle I).
-        for j in range(len(corps) - 2, -1, -1):
-            if _RE_GRAS_SEUL.match(corps[j][1].strip()):
-                pages_corps[j] = pages_corps[j + 1]
+        pages_corps = _pages_des_blocs(corps, source)
         page_titre = plat[debut][0] if ancres[rang] is not None or not pages_corps else pages_corps[0]
         j = 0
         for k, t in traduits:
@@ -700,6 +693,32 @@ def repartir_par_page(dossier_pages: str, pages: list[int], md_traduit: str,
                 par_page[pages_corps[j]].append((k, t))
                 j += 1
     return par_page
+
+
+def _pages_des_blocs(corps: list[tuple[str, str]], source: list[tuple[int, str, str]]) -> list[int]:
+    """Page de chaque bloc traduit (hors titres) parmi les blocs `source` (page, type, texte) du scan."""
+    if not corps:
+        return []
+    if len(corps) == len(source):
+        pages = [s[0] for s in source]
+    else:
+        cumul, total = [], 0
+        for s in source:
+            total += len(s[2])
+            cumul.append(total)
+        t_total = sum(len(b[1]) for b in corps) or 1
+        pages, vu = [], 0
+        for b in corps:
+            milieu = (vu + len(b[1]) / 2) / t_total * total
+            vu += len(b[1])
+            j = next((j for j, v in enumerate(cumul) if v >= milieu), len(source) - 1)
+            pages.append(source[j][0])
+    # Un numéro d'entrée ou un intertitre (paragraphe tout en gras) va sur la page de ce qu'il introduit : réparti
+    # au prorata des caractères, ce bloc de 4 caractères tombait en bas de la page précédente (« 0001 », Cycle I).
+    for j in range(len(corps) - 2, -1, -1):
+        if _RE_GRAS_SEUL.match(corps[j][1].strip()):
+            pages[j] = pages[j + 1]
+    return pages
 
 
 # ── Rendu commun ─────────────────────────────────────────────────────────────
