@@ -33,7 +33,7 @@ from app.services import scan_colonnes
 from app.services.persistance import ecrire_binaire_atomique, ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
 
 SUFFIXE_SCAN = "_scan_colonnes"
-VERSION_CACHE = 10           # à incrémenter quand la détection change (invalide le cache)
+VERSION_CACHE = 12           # à incrémenter quand la détection change (invalide le cache)
 DPI_APERCU = 90              # scan d'origine embarqué dans le HTML (mode « Pages »)
 QUALITE_ILLUS = 85
 QUALITE_APERCU = 65
@@ -172,7 +172,7 @@ def detecter_illustrations(image) -> list[tuple[int, int, int, int]]:
     h, w, _ = rgb.shape
     gris = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
     sat = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)[..., 1]
-    fond = float(np.percentile(gris, 85))
+    fond = _ton_papier(gris)
     sat_papier = float(np.median(sat[gris >= fond]))
     k = 8
     g = cv2.medianBlur(cv2.resize(gris, (w // k, h // k), interpolation=cv2.INTER_AREA), 9)
@@ -204,6 +204,23 @@ def detecter_illustrations(image) -> list[tuple[int, int, int, int]]:
     rects = _ajouter_figures_pleines(rects, gris, sat, fond, sat_papier)
     rects = [_rogner_bords(gris, r, fond) for r in rects]
     return sorted(rects, key=lambda r: (r[0] >= w // 2, r[1], r[0]))
+
+
+def _ton_papier(gris) -> float:
+    """
+    Gris du papier : le ton clair le plus fréquent (pic de l'histogramme au-dessus de 150). Le 85ᵉ centile prenait
+    le blanc des encadrés (254) pour le papier ; sur une page photographiée au papier gris (215), tout le papier
+    passait alors pour « sombre » et l'illustration se soudait aux colonnes voisines, masquées avant l'OCR et
+    recopiées en anglais (Cycle I, section 2, p. 8 — 18/11/2026). Le centile reste le repli d'une page sans ton
+    clair (très sombre).
+    """
+    import numpy as np
+
+    hist = np.convolve(np.bincount(gris.ravel(), minlength=256), np.ones(9), "same")
+    hist[:150] = 0
+    if not hist.any():
+        return float(np.percentile(gris, 85))
+    return float(np.argmax(hist))
 
 
 def _rogner_bords(gris, rect, fond: float) -> tuple[int, int, int, int]:

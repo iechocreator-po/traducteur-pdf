@@ -821,3 +821,14 @@ def test_folio_etendu_au_numero_non_lu():
     gris[1000:1010, 1400:1600] = 40          # texte plus haut : hors de la bande
     x0, y0, x1, y1 = reconstruction._etendre_pied(gris, [1482, 1119, 1608, 1130])
     assert x1 >= 1624 and y0 <= 1117 and y1 >= 1131 and y0 > 1010
+
+
+def test_papier_gris_aux_encadres_blancs_n_est_pas_pris_pour_une_illustration():
+    """Cycle I, section 2, p. 8 : papier gris (215), encadrés blancs ; le 85ᵉ centile (blanc) faisait du papier
+    une « illustration » soudée aux colonnes, masquées avant l'OCR."""
+    import numpy as np
+    gris = np.full((600, 800), 215, np.uint8)
+    gris[50:150, 50:750] = 255          # encadrés blancs : ~30 % de la page, assez pour fausser le 85ᵉ centile
+    gris[300:400, 50:750] = 255
+    assert abs(reconstruction._ton_papier(gris) - 215) <= 4
+    assert reconstruction.detecter_illustrations(Image.fromarray(gris).convert("RGB")) == []

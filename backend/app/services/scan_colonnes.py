@@ -59,7 +59,13 @@ ECHELLE_OCR = 3            # agrandissement avant Tesseract (mesuré : ×3 suffi
 CONFIANCE_MIN_LIGNE = 55   # sous ce seuil, la ligne est du bruit (illustration, ombre de reliure)
 CONFIANCE_MIN_ZONE = 40    # dans une zone déclarée texte par l'utilisateur (voir ocr_lignes)
 CONFIANCE_MIN_TITRE = 70   # idem pour une bande de titre (voir ocr_titre)
-VERSION_ALGO = 12           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
+VERSION_ALGO = 14           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
+# Redressement (voir estimer_inclinaison). Mesuré sur les 23 pages du Cycle I : les scans à plat restent sous 1°
+# (bruit de mesure ±0,7°), la double page photographiée de biais (section 2, p. 8) est à -4,2° / -5,1°. Sous 1°, on
+# ne touche pas l'image : une rotation déplacerait les réglages déjà posés à la main pour un gain nul.
+INCLINAISON_MIN = 1.0
+INCLINAISON_MAX = 6.0
+GAIN_MIN_INCLINAISON = 1.3  # l'angle trouvé doit rendre les lignes nettement plus nettes qu'à 0°
 RATIO_DOUBLE_PAGE = 1.25   # largeur/hauteur au-delà duquel la page est une double page
 # Page qui n'est pas du texte courant (page titre, couverture) : peu de bandes horizontales ont la forme
 # d'un texte en colonnes. Mesuré sur le Cycle I : page titre 5/41, page avec grande illustration 7/20,
@@ -1058,11 +1064,76 @@ def _ouvrir_pdf(chemin_pdf: str):
 
 
 def rendre_page(doc, numero: int):
-    """Page (1-indexée) → image PIL RGB à DPI_RENDU. Le scan porte une image par page à
-    ~200 ppi : le rendu à 200 dpi la reprend sans rééchantillonnage."""
+    """Page (1-indexée) → image PIL RGB à DPI_RENDU, redressée (voir redresser). Le scan porte une image par page à
+    ~200 ppi : le rendu à 200 dpi la reprend sans rééchantillonnage. Scan, aperçu, géométrie et fond de la mise en
+    page passent tous par ici : ils voient la même image redressée."""
     from PIL import Image
     pix = doc[numero - 1].get_pixmap(dpi=DPI_RENDU, colorspace="rgb", alpha=False)
-    return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    return redresser(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
+
+
+def _masque_lettres(gris):
+    """Encre des seules composantes de la taille d'une lettre : une illustration ne pèse pas sur l'angle."""
+    import cv2
+    np = _numpy()
+    binaire = cv2.adaptiveThreshold(gris, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 25, 15)
+    _, etiquettes, stats, _ = cv2.connectedComponentsWithStats(binaire, connectivity=8)
+    h, w, aire = stats[:, cv2.CC_STAT_HEIGHT], stats[:, cv2.CC_STAT_WIDTH], stats[:, cv2.CC_STAT_AREA]
+    lettre = (h >= 4) & (h <= 30) & (w <= 40) & (aire >= 6)
+    lettre[0] = False       # le fond
+    return lettre[etiquettes].astype(np.uint8) * 255
+
+
+def estimer_inclinaison(gris) -> float:
+    """
+    Angle (degrés, sens de PIL.rotate) qui remet les lignes de texte à l'horizontale, ou 0.0 si la page est droite
+    ou l'angle incertain. Méthode du profil : tournées du bon angle, les lignes donnent un profil horizontal le plus
+    contrasté (variance maximale). Recherche grossière au quart de degré puis fine au vingtième.
+    Sans redressement, une page photographiée de biais n'a aucune colonne verticale : elle était lue en pleine
+    largeur, chaque ligne OCR traversant deux ou trois colonnes (Cycle I, section 2, p. 8 — 18/11/2026).
+    """
+    from PIL import Image
+    np = _numpy()
+    masque = _masque_lettres(np.ascontiguousarray(gris))
+    if masque.mean() < 0.5:     # presque pas de lettres : rien de fiable à mesurer
+        return 0.0
+    image = Image.fromarray(masque)
+
+    def nettete(angle: float) -> float:
+        return float(np.var(np.asarray(image.rotate(angle, resample=Image.BILINEAR), dtype=float).sum(axis=1)))
+
+    grossier = np.arange(-INCLINAISON_MAX, INCLINAISON_MAX + 0.01, 0.25)
+    meilleur = float(grossier[int(np.argmax([nettete(a) for a in grossier]))])
+    fin = np.arange(meilleur - 0.25, meilleur + 0.26, 0.05)
+    scores = [nettete(a) for a in fin]
+    angle = round(float(fin[int(np.argmax(scores))]), 2)
+    if abs(angle) < INCLINAISON_MIN or max(scores) < GAIN_MIN_INCLINAISON * (nettete(0.0) or 1.0):
+        return 0.0
+    return angle
+
+
+def redresser(image):
+    """Chaque demi-page (une double page photographiée a deux inclinaisons) tournée de son propre angle, les coins
+    découverts remplis couleur papier. Une page droite est rendue telle quelle (même objet)."""
+    from PIL import Image
+    np = _numpy()
+    gris = np.array(image.convert("L"))
+    h, w = gris.shape
+    if w / h >= RATIO_DOUBLE_PAGE:
+        gx = detecter_gouttiere(gris)
+        moities = [(0, gx), (gx, w)]
+    else:
+        moities = [(0, w)]
+    angles = [estimer_inclinaison(gris[:, x0:x1]) for x0, x1 in moities]
+    if not any(angles):
+        return image
+    sortie = image.copy()
+    for (x0, x1), angle in zip(moities, angles):
+        if angle:
+            papier = int(np.percentile(gris[:, x0:x1], 85))
+            moitie = image.crop((x0, 0, x1, h)).rotate(angle, resample=Image.BICUBIC, fillcolor=(papier,) * 3)
+            sortie.paste(moitie, (x0, 0))
+    return sortie
 
 
 def nombre_de_pages(chemin_pdf: str) -> int:

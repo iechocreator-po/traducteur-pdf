@@ -67,6 +67,28 @@ def test_detecter_colonnes_trouve_les_trois():
         assert abs(a - ea) <= 12 and abs(b - eb) <= 12
 
 
+def test_page_droite_rendue_telle_quelle():
+    img, _ = page_synthetique()
+    rgb = img.convert("RGB")
+    assert S.estimer_inclinaison(__import__("numpy").array(img)) == 0.0
+    assert S.redresser(rgb) is rgb
+
+
+@pytest.mark.parametrize("angle", [-4.0, 3.0])
+def test_page_photographiee_de_biais_redressee_retrouve_ses_colonnes(angle):
+    """Cycle I, section 2, p. 8 : photo penchée de ~4°, aucune colonne trouvée, lignes OCR à travers les colonnes."""
+    import numpy as np
+    img, attendues = page_synthetique()
+    penchee = img.rotate(angle, resample=Image.BICUBIC, fillcolor=PAPIER).convert("RGB")
+    gris = np.array(penchee.convert("L"))
+    assert abs(S.estimer_inclinaison(gris) + angle) <= 0.3
+    droit = np.array(S.redresser(penchee).convert("L"))
+    trouvees = S.detecter_colonnes(droit, 0, droit.shape[1])
+    assert len(trouvees) == 3
+    for (a, b), (ea, eb) in zip(trouvees, attendues):
+        assert abs(a - ea) <= 12 and abs(b - eb) <= 12
+
+
 def test_une_illustration_ne_fausse_pas_la_detection_des_colonnes():
     """Régression mesurée : la moitié basse d'une page droite était une illustration, la
     mesure y trouvait UNE colonne. Seules les bandes qui ressemblent à du texte votent."""
