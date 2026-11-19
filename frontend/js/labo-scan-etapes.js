@@ -245,7 +245,7 @@
     const ok = s.statut === "termine" && !s.erreur && !erreurs.length;
     const faites = s.pages_faites ?? 0;
     let titre;
-    if (s.statut === "annule") titre = `Arrêté après ${faites} page${faites > 1 ? "s" : ""}. Relancer reprend où il s'est arrêté.`;
+    if (s.statut === "annule") titre = `Arrêté après ${faites} page${faites > 1 ? "s" : ""}. Reprendre ne refait pas les pages déjà nettoyées.`;
     else if (ok) titre = `✓ ${faites} page${faites > 1 ? "s" : ""} nettoyée${faites > 1 ? "s" : ""}, aucune en erreur.`;
     else titre = s.erreur ? `Le nettoyage a échoué : ${s.erreur}` : `${erreurs.length} page(s) en erreur sur ${faites}.`;
 
@@ -275,7 +275,11 @@
           `<button type="button" class="ds-btn" id="se-autre">Traiter un autre document</button></div>`;
       }
     } else {
-      actions = `<div class="se-actions"><button type="button" class="ds-btn" id="se-autre">Traiter un autre document</button></div>`;
+      // Arrêt ou échec : relancer = le même « Nettoyer le document » (mêmes réglages, cache par page côté backend),
+      // avec le choix « seulement / puis traduire » de l'étape tel qu'il est au moment du clic.
+      const libelle = s.statut === "annule" ? "Reprendre le nettoyage" : "Réessayer";
+      actions = `<div class="se-actions"><button type="button" class="ds-btn ds-btn--primary" id="se-reprendre">${libelle}</button>` +
+        `<button type="button" class="ds-btn" id="se-autre">Traiter un autre document</button></div>`;
     }
     b.className = `se-bilan${ok ? "" : " partiel"}`;
     b.innerHTML = `<span class="se-bilan-titre">${esc(titre)}</span>` +
@@ -287,6 +291,7 @@
       activerModule("import");
     });
     $("se-autre")?.addEventListener("click", recommencer);
+    $("se-reprendre")?.addEventListener("click", () => $("se-lancer").click());
   }
 
   // Revenir à l'étape 1, carte vide. Le scan déjà lancé n'est pas touché (il continue côté backend, et la
