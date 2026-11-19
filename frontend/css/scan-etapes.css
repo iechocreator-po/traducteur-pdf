@@ -1,0 +1,76 @@
+/* Laboratoire › Documents complexes, nouvelle version en trois étapes (essai UX du 18/11/2026).
+   Carte #carte-scan-etapes, logique js/labo-scan-etapes.js. Variables sémantiques seulement. */
+
+.se-carte h2 { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+.se-essai { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em; text-transform: none; padding: 2px 8px;
+            border-radius: 999px; background: var(--amber-bg); color: var(--amber); }
+.se-chapeau { color: var(--text-2); margin: 0 0 1.2rem; max-width: 64ch; line-height: 1.55; }
+.se-chapeau strong { color: var(--text); }
+
+.se-etapes { list-style: none; margin: 0; padding: 0; }
+.se-etape { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 0 14px; }
+.se-rail { display: flex; flex-direction: column; align-items: center; }
+.se-num { width: 30px; height: 30px; flex: none; border-radius: 50%; display: grid; place-items: center;
+          font-weight: 700; font-size: 0.85rem; background: var(--surface-2); color: var(--text-2);
+          border: 2px solid var(--border); }
+.se-trait { flex: 1; width: 2px; min-height: 20px; margin: 4px 0; background: var(--border); }
+.se-etape:last-child .se-trait { display: none; }
+.se-etape.fait .se-num { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.se-etape.fait .se-trait { background: var(--accent); }
+.se-etape.cours .se-num { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+
+.se-corps { padding: 3px 0 1.6rem; min-width: 0; }
+.se-corps h3 { margin: 0; font-size: 1rem; display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.se-facultatif { font-size: 0.72rem; font-weight: 500; color: var(--text-3); }
+.se-quoi { margin: 0.2rem 0 0.8rem; color: var(--text-2); max-width: 64ch; line-height: 1.5; }
+
+/* Une étape à venir est visible mais inerte ; une étape faite se replie en une ligne. */
+.se-etape:not(.cours):not(.fait) .se-bloc { opacity: 0.5; pointer-events: none; }
+.se-etape.fait .se-bloc, .se-etape.fait .se-quoi { display: none; }
+.se-resume { margin: 0.2rem 0 0; color: var(--text-2); font-size: 0.85rem; display: none;
+             align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.se-etape.fait .se-resume { display: flex; }
+
+.se-bloc { border: 1px solid var(--border); border-radius: var(--radius, 12px); background: var(--surface); padding: 14px; }
+.se-ligne { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.se-ligne > .ds-input { flex: 1; min-width: 200px; margin: 0; }
+.se-champs { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px 14px; margin-top: 0.8rem; }
+.se-champs label { display: flex; flex-direction: column; gap: 4px; margin: 0; font-size: 0.82rem; color: var(--text-2); }
+.se-champs .ds-input, .se-champs .ds-select { margin: 0; }
+.se-plus { margin-top: 0.8rem; }
+.se-plus > summary { cursor: pointer; color: var(--accent); font-size: 0.82rem; width: fit-content; }
+.se-plus[open] > summary { margin-bottom: 0.4rem; }
+.se-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 1rem; }
+.se-note { color: var(--text-3); font-size: 0.8rem; margin: 0.4rem 0 0; }
+.se-actions .se-note { margin: 0; }
+.se-note.erreur { color: var(--red); }
+
+.se-apercu { display: block; max-width: 100%; border-radius: 6px; background: var(--surface-2); }
+.se-nav { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 0.6rem; }
+.se-nav .se-note { margin: 0; }
+.se-legende { margin-top: 0.2rem; }
+
+.se-choix { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.se-choix label { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 12px; cursor: pointer;
+                  border: 1px solid var(--border); border-radius: 10px; }
+.se-choix label:has(input:checked) { border-color: var(--accent); background: var(--accent-bg); }
+.se-choix input { margin-top: 3px; }
+.se-choix-t { display: block; font-weight: 600; }
+.se-choix-e { display: block; font-size: 0.8rem; color: var(--text-2); line-height: 1.45; }
+
+.se-progres { margin-top: 1rem; }
+.se-progres-barre { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.se-progres-barre > div { height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
+
+.se-bilan { margin-top: 1rem; padding: 12px 14px; border-radius: 10px; background: var(--green-bg); }
+.se-bilan.partiel { background: var(--amber-bg); }
+.se-bilan-titre { font-weight: 600; }
+.se-bilan.partiel .se-bilan-titre { color: var(--amber); }
+.se-bilan:not(.partiel) .se-bilan-titre { color: var(--green); }
+.se-bilan ul { margin: 0.4rem 0 0; padding-left: 1.2rem; font-size: 0.82rem; color: var(--text-2); }
+.se-bilan code { word-break: break-all; }
+.se-bilan .se-actions { margin-top: 0.8rem; }
+
+@media (max-width: 600px) {
+  .se-choix { grid-template-columns: 1fr; }
+}
