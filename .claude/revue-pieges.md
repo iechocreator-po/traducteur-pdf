@@ -82,6 +82,13 @@ Dossier de travail : `traducteur-pdf/backend/`. Un échec est un constat à 100.
     collé au chapitre 0. Tout code qui place un chapitre à partir de son titre (mise en page, HTML, ancres, sommaire) doit le
     traiter à part, sinon les pages du début restent vides et la suite déborde (Cycle I, section 2 : 5 pages blanches,
     16 pages au lieu de 10 ; corrigé dans `reconstruction.repartir_par_page`).
+20. **Une carte peut servir de réserve de réglages à un autre module.** Le frontend partage l'état par id dans le DOM, pas
+    par un objet JS : avant de retirer ou de déplacer une carte, chercher ses ids dans **tous** les `frontend/js/*.js`, pas
+    seulement dans son propre script (`grep -n '"<id>"' frontend/js/*.js`). Un `$("id").addEventListener` sur un élément
+    retiré lève une erreur qui arrête tout le script. L'ancienne carte Documents complexes (`#carte-scan-colonnes`) est
+    restée cachée le 19/11/2026 parce que `parcours.js` (objectif « Nettoyer » de l'Accueil) lit ses champs `scan-*` et
+    appelle `lancerScan` ; elle n'est plus une `.ds-card`, donc hors numérotation des repères (`ui-ids.js` compte aussi les
+    cartes cachées). Déplacer un élément du DOM d'une carte à l'autre fait aussi sauter la vue quand il a le focus.
 
 ## Zones d'audit
 
