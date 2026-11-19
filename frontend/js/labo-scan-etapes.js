@@ -1,11 +1,11 @@
 // Laboratoire › Documents complexes, nouvelle version en trois étapes (essai UX du 18/11/2026).
-// Même fonction que la carte du dessus (js/labo-scan-colonnes.js), présentée en étapes : choisir le PDF,
+// Même fonction que l'autre carte « Documents complexes » (js/labo-scan-colonnes.js), présentée en étapes : choisir le PDF,
 // vérifier les colonnes (facultatif), nettoyer. Mêmes routes, aucun moteur à part :
 //   - import : POST /upload ; infos : GET /labo/scan-colonnes/info ;
 //   - aperçu : chargerApercuScan() de labo-scan-colonnes.js (partagé, comme le parcours de l'Accueil) ;
 //   - nettoyage : POST /labo/scan-colonnes, suivi par GET …/statut, arrêt par POST …/annuler ;
-//   - correction manuelle : l'éditeur de la carte du dessus, à qui l'on passe le PDF et la page.
-// « Nettoyer puis traduire » reprend les règles de la carte du dessus (enchainerScanTermine) : la traduction ne
+//   - correction manuelle : l'éditeur de l'autre carte, déplacé dans l'étape 2 le temps de corriger.
+// « Nettoyer puis traduire » reprend les règles de l'autre carte (enchainerScanTermine) : la traduction ne
 // part que sur une fin de scan OBSERVÉE par cette page, sans page en erreur, avec les langues et le modèle figés
 // au lancement. Rien n'est gardé en localStorage : recharger la page oublie le choix, le bilan garde son bouton.
 
@@ -16,6 +16,7 @@
   const nomFichier = (c) => (c || "").split("/").pop();
 
   function aller(n) {
+    if (n !== 1) rendreEditeur();
     etapes.forEach((e, i) => {
       e.classList.toggle("fait", i < n);
       e.classList.toggle("cours", i === n);
@@ -115,17 +116,48 @@
   $("se-prec").addEventListener("click", () => afficherApercu(etat.page - 1));
   $("se-suiv").addEventListener("click", () => afficherApercu(etat.page + 1));
 
-  // L'éditeur manuel est celui de la carte du dessus : on lui passe ce PDF, ses réglages et cette page.
-  $("se-corriger").addEventListener("click", async () => {
+  // L'éditeur manuel est celui de l'autre carte : on lui passe ce PDF, ses réglages et cette page.
+  // L'éditeur de régions appartient à l'autre carte (js/labo-scan-colonnes.js, tout par id). On DÉPLACE son bloc
+  // (#scan-apercu-bloc) dans l'étape 2 le temps de la correction : mêmes éléments, mêmes écouteurs, aucun code
+  // dupliqué. Il retourne à sa place d'origine à « Terminer », en quittant l'étape 2, ou dès qu'on touche
+  // l'autre carte (qui ne doit jamais se retrouver sans son éditeur).
+  const blocEditeur = $("scan-apercu-bloc");
+  const origineEditeur = { parent: blocEditeur.parentNode, suivant: blocEditeur.nextSibling };
+  const editeurIci = () => $("se-editeur").contains(blocEditeur);
+
+  async function ouvrirEditeur() {
     $("scan-chemin").value = etat.chemin;
     $("scan-double-page").value = $("se-double-page").value;
+    $("se-editeur").appendChild(blocEditeur);   // sous la barre « Terminer la correction »
+    $("se-vue").hidden = true;
+    $("se-editeur").hidden = false;
     await chargerInfoScan(etat.chemin);
     await afficherApercuLabo(etat.page);
-    $("scan-apercu-bloc").scrollIntoView({ behavior: "smooth", block: "start" });
-  });
+    $("se-editeur").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
-  $("se-suivant2").addEventListener("click", () => { $("se-r2").textContent = "Colonnes vérifiées."; aller(2); });
-  $("se-passer2").addEventListener("click", () => { $("se-r2").textContent = "Aperçu passé : détection automatique."; aller(2); });
+  function rendreEditeur() {
+    if (!editeurIci()) return;
+    origineEditeur.parent.insertBefore(blocEditeur, origineEditeur.suivant);
+    $("se-editeur").hidden = true;
+    $("se-vue").hidden = false;
+  }
+
+  $("se-corriger").addEventListener("click", ouvrirEditeur);
+  $("se-fin-correction").addEventListener("click", () => {
+    const page = parseInt($("scan-apercu-page").value, 10) || etat.page;
+    rendreEditeur();
+    afficherApercu(page);   // l'aperçu de l'étape relit les régions enregistrées
+    $("se-e2").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  // Toucher l'autre carte (hors éditeur) lui rend son éditeur avant que son propre code ne s'exécute.
+  $("carte-scan-colonnes").addEventListener("pointerdown", rendreEditeur, true);
+  $("carte-scan-colonnes").addEventListener("focusin", rendreEditeur, true);
+
+  $("se-suivant2").addEventListener("click", () => {
+    $("se-r2").textContent = editeurIci() ? "Colonnes corrigées à la main." : "Colonnes vérifiées.";
+    aller(2);
+  });
   document.querySelectorAll("[data-se-retour]").forEach((b) => {
     b.addEventListener("click", () => aller(Number(b.dataset.seRetour)));
   });
@@ -144,7 +176,7 @@
     $("se-lancer").disabled = true;
     try {
       await apiPost("/labo/scan-colonnes", corps, API_TIMEOUT_LONG_MS);
-      // langues et modèle du LANCEMENT, comme la carte du dessus
+      // langues et modèle du LANCEMENT, comme l'autre carte
       etat.reglages = { langue_source: $("langue-source").value, langue_cible: $("langue-cible").value, modele: $("modele").value };
       etat.vuActif = true;
       suivre(true);

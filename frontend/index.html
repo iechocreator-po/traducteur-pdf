@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="css/style.css?v=43">
   <link rel="stylesheet" href="css/styles-visuels.css?v=5">
   <link rel="stylesheet" href="css/commutateurs.css?v=2">
-  <link rel="stylesheet" href="css/scan-etapes.css?v=2">
+  <link rel="stylesheet" href="css/scan-etapes.css?v=3">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
     (function () {
@@ -707,6 +707,142 @@
          texte OCR est mal ordonnée (colonnes, double page). Sans LLM. Piloté par le flag
          extraction_scan_colonnes. -->
     <div id="labo-panneau-scan" class="labo-panneau" role="tabpanel" hidden>
+      <!-- Essai UX (18/11/2026) : la même fonction que la carte du dessous, en trois étapes (maquette
+           docs/maquettes-flux/maquette-3-documents-complexes.html). Mêmes routes, aucun moteur à part ;
+           l'éditeur manuel reste celui de la carte du dessous (déplacé dans l'étape 2 le temps
+           de corriger). Placée au-dessus de l'ancienne carte le 19/11/2026. Logique : js/labo-scan-etapes.js. -->
+      <section class="ds-card carte se-carte" id="carte-scan-etapes" aria-labelledby="se-titre">
+        <h2 id="se-titre">Documents complexes <span class="se-essai">nouvelle version, à l'essai</span></h2>
+        <p class="se-chapeau">Pour un <strong>PDF scanné</strong> dont le texte sort mélangé : double page, plusieurs
+          colonnes, encadrés. L'OCR est refait colonne par colonne, sur votre machine, sans IA.</p>
+
+        <ol class="se-etapes">
+          <!-- Étape 1 -->
+          <li class="se-etape cours" id="se-e1">
+            <div class="se-rail"><span class="se-num">1</span><span class="se-trait"></span></div>
+            <div class="se-corps">
+              <h3>Choisir le PDF</h3>
+              <p class="se-quoi">Le livre ou le magazine scanné à nettoyer.</p>
+              <p class="se-resume"><span id="se-r1"></span>
+                <button type="button" class="ds-btn ds-btn--sm" data-se-retour="0">Modifier</button></p>
+              <div class="se-bloc">
+                <div class="se-ligne">
+                  <input class="ds-input" type="text" id="se-chemin" placeholder="Aucun fichier choisi (ou collez un chemin)"
+                         aria-label="Chemin du PDF scanné">
+                  <input type="file" id="se-fichier" accept=".pdf" hidden>
+                  <button type="button" class="ds-btn" id="se-parcourir">Parcourir…</button>
+                </div>
+                <p class="se-note" id="se-info" aria-live="polite"></p>
+                <div class="se-champs">
+                  <label>Langue du livre
+                    <select class="ds-select" id="se-langue"><option value="eng">Anglais</option></select>
+                  </label>
+                </div>
+                <details class="se-plus">
+                  <summary>Plus de réglages (pages, mise en page)</summary>
+                  <div class="se-champs">
+                    <label>Page de départ <input class="ds-input" type="number" id="se-debut" min="1" value="1"></label>
+                    <label>Page de fin <input class="ds-input" type="number" id="se-fin" min="1" placeholder="dernière"></label>
+                    <label>Mise en page
+                      <select class="ds-select" id="se-double-page">
+                        <option value="auto">Auto (large = double page)</option>
+                        <option value="oui">Double page</option>
+                        <option value="non">Page simple</option>
+                      </select>
+                    </label>
+                  </div>
+                </details>
+                <div class="se-actions">
+                  <button type="button" class="ds-btn ds-btn--primary" id="se-suivant1" disabled>Continuer</button>
+                  <span class="se-note">Par défaut : tout le document, mise en page détectée.</span>
+                </div>
+              </div>
+            </div>
+          </li>
+
+          <!-- Étape 2 -->
+          <li class="se-etape" id="se-e2">
+            <div class="se-rail"><span class="se-num">2</span><span class="se-trait"></span></div>
+            <div class="se-corps">
+              <h3>Vérifier les colonnes <span class="se-facultatif">facultatif</span></h3>
+              <p class="se-quoi">Un aperçu instantané de ce que l'outil va lire. Corrigez une page seulement si les colonnes
+                sont mal repérées.</p>
+              <p class="se-resume"><span id="se-r2"></span>
+                <button type="button" class="ds-btn ds-btn--sm" data-se-retour="1">Revoir</button></p>
+              <div class="se-bloc">
+                <div id="se-vue" class="se-vue">
+                <img id="se-apercu" class="se-apercu" alt="Aperçu des régions détectées" hidden>
+                <div class="se-nav">
+                  <div class="se-ligne">
+                    <button type="button" class="ds-btn ds-btn--sm" id="se-prec" aria-label="Page précédente">‹</button>
+                    <span>Page <strong id="se-page">1</strong> <span id="se-total"></span></span>
+                    <button type="button" class="ds-btn ds-btn--sm" id="se-suiv" aria-label="Page suivante">›</button>
+                  </div>
+                  <span class="se-note" id="se-apercu-statut" aria-live="polite"></span>
+                </div>
+                <details class="se-plus">
+                  <summary>Légende des couleurs</summary>
+                  <ul class="scan-legende-liste se-legende">
+                    <li><span class="scan-pastille scan-p-vert"></span>Colonne de texte</li>
+                    <li><span class="scan-pastille scan-p-bleu"></span>Encadré (rendu en citation)</li>
+                    <li><span class="scan-pastille scan-p-orange"></span>Titre probable</li>
+                    <li><span class="scan-pastille scan-p-rouge"></span>Pli de la double page</li>
+                    <li><span class="scan-pastille scan-p-violet"></span>Illustration (recopiée, non traduite)</li>
+                  </ul>
+                </details>
+                <details class="se-plus">
+                  <summary>Corriger cette page à la main</summary>
+                  <p class="se-note">Lignes à faire glisser, zones à dessiner : l'éditeur s'ouvre ici, sur cette page.</p>
+                  <button type="button" class="ds-btn ds-btn--sm" id="se-corriger">Ouvrir cette page dans l'éditeur</button>
+                </details>
+                </div>
+                <!-- L'éditeur de régions de l'autre carte (#scan-apercu-bloc) est DÉPLACÉ ici le temps de la correction,
+                     puis rendu à sa carte (js/labo-scan-etapes.js › ouvrirEditeur / rendreEditeur). -->
+                <div id="se-editeur" class="se-editeur" hidden>
+                  <div class="se-actions se-editeur-barre">
+                    <span class="se-note">Chaque changement est enregistré pour sa page, à côté du PDF.</span>
+                    <button type="button" class="ds-btn ds-btn--primary ds-btn--sm" id="se-fin-correction">Terminer la correction</button>
+                  </div>
+                </div>
+                <div class="se-actions">
+                  <button type="button" class="ds-btn ds-btn--primary" id="se-suivant2">Continuer</button>
+                </div>
+              </div>
+            </div>
+          </li>
+
+          <!-- Étape 3 -->
+          <li class="se-etape" id="se-e3">
+            <div class="se-rail"><span class="se-num">3</span><span class="se-trait"></span></div>
+            <div class="se-corps">
+              <h3>Nettoyer</h3>
+              <p class="se-quoi">Quelques secondes par page. Le texte propre est enregistré à côté du PDF.</p>
+              <div class="se-bloc">
+                <div class="se-choix" role="radiogroup" aria-label="Après le nettoyage">
+                  <label><input type="radio" name="se-suite" value="seul" checked>
+                    <span><span class="se-choix-t">Nettoyer seulement</span>
+                      <span class="se-choix-e">Vous relirez le texte avant de le traduire.</span></span></label>
+                  <label><input type="radio" name="se-suite" value="traduire">
+                    <span><span class="se-choix-t">Nettoyer puis traduire</span>
+                      <span class="se-choix-e">La traduction démarre seule si aucune page n'échoue, avec les langues et
+                        le modèle de l'Accueil. Gardez cette page ouverte.</span></span></label>
+                </div>
+                <div class="se-actions">
+                  <button type="button" class="ds-btn ds-btn--primary" id="se-lancer">Nettoyer le document</button>
+                  <button type="button" class="ds-btn" id="se-arreter" hidden>Arrêter</button>
+                  <span class="se-note" id="se-note-lancer">Une page déjà nettoyée avec les mêmes réglages n'est pas refaite.</span>
+                </div>
+                <div class="se-progres" id="se-progres" hidden>
+                  <div class="se-progres-barre"><div id="se-progres-rempli"></div></div>
+                  <p class="se-note" id="se-progres-texte" aria-live="polite"></p>
+                </div>
+                <div class="se-bilan" id="se-bilan" hidden aria-live="polite"></div>
+              </div>
+            </div>
+          </li>
+        </ol>
+      </section>
+
       <section class="ds-card carte" id="carte-scan-colonnes">
         <h2>Documents complexes</h2>
         <p class="aide">
@@ -828,132 +964,6 @@
           </ul>
         </div>
       </section>
-
-      <!-- Essai UX (18/11/2026) : la même fonction que la carte du dessus, en trois étapes (maquette
-           docs/maquettes-flux/maquette-3-documents-complexes.html). Mêmes routes, aucun moteur à part ;
-           l'éditeur manuel reste celui de la carte du dessus. Logique : js/labo-scan-etapes.js. -->
-      <section class="ds-card carte se-carte" id="carte-scan-etapes" aria-labelledby="se-titre">
-        <h2 id="se-titre">Documents complexes <span class="se-essai">nouvelle version, à l'essai</span></h2>
-        <p class="se-chapeau">Pour un <strong>PDF scanné</strong> dont le texte sort mélangé : double page, plusieurs
-          colonnes, encadrés. L'OCR est refait colonne par colonne, sur votre machine, sans IA.</p>
-
-        <ol class="se-etapes">
-          <!-- Étape 1 -->
-          <li class="se-etape cours" id="se-e1">
-            <div class="se-rail"><span class="se-num">1</span><span class="se-trait"></span></div>
-            <div class="se-corps">
-              <h3>Choisir le PDF</h3>
-              <p class="se-quoi">Le livre ou le magazine scanné à nettoyer.</p>
-              <p class="se-resume"><span id="se-r1"></span>
-                <button type="button" class="ds-btn ds-btn--sm" data-se-retour="0">Modifier</button></p>
-              <div class="se-bloc">
-                <div class="se-ligne">
-                  <input class="ds-input" type="text" id="se-chemin" placeholder="Aucun fichier choisi (ou collez un chemin)"
-                         aria-label="Chemin du PDF scanné">
-                  <input type="file" id="se-fichier" accept=".pdf" hidden>
-                  <button type="button" class="ds-btn" id="se-parcourir">Parcourir…</button>
-                </div>
-                <p class="se-note" id="se-info" aria-live="polite"></p>
-                <div class="se-champs">
-                  <label>Langue du livre
-                    <select class="ds-select" id="se-langue"><option value="eng">Anglais</option></select>
-                  </label>
-                </div>
-                <details class="se-plus">
-                  <summary>Plus de réglages (pages, mise en page)</summary>
-                  <div class="se-champs">
-                    <label>Page de départ <input class="ds-input" type="number" id="se-debut" min="1" value="1"></label>
-                    <label>Page de fin <input class="ds-input" type="number" id="se-fin" min="1" placeholder="dernière"></label>
-                    <label>Mise en page
-                      <select class="ds-select" id="se-double-page">
-                        <option value="auto">Auto (large = double page)</option>
-                        <option value="oui">Double page</option>
-                        <option value="non">Page simple</option>
-                      </select>
-                    </label>
-                  </div>
-                </details>
-                <div class="se-actions">
-                  <button type="button" class="ds-btn ds-btn--primary" id="se-suivant1" disabled>Continuer</button>
-                  <span class="se-note">Par défaut : tout le document, mise en page détectée.</span>
-                </div>
-              </div>
-            </div>
-          </li>
-
-          <!-- Étape 2 -->
-          <li class="se-etape" id="se-e2">
-            <div class="se-rail"><span class="se-num">2</span><span class="se-trait"></span></div>
-            <div class="se-corps">
-              <h3>Vérifier les colonnes <span class="se-facultatif">facultatif</span></h3>
-              <p class="se-quoi">Un aperçu instantané de ce que l'outil va lire. Corrigez une page seulement si les colonnes
-                sont mal repérées.</p>
-              <p class="se-resume"><span id="se-r2"></span>
-                <button type="button" class="ds-btn ds-btn--sm" data-se-retour="1">Revoir</button></p>
-              <div class="se-bloc">
-                <img id="se-apercu" class="se-apercu" alt="Aperçu des régions détectées" hidden>
-                <div class="se-nav">
-                  <div class="se-ligne">
-                    <button type="button" class="ds-btn ds-btn--sm" id="se-prec" aria-label="Page précédente">‹</button>
-                    <span>Page <strong id="se-page">1</strong> <span id="se-total"></span></span>
-                    <button type="button" class="ds-btn ds-btn--sm" id="se-suiv" aria-label="Page suivante">›</button>
-                  </div>
-                  <span class="se-note" id="se-apercu-statut" aria-live="polite"></span>
-                </div>
-                <details class="se-plus">
-                  <summary>Légende des couleurs</summary>
-                  <ul class="scan-legende-liste se-legende">
-                    <li><span class="scan-pastille scan-p-vert"></span>Colonne de texte</li>
-                    <li><span class="scan-pastille scan-p-bleu"></span>Encadré (rendu en citation)</li>
-                    <li><span class="scan-pastille scan-p-orange"></span>Titre probable</li>
-                    <li><span class="scan-pastille scan-p-rouge"></span>Pli de la double page</li>
-                    <li><span class="scan-pastille scan-p-violet"></span>Illustration (recopiée, non traduite)</li>
-                  </ul>
-                </details>
-                <details class="se-plus">
-                  <summary>Corriger cette page à la main</summary>
-                  <p class="se-note">L'éditeur (lignes à faire glisser, zones à dessiner) est celui de la carte du dessus.</p>
-                  <button type="button" class="ds-btn ds-btn--sm" id="se-corriger">Ouvrir cette page dans l'éditeur</button>
-                </details>
-                <div class="se-actions">
-                  <button type="button" class="ds-btn ds-btn--primary" id="se-suivant2">Les colonnes sont bonnes</button>
-                  <button type="button" class="ds-btn" id="se-passer2">Passer cette étape</button>
-                </div>
-              </div>
-            </div>
-          </li>
-
-          <!-- Étape 3 -->
-          <li class="se-etape" id="se-e3">
-            <div class="se-rail"><span class="se-num">3</span><span class="se-trait"></span></div>
-            <div class="se-corps">
-              <h3>Nettoyer</h3>
-              <p class="se-quoi">Quelques secondes par page. Le texte propre est enregistré à côté du PDF.</p>
-              <div class="se-bloc">
-                <div class="se-choix" role="radiogroup" aria-label="Après le nettoyage">
-                  <label><input type="radio" name="se-suite" value="seul" checked>
-                    <span><span class="se-choix-t">Nettoyer seulement</span>
-                      <span class="se-choix-e">Vous relirez le texte avant de le traduire.</span></span></label>
-                  <label><input type="radio" name="se-suite" value="traduire">
-                    <span><span class="se-choix-t">Nettoyer puis traduire</span>
-                      <span class="se-choix-e">La traduction démarre seule si aucune page n'échoue, avec les langues et
-                        le modèle de l'Accueil. Gardez cette page ouverte.</span></span></label>
-                </div>
-                <div class="se-actions">
-                  <button type="button" class="ds-btn ds-btn--primary" id="se-lancer">Nettoyer le document</button>
-                  <button type="button" class="ds-btn" id="se-arreter" hidden>Arrêter</button>
-                  <span class="se-note" id="se-note-lancer">Une page déjà nettoyée avec les mêmes réglages n'est pas refaite.</span>
-                </div>
-                <div class="se-progres" id="se-progres" hidden>
-                  <div class="se-progres-barre"><div id="se-progres-rempli"></div></div>
-                  <p class="se-note" id="se-progres-texte" aria-live="polite"></p>
-                </div>
-                <div class="se-bilan" id="se-bilan" hidden aria-live="polite"></div>
-              </div>
-            </div>
-          </li>
-        </ol>
-      </section>
     </div>
   </main>
 
@@ -1045,7 +1055,7 @@
   <script src="js/module-chronique.js?v=1"></script>
   <script src="js/module-anticipation.js?v=4"></script>
   <script src="js/labo-scan-colonnes.js?v=16"></script>
-  <script src="js/labo-scan-etapes.js?v=3"></script>
+  <script src="js/labo-scan-etapes.js?v=4"></script>
   <script src="js/labo-decoupe.js?v=1"></script>
   <script src="js/ui-ids.js?v=2"></script>
   <script src="js/reglages.js?v=4"></script>
