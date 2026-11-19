@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="css/style.css?v=43">
   <link rel="stylesheet" href="css/styles-visuels.css?v=5">
   <link rel="stylesheet" href="css/commutateurs.css?v=2">
-  <link rel="stylesheet" href="css/scan-etapes.css?v=3">
+  <link rel="stylesheet" href="css/scan-etapes.css?v=4">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
     (function () {
@@ -707,10 +707,9 @@
          texte OCR est mal ordonnée (colonnes, double page). Sans LLM. Piloté par le flag
          extraction_scan_colonnes. -->
     <div id="labo-panneau-scan" class="labo-panneau" role="tabpanel" hidden>
-      <!-- Essai UX (18/11/2026) : la même fonction que la carte du dessous, en trois étapes (maquette
-           docs/maquettes-flux/maquette-3-documents-complexes.html). Mêmes routes, aucun moteur à part ;
-           l'éditeur manuel reste celui de la carte du dessous (déplacé dans l'étape 2 le temps
-           de corriger). Placée au-dessus de l'ancienne carte le 19/11/2026. Logique : js/labo-scan-etapes.js. -->
+      <!-- Documents complexes en trois étapes (essai UX du 18/11/2026, seule carte depuis le 19/11 ; maquette
+           docs/maquettes-flux/maquette-3-documents-complexes.html). Mêmes routes, aucun moteur à part ; l'éditeur de
+           régions est dans l'étape 2. Logique : js/labo-scan-etapes.js (+ js/labo-scan-colonnes.js pour l'éditeur). -->
       <section class="ds-card carte se-carte" id="carte-scan-etapes" aria-labelledby="se-titre">
         <h2 id="se-titre">Documents complexes <span class="se-essai">nouvelle version, à l'essai</span></h2>
         <p class="se-chapeau">Pour un <strong>PDF scanné</strong> dont le texte sort mélangé : double page, plusieurs
@@ -796,12 +795,58 @@
                   <button type="button" class="ds-btn ds-btn--sm" id="se-corriger">Ouvrir cette page dans l'éditeur</button>
                 </details>
                 </div>
-                <!-- L'éditeur de régions de l'autre carte (#scan-apercu-bloc) est DÉPLACÉ ici le temps de la correction,
-                     puis rendu à sa carte (js/labo-scan-etapes.js › ouvrirEditeur / rendreEditeur). -->
+                <!-- Éditeur de régions (logique : js/labo-scan-colonnes.js, tout par id). Affiché à la place de l'aperçu
+                     par « Ouvrir cette page dans l'éditeur », replié par « Continuer » (js/labo-scan-etapes.js). -->
                 <div id="se-editeur" class="se-editeur" hidden>
-                  <div class="se-actions se-editeur-barre">
-                    <span class="se-note">Chaque changement est enregistré pour sa page, à côté du PDF.</span>
-                    <button type="button" class="ds-btn ds-btn--primary ds-btn--sm" id="se-fin-correction">Terminer la correction</button>
+                  <div id="scan-apercu-bloc" class="scan-apercu-bloc" hidden>
+                    <div class="scan-apercu-nav">
+                      <button type="button" class="ds-btn ds-btn--sm" id="scan-apercu-prec" aria-label="Page précédente">‹</button>
+                      <label for="scan-apercu-page">Page</label>
+                      <input class="ds-input scan-apercu-page" type="number" id="scan-apercu-page" min="1" value="1">
+                      <span id="scan-apercu-total" class="aide"></span>
+                      <button type="button" class="ds-btn ds-btn--sm" id="scan-apercu-suiv" aria-label="Page suivante">›</button>
+                      <span id="scan-apercu-statut" class="aide"></span>
+                    </div>
+                    <div id="scan-regions" class="scan-regions" hidden>
+                      <div id="scan-regions-modes" class="scan-regions-modes"></div>
+                      <p id="scan-regions-alertes" class="aide scan-regions-alertes" hidden></p>
+                      <div id="scan-zones-outils" class="scan-zones-outils" role="toolbar" aria-label="Nouvelle zone"></div>
+                      <div id="scan-zone-panneau" class="scan-zone-panneau" hidden>
+                        <label for="scan-zone-type" id="scan-zone-libelle">Zone sélectionnée :</label>
+                        <select class="ds-select" id="scan-zone-type"></select>
+                        <button type="button" class="ds-btn ds-btn--sm" id="scan-zone-supprimer">Supprimer</button>
+                      </div>
+                      <div class="scan-regions-actions">
+                        <span id="scan-regions-etat" class="aide"></span>
+                        <button type="button" class="ds-btn ds-btn--sm" id="scan-regions-auto" hidden>Rétablir l'automatique</button>
+                      </div>
+                    </div>
+                    <div class="scan-apercu-cadre">
+                      <img id="scan-apercu-image" class="scan-apercu" alt="Aperçu des régions détectées" hidden>
+                      <svg id="scan-apercu-svg" class="scan-apercu-svg" aria-label="Lignes déplaçables" hidden></svg>
+                    </div>
+                    <p class="aide" id="scan-regions-aide" hidden>
+                      <strong>Ajuster à la main</strong> : faites glisser la ligne rouge (gouttière) ou le bord d'une colonne
+                      verte par sa poignée ●, ou sélectionnez la poignée (Tab) et déplacez-la avec ← → (Maj : plus vite).
+                      <strong>Zones</strong> : choisissez un type dans « Nouvelle zone », puis tracez un rectangle sur la page
+                      (Échap : annuler). Cliquez une zone pour la sélectionner : glissez-la pour la déplacer, tirez un coin pour
+                      la recadrer, changez son type ou supprimez-la (×, Suppr). Au clavier : Tab jusqu'à la zone, Entrée, puis
+                      ← ↑ → ↓. Une illustration, un titre ou un encadré détecté (pointillés) qu'on retouche devient une zone à
+                      vous ; le retirer fait lire son contenu comme du texte courant. Le contenu d'une zone n'est plus lu par les colonnes : il est traité selon
+                      son type, à sa place dans l'ordre de lecture. Chaque changement est enregistré pour cette page seulement, à
+                      côté du PDF, et pris en compte au prochain « Nettoyer ».
+                    </p>
+                    <ul class="scan-legende-liste">
+                      <li><span class="scan-pastille scan-p-vert"></span><strong>Vert — colonne</strong> : une colonne de texte, lue de haut en bas avant de passer à la suivante.</li>
+                      <li><span class="scan-pastille scan-p-bleu"></span><strong>Bleu — encadré</strong> : bloc sur fond blanc, plus clair que le papier (règle, encart), lu à part et rendu en citation.</li>
+                      <li><span class="scan-pastille scan-p-orange"></span><strong>Orange — titre probable</strong> : ligne en gros caractères, qui devient un titre (et un chapitre) si l'OCR y lit un titre numéroté.</li>
+                      <li><span class="scan-pastille scan-p-rouge"></span><strong>Rouge — gouttière</strong> : le pli d'une double page ; la page de gauche est lue en entier avant celle de droite.</li>
+                      <li><span class="scan-pastille scan-p-violet"></span><strong>Violet — illustration</strong> : zone gardée comme image. Elle n'est pas traduite : elle est recopiée telle quelle dans le PDF et le HTML recréés. Du texte entouré de violet resterait dans sa langue d'origine.</li>
+                      <li><span class="scan-pastille scan-p-texte"></span><strong>Bleu clair — texte (zone à vous)</strong> : lu à part, en paragraphes, à sa place dans l'ordre de lecture (ex. un tableau à cheval sur deux colonnes).</li>
+                      <li><span class="scan-pastille scan-p-conserver"></span><strong>Turquoise — ne pas traduire (zone à vous)</strong> : lu, puis recopié tel quel dans sa langue d'origine (nom propre, titre d'œuvre, citation).</li>
+                      <li><span class="scan-pastille scan-p-gris"></span><strong>Gris — ignoré (zone à vous)</strong> : ni lu ni recopié.</li>
+                      <li>Une zone dessinée à la main est <strong>pleine</strong> et porte son nom ; une détection est en pointillés.</li>
+                    </ul>
                   </div>
                 </div>
                 <div class="se-actions">
@@ -843,7 +888,11 @@
         </ol>
       </section>
 
-      <section class="ds-card carte" id="carte-scan-colonnes">
+      <!-- Ancienne carte « Documents complexes », retirée de l'interface le 19/11/2026 (remplacée par la carte en étapes
+           ci-dessus). Ses champs restent, CACHÉS et hors numérotation des repères (pas de .ds-card) : ce sont les réglages
+           partagés que lisent js/labo-scan-colonnes.js et le parcours de l'Accueil (js/parcours.js : chemin, langue OCR,
+           mise en page, pages, « puis traduire », lancerScan). À supprimer quand le parcours n'en dépendra plus. -->
+      <section class="scan-reglages-partages" id="carte-scan-colonnes" hidden>
         <h2>Documents complexes</h2>
         <p class="aide">
           Pour un PDF <strong>scanné</strong> dont le texte sort mélangé ou illisible : livre en
@@ -913,56 +962,6 @@
         </p>
         <div id="scan-progression" class="outil-resultat"></div>
         <div id="scan-resultat" class="outil-resultat"></div>
-        <div id="scan-apercu-bloc" class="scan-apercu-bloc" hidden>
-          <div class="scan-apercu-nav">
-            <button type="button" class="ds-btn ds-btn--sm" id="scan-apercu-prec" aria-label="Page précédente">‹</button>
-            <label for="scan-apercu-page">Page</label>
-            <input class="ds-input scan-apercu-page" type="number" id="scan-apercu-page" min="1" value="1">
-            <span id="scan-apercu-total" class="aide"></span>
-            <button type="button" class="ds-btn ds-btn--sm" id="scan-apercu-suiv" aria-label="Page suivante">›</button>
-            <span id="scan-apercu-statut" class="aide"></span>
-          </div>
-          <div id="scan-regions" class="scan-regions" hidden>
-            <div id="scan-regions-modes" class="scan-regions-modes"></div>
-            <p id="scan-regions-alertes" class="aide scan-regions-alertes" hidden></p>
-            <div id="scan-zones-outils" class="scan-zones-outils" role="toolbar" aria-label="Nouvelle zone"></div>
-            <div id="scan-zone-panneau" class="scan-zone-panneau" hidden>
-              <label for="scan-zone-type" id="scan-zone-libelle">Zone sélectionnée :</label>
-              <select class="ds-select" id="scan-zone-type"></select>
-              <button type="button" class="ds-btn ds-btn--sm" id="scan-zone-supprimer">Supprimer</button>
-            </div>
-            <div class="scan-regions-actions">
-              <span id="scan-regions-etat" class="aide"></span>
-              <button type="button" class="ds-btn ds-btn--sm" id="scan-regions-auto" hidden>Rétablir l'automatique</button>
-            </div>
-          </div>
-          <div class="scan-apercu-cadre">
-            <img id="scan-apercu-image" class="scan-apercu" alt="Aperçu des régions détectées" hidden>
-            <svg id="scan-apercu-svg" class="scan-apercu-svg" aria-label="Lignes déplaçables" hidden></svg>
-          </div>
-          <p class="aide" id="scan-regions-aide" hidden>
-            <strong>Ajuster à la main</strong> : faites glisser la ligne rouge (gouttière) ou le bord d'une colonne
-            verte par sa poignée ●, ou sélectionnez la poignée (Tab) et déplacez-la avec ← → (Maj : plus vite).
-            <strong>Zones</strong> : choisissez un type dans « Nouvelle zone », puis tracez un rectangle sur la page
-            (Échap : annuler). Cliquez une zone pour la sélectionner : glissez-la pour la déplacer, tirez un coin pour
-            la recadrer, changez son type ou supprimez-la (×, Suppr). Au clavier : Tab jusqu'à la zone, Entrée, puis
-            ← ↑ → ↓. Une illustration, un titre ou un encadré détecté (pointillés) qu'on retouche devient une zone à
-            vous ; le retirer fait lire son contenu comme du texte courant. Le contenu d'une zone n'est plus lu par les colonnes : il est traité selon
-            son type, à sa place dans l'ordre de lecture. Chaque changement est enregistré pour cette page seulement, à
-            côté du PDF, et pris en compte au prochain « Nettoyer ».
-          </p>
-          <ul class="scan-legende-liste">
-            <li><span class="scan-pastille scan-p-vert"></span><strong>Vert — colonne</strong> : une colonne de texte, lue de haut en bas avant de passer à la suivante.</li>
-            <li><span class="scan-pastille scan-p-bleu"></span><strong>Bleu — encadré</strong> : bloc sur fond blanc, plus clair que le papier (règle, encart), lu à part et rendu en citation.</li>
-            <li><span class="scan-pastille scan-p-orange"></span><strong>Orange — titre probable</strong> : ligne en gros caractères, qui devient un titre (et un chapitre) si l'OCR y lit un titre numéroté.</li>
-            <li><span class="scan-pastille scan-p-rouge"></span><strong>Rouge — gouttière</strong> : le pli d'une double page ; la page de gauche est lue en entier avant celle de droite.</li>
-            <li><span class="scan-pastille scan-p-violet"></span><strong>Violet — illustration</strong> : zone gardée comme image. Elle n'est pas traduite : elle est recopiée telle quelle dans le PDF et le HTML recréés. Du texte entouré de violet resterait dans sa langue d'origine.</li>
-            <li><span class="scan-pastille scan-p-texte"></span><strong>Bleu clair — texte (zone à vous)</strong> : lu à part, en paragraphes, à sa place dans l'ordre de lecture (ex. un tableau à cheval sur deux colonnes).</li>
-            <li><span class="scan-pastille scan-p-conserver"></span><strong>Turquoise — ne pas traduire (zone à vous)</strong> : lu, puis recopié tel quel dans sa langue d'origine (nom propre, titre d'œuvre, citation).</li>
-            <li><span class="scan-pastille scan-p-gris"></span><strong>Gris — ignoré (zone à vous)</strong> : ni lu ni recopié.</li>
-            <li>Une zone dessinée à la main est <strong>pleine</strong> et porte son nom ; une détection est en pointillés.</li>
-          </ul>
-        </div>
       </section>
     </div>
   </main>
@@ -1055,13 +1054,13 @@
   <script src="js/module-chronique.js?v=1"></script>
   <script src="js/module-anticipation.js?v=4"></script>
   <script src="js/labo-scan-colonnes.js?v=16"></script>
-  <script src="js/labo-scan-etapes.js?v=5"></script>
+  <script src="js/labo-scan-etapes.js?v=6"></script>
   <script src="js/labo-decoupe.js?v=1"></script>
   <script src="js/ui-ids.js?v=2"></script>
   <script src="js/reglages.js?v=4"></script>
   <script src="js/reglages-styles.js?v=2"></script>
   <script src="js/commutateurs.js?v=2"></script>
-  <script src="js/parcours.js?v=11"></script>
+  <script src="js/parcours.js?v=12"></script>
   <script>initUiIds(); rendreListeCartesLab(); // en dernier : numérote les cartes déjà en place (js/ui-ids.js), puis affiche leurs repères dans la liste des Réglages</script>
 </body>
 </html>

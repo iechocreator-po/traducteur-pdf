@@ -75,7 +75,6 @@
   .se-choix { grid-template-columns: 1fr; }
 }
 
-/* Éditeur de régions de l'autre carte, déplacé ici pendant la correction (js/labo-scan-etapes.js › ouvrirEditeur). */
+/* Éditeur de régions, affiché à la place de l'aperçu de l'étape 2 (js/labo-scan-etapes.js › ouvrirEditeur). */
 .se-editeur { min-width: 0; }
 .se-editeur .scan-apercu-bloc { margin-top: 0; }
-.se-editeur-barre { justify-content: space-between; margin: 0 0 0.8rem; padding-bottom: 0.8rem; border-bottom: 1px solid var(--border); }

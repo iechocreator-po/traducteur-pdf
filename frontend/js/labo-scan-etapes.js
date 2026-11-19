@@ -1,22 +1,23 @@
 // Laboratoire › Documents complexes, nouvelle version en trois étapes (essai UX du 18/11/2026).
-// Même fonction que l'autre carte « Documents complexes » (js/labo-scan-colonnes.js), présentée en étapes : choisir le PDF,
+// Seule carte « Documents complexes » depuis le 19/11/2026 (l'ancienne, js/labo-scan-colonnes.js, ne garde que ses
+// champs cachés et son éditeur de régions). En étapes : choisir le PDF,
 // vérifier les colonnes (facultatif), nettoyer. Mêmes routes, aucun moteur à part :
 //   - import : POST /upload ; infos : GET /labo/scan-colonnes/info ;
 //   - aperçu : chargerApercuScan() de labo-scan-colonnes.js (partagé, comme le parcours de l'Accueil) ;
 //   - nettoyage : POST /labo/scan-colonnes, suivi par GET …/statut, arrêt par POST …/annuler ;
-//   - correction manuelle : l'éditeur de l'autre carte, déplacé dans l'étape 2 le temps de corriger.
-// « Nettoyer puis traduire » reprend les règles de l'autre carte (enchainerScanTermine) : la traduction ne
+//   - correction manuelle : l'éditeur de régions de labo-scan-colonnes.js, affiché dans l'étape 2.
+// « Nettoyer puis traduire » reprend les règles de l'ancienne carte (enchainerScanTermine) : la traduction ne
 // part que sur une fin de scan OBSERVÉE par cette page, sans page en erreur, avec les langues et le modèle figés
 // au lancement. Rien n'est gardé en localStorage : recharger la page oublie le choix, le bilan garde son bouton.
 
 (() => {
-  const etat = { chemin: null, pages: null, page: 1, minuteur: null, vuActif: false, lancement: false, reglages: null };
+  const etat = { chemin: null, pages: null, page: 1, minuteur: null, vuActif: false, lancement: false, reglages: null, corrige: false };
   const etapes = [$("se-e1"), $("se-e2"), $("se-e3")];
   const esc = (s) => _echapperHtml(String(s ?? ""));
   const nomFichier = (c) => (c || "").split("/").pop();
 
   function aller(n) {
-    if (n !== 1) rendreEditeur();
+    if (n !== 1) fermerEditeur();
     etapes.forEach((e, i) => {
       e.classList.toggle("fait", i < n);
       e.classList.toggle("cours", i === n);
@@ -63,6 +64,7 @@
     $("se-bilan").hidden = true;
     etat.chemin = null;
     etat.pages = null;
+    etat.corrige = false;
     $("se-suivant1").disabled = true;
     info("Lecture du PDF…");
     try {
@@ -116,47 +118,38 @@
   $("se-prec").addEventListener("click", () => afficherApercu(etat.page - 1));
   $("se-suiv").addEventListener("click", () => afficherApercu(etat.page + 1));
 
-  // L'éditeur manuel est celui de l'autre carte : on lui passe ce PDF, ses réglages et cette page.
-  // L'éditeur de régions appartient à l'autre carte (js/labo-scan-colonnes.js, tout par id). On DÉPLACE son bloc
-  // (#scan-apercu-bloc) dans l'étape 2 le temps de la correction : mêmes éléments, mêmes écouteurs, aucun code
-  // dupliqué. Il retourne à sa place d'origine à « Terminer », en quittant l'étape 2, ou dès qu'on touche
-  // l'autre carte (qui ne doit jamais se retrouver sans son éditeur).
-  const blocEditeur = $("scan-apercu-bloc");
-  const origineEditeur = { parent: blocEditeur.parentNode, suivant: blocEditeur.nextSibling };
-  const editeurIci = () => $("se-editeur").contains(blocEditeur);
+  // L'éditeur de régions est dans l'étape 2 (#se-editeur) ; sa logique reste dans js/labo-scan-colonnes.js (tout par
+  // id), qui lit le PDF et la mise en page dans les champs cachés #scan-chemin / #scan-double-page : on les lui passe.
+  // « Continuer » le replie ; l'aperçu de l'étape est alors redessiné à la page de l'éditeur, avec les corrections.
+  const editeurOuvert = () => !$("se-editeur").hidden;
 
   async function ouvrirEditeur() {
     $("scan-chemin").value = etat.chemin;
     $("scan-double-page").value = $("se-double-page").value;
-    $("se-editeur").appendChild(blocEditeur);   // sous la barre « Terminer la correction »
     $("se-vue").hidden = true;
     $("se-editeur").hidden = false;
+    etat.corrige = true;
     await chargerInfoScan(etat.chemin);
     await afficherApercuLabo(etat.page);
     $("se-editeur").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  function rendreEditeur() {
-    if (!editeurIci()) return;
-    origineEditeur.parent.insertBefore(blocEditeur, origineEditeur.suivant);
+  function fermerEditeur() {
+    if (!editeurOuvert()) return;
+    const page = parseInt($("scan-apercu-page").value, 10) || etat.page;
     $("se-editeur").hidden = true;
     $("se-vue").hidden = false;
+    if (etat.chemin) afficherApercu(page);
   }
 
   $("se-corriger").addEventListener("click", ouvrirEditeur);
-  $("se-fin-correction").addEventListener("click", () => {
-    const page = parseInt($("scan-apercu-page").value, 10) || etat.page;
-    rendreEditeur();
-    afficherApercu(page);   // l'aperçu de l'étape relit les régions enregistrées
-    $("se-e2").scrollIntoView({ behavior: "smooth", block: "start" });
-  });
-  // Toucher l'autre carte (hors éditeur) lui rend son éditeur avant que son propre code ne s'exécute.
-  $("carte-scan-colonnes").addEventListener("pointerdown", rendreEditeur, true);
-  $("carte-scan-colonnes").addEventListener("focusin", rendreEditeur, true);
 
   $("se-suivant2").addEventListener("click", () => {
-    $("se-r2").textContent = editeurIci() ? "Colonnes corrigées à la main." : "Colonnes vérifiées.";
+    $("se-r2").textContent = etat.corrige ? "Colonnes corrigées à la main." : "Colonnes vérifiées.";
     aller(2);
+    // L'éditeur replié raccourcit la page : on amène l'étape 3 à l'écran, et le focus sur son bouton.
+    $("se-e3").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("se-lancer").focus({ preventScroll: true });
   });
   document.querySelectorAll("[data-se-retour]").forEach((b) => {
     b.addEventListener("click", () => aller(Number(b.dataset.seRetour)));
@@ -176,7 +169,7 @@
     $("se-lancer").disabled = true;
     try {
       await apiPost("/labo/scan-colonnes", corps, API_TIMEOUT_LONG_MS);
-      // langues et modèle du LANCEMENT, comme l'autre carte
+      // langues et modèle du LANCEMENT, comme l'ancienne carte
       etat.reglages = { langue_source: $("langue-source").value, langue_cible: $("langue-cible").value, modele: $("modele").value };
       etat.vuActif = true;
       suivre(true);
@@ -299,7 +292,7 @@
   // gardé : on traite souvent plusieurs documents de la même façon.
   function recommencer() {
     clearTimeout(etat.minuteur);
-    Object.assign(etat, { chemin: null, pages: null, page: 1, minuteur: null, vuActif: false, reglages: null });
+    Object.assign(etat, { chemin: null, pages: null, page: 1, minuteur: null, vuActif: false, reglages: null, corrige: false });
     $("se-chemin").value = "";
     info("");
     $("se-debut").value = 1;

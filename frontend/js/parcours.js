@@ -261,7 +261,7 @@ function parcoursCalculer() {
       detail = `« ${nomDoc} » n'est pas terminé (${(doc.statut || "").replace("_", " ")}) : reprenez-le depuis « Vos traductions ».`;
     }
   } else if (cle === "nettoyer") {
-    detail = "Scan à colonnes ou double page : « Documents complexes ». Texte brut sans titres : « Segmentation automatique ». Les deux sont dans le Laboratoire ; dans le scan, cochez « Traduire ensuite » pour enchaîner sans intervention.";
+    detail = "Scan à colonnes ou double page : « Documents complexes ». Texte brut sans titres : « Segmentation automatique ». Les deux sont dans le Laboratoire ; à la dernière étape de Documents complexes, choisissez « Nettoyer puis traduire » pour enchaîner sans intervention.";
     action = exigeAvance("Ouvrir le Laboratoire", () => activerModule("laboratoire"));
   } else if (cle === "lire") {
     detail = doc ? `« ${nomDoc} » est traduit : lisez-le chapitre par chapitre, ou comparez avec l'original.` : "";
