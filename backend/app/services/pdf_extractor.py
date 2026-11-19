@@ -236,21 +236,36 @@ def _extraire_avec_tesseract(chemin_pdf: str, dpi: int = 300) -> str:
     OCR page par page : rendu de chaque page en image (PyMuPDF) puis
     reconnaissance par le binaire tesseract. À utiliser pour les PDF sans
     couche texte exploitable (scans, exports Aperçu à police corrompue).
+    Une page photographiée de biais est d'abord redressée (même mesure que le Scan multi-colonnes) : sinon chaque
+    ligne lue par Tesseract traverse plusieurs lignes du texte.
     """
     if not tesseract_disponible():
         raise RuntimeError(
             "Tesseract n'est pas installé. Installe-le avec : brew install tesseract"
         )
+    import io
+
     import fitz
+    from PIL import Image
+
+    from app.services.scan_colonnes import redresser
 
     langues = _langues_tesseract()
     pages_texte = []
     with fitz.open(chemin_pdf) as doc:
         for i, page in enumerate(doc):
-            pix = page.get_pixmap(dpi=dpi)
+            pix = page.get_pixmap(dpi=dpi, colorspace="rgb", alpha=False)
+            image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            redressee = redresser(image, dpi)
+            if redressee is image:
+                png = pix.tobytes("png")    # page droite : octets inchangés
+            else:
+                tampon = io.BytesIO()
+                redressee.save(tampon, format="PNG")
+                png = tampon.getvalue()
             res = subprocess.run(
                 ["tesseract", "stdin", "stdout", "-l", langues],
-                input=pix.tobytes("png"),
+                input=png,
                 capture_output=True,
                 timeout=300,
             )

@@ -1067,9 +1067,14 @@ def rendre_page(doc, numero: int):
     """Page (1-indexée) → image PIL RGB à DPI_RENDU, redressée (voir redresser). Le scan porte une image par page à
     ~200 ppi : le rendu à 200 dpi la reprend sans rééchantillonnage. Scan, aperçu, géométrie et fond de la mise en
     page passent tous par ici : ils voient la même image redressée."""
+    return rendre_page_mesuree(doc, numero)[0]
+
+
+def rendre_page_mesuree(doc, numero: int):
+    """(image, angles) : comme rendre_page, avec l'angle de redressement de chaque demi-page (0.0 = non tournée)."""
     from PIL import Image
     pix = doc[numero - 1].get_pixmap(dpi=DPI_RENDU, colorspace="rgb", alpha=False)
-    return redresser(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
+    return redresser_et_mesurer(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
 
 
 def _masque_lettres(gris):
@@ -1112,28 +1117,47 @@ def estimer_inclinaison(gris) -> float:
     return angle
 
 
-def redresser(image):
-    """Chaque demi-page (une double page photographiée a deux inclinaisons) tournée de son propre angle, les coins
-    découverts remplis couleur papier. Une page droite est rendue telle quelle (même objet)."""
+def redresser(image, dpi: int = DPI_RENDU):
+    """Image redressée seule (voir redresser_et_mesurer)."""
+    return redresser_et_mesurer(image, dpi)[0]
+
+
+def redresser_et_mesurer(image, dpi: int = DPI_RENDU):
+    """
+    Chaque demi-page (une double page photographiée a deux inclinaisons) tournée de son propre angle, les coins
+    découverts remplis couleur papier. Renvoie (image, angles) : un angle par demi-page, 0.0 si elle n'est pas
+    tournée. Une page droite est rendue telle quelle (même objet).
+    Les seuils de la mesure (taille d'une lettre, gouttière) sont réglés pour DPI_RENDU : une image rendue à un
+    autre dpi (extraction OCR classique, 300 dpi) est mesurée sur une copie ramenée à DPI_RENDU, puis tournée en
+    pleine résolution.
+    """
     from PIL import Image
     np = _numpy()
-    gris = np.array(image.convert("L"))
-    h, w = gris.shape
-    if w / h >= RATIO_DOUBLE_PAGE:
+    w, h = image.size
+    echelle = DPI_RENDU / dpi
+    mesure = image if dpi == DPI_RENDU else image.resize((max(1, round(w * echelle)), max(1, round(h * echelle))),
+                                                         Image.BILINEAR)
+    gris = np.array(mesure.convert("L"))
+    hm, wm = gris.shape
+    if wm / hm >= RATIO_DOUBLE_PAGE:
         gx = detecter_gouttiere(gris)
-        moities = [(0, gx), (gx, w)]
+        moities_mesure = [(0, gx), (gx, wm)]
+        gx_plein = round(gx / echelle)
+        moities = [(0, gx_plein), (gx_plein, w)]
     else:
+        moities_mesure = [(0, wm)]
         moities = [(0, w)]
-    angles = [estimer_inclinaison(gris[:, x0:x1]) for x0, x1 in moities]
+    angles = [estimer_inclinaison(gris[:, x0:x1]) for x0, x1 in moities_mesure]
     if not any(angles):
-        return image
+        return image, angles
+    gris = np.array(image.convert("L")) if mesure is not image else gris
     sortie = image.copy()
     for (x0, x1), angle in zip(moities, angles):
         if angle:
             papier = int(np.percentile(gris[:, x0:x1], 85))
             moitie = image.crop((x0, 0, x1, h)).rotate(angle, resample=Image.BICUBIC, fillcolor=(papier,) * 3)
             sortie.paste(moitie, (x0, 0))
-    return sortie
+    return sortie, angles
 
 
 def nombre_de_pages(chemin_pdf: str) -> int:
@@ -1363,13 +1387,24 @@ def _traiter_et_ecrire_page(chemin_pdf: str, numero: int, dossier: str, langue: 
     reglages = {"langue": langue, "double_page": double_page, "algo": VERSION_ALGO, "regions": manuel}
     existant = lire_json_tolerant(chemin)
     if isinstance(existant, dict) and "blocs" in existant and existant.get("reglages") == reglages:
+        if "redressement" not in existant:
+            # page faite avant que l'angle soit noté : on le mesure (rendu seul, sans OCR) plutôt que de taire
+            # un redressement ou de refaire l'OCR de toute la page
+            doc = _ouvrir_pdf(chemin_pdf)
+            try:
+                existant["redressement"] = rendre_page_mesuree(doc, numero)[1]
+            finally:
+                doc.close()
+            ecrire_json_atomique(chemin, existant)
         return existant
     doc = _ouvrir_pdf(chemin_pdf)   # un handle par fil : PyMuPDF n'est pas thread-safe
     try:
-        resultat = traiter_page(rendre_page(doc, numero), langue, double_page, manuel, numero=numero)
+        image, angles = rendre_page_mesuree(doc, numero)
+        resultat = traiter_page(image, langue, double_page, manuel, numero=numero)
     finally:
         doc.close()
     resultat["page"] = numero
+    resultat["redressement"] = angles   # un angle par demi-page, 0.0 = non tournée (affiché à la fin du scan)
     resultat["reglages"] = reglages
     ecrire_json_atomique(chemin, resultat)
     return resultat
@@ -1403,7 +1438,9 @@ def _executer(etat: dict) -> None:
                 for f in faits:
                     n = en_vol.pop(f)
                     try:
-                        f.result()
+                        angles = f.result().get("redressement") or []
+                        if any(angles):
+                            etat.setdefault("pages_redressees", []).append({"page": n, "angles": angles})
                     except Exception as e:
                         etat["pages_en_erreur"].append({"page": n, "erreur": str(e)[:200]})
                     etat["pages_faites"] += 1
@@ -1489,6 +1526,7 @@ def _enfiler_scan(chemin_pdf: str, sorties: dict, debut: int, fin: int, langue_o
         "pages_total": fin - debut + 1,
         "pages_faites": 0,
         "pages_en_erreur": [],
+        "pages_redressees": [],     # [{page, angles}] : pages photographiées de biais, redressées avant l'OCR
         "statut": "en_attente",
         "temps_ecoule_secondes": 0.0,
         "demarre_a": time.time(),

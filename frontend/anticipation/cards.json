@@ -101,6 +101,18 @@
    "page": "docs/maquettes-flux/maquette-1-plan-et-fiche.html"
   },
   {
+   "id": "documents-complexes-etapes",
+   "featureId": null,
+   "titre": "Documents complexes (C8) en trois étapes",
+   "description": "Refonte du flux de la carte C8 : choisir le PDF, vérifier les colonnes (facultatif), nettoyer. Chaque explication tient en une ligne au-dessus de son bouton ; réglages rares, légende et éditeur repliés ; choix final « nettoyer seulement » ou « nettoyer puis traduire » ; pages redressées signalées (#570).",
+   "onglet": "Laboratoire",
+   "statut": "maquette",
+   "date": "2026-11-18",
+   "page": "docs/maquettes-flux/maquette-3-documents-complexes.html",
+   "libelleBouton": "Ouvrir la maquette",
+   "epingle": true
+  },
+  {
    "id": "documents-complexes",
    "featureId": 512,
    "titre": "Documents complexes : régions réglées à la main, page par page (livré)",

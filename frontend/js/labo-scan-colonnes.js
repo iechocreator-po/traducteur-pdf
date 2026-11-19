@@ -682,6 +682,19 @@ function rendreResultatScan(etat) {
   if (!etat.erreur) {
     html += `<p><button id="bouton-scan-envoyer" class="ds-btn ds-btn--primary">Envoyer vers « Nouveau document »</button></p>`;
   }
+  // Pages redressées (#570) : le champ est absent d'un état écrit avant lui, et alors on ne dit rien plutôt
+  // qu'un « aucune » qui mentirait.
+  const redressees = etat.pages_redressees || [];
+  if (redressees.length) {
+    const angle = (a) => `${Math.abs(a).toFixed(1).replace(".", ",")}°`;
+    const detail = (r) => r.angles.length === 2
+      ? `gauche ${r.angles[0] ? angle(r.angles[0]) : "non tournée"}, droite ${r.angles[1] ? angle(r.angles[1]) : "non tournée"}`
+      : angle(r.angles[0]);
+    html += `<details class="scan-redressees"><summary>↻ ${redressees.length} page(s) photographiée(s) de biais, redressée(s) avant la lecture</summary>` +
+            `<p class="aide">Le texte de ces pages est moins sûr : une photo bien droite et plus nette donnerait un meilleur résultat.</p><ul>` +
+            [...redressees].sort((a, b) => a.page - b.page)
+              .map(r => `<li>Page ${Number(r.page)} : ${detail(r)}</li>`).join("") + "</ul></details>";
+  }
   if ((etat.reparations || []).length) {
     html += `<details><summary>${etat.reparations.length} réparation(s) automatique(s) à vérifier</summary><ul>` +
             etat.reparations.map(r => `<li>${_echapperHtml(r)}</li>`).join("") + "</ul></details>";

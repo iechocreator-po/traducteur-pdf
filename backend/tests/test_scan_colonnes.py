@@ -709,3 +709,99 @@ def test_titre_courant_sans_numero_en_bas_de_page():
     assert S.est_pied_de_page("6 Truth of the Labyrinth Main Story", 1122, 1160)
     assert S.est_pied_de_page("Truth of the Labyrinth Main Story", 1120, 1160)       # numéro perdu par l'OCR
     assert not S.est_pied_de_page("Truth of the Labyrinth Main Story", 1090, 1160)   # au-dessus : du texte
+
+
+# ── Redressement hors du scan (#569) et pages redressées signalées (#570) ────
+
+def _page_penchee(angle: float, echelle: float = 1.0):
+    """Page synthétique (agrandie à `echelle`) tournée de `angle` degrés, en RGB."""
+    img, _ = page_synthetique()
+    if echelle != 1.0:
+        img = img.resize((round(img.width * echelle), round(img.height * echelle)), Image.BICUBIC)
+    return img.rotate(angle, resample=Image.BICUBIC, fillcolor=PAPIER).convert("RGB")
+
+
+def test_redressement_mesure_une_image_rendue_a_300_dpi():
+    """L'OCR classique rend à 300 dpi : les seuils (taille d'une lettre) sont réglés pour 200 dpi, la mesure se
+    fait donc sur une copie ramenée à 200 dpi. Sans cela, les lettres agrandies sortent du masque."""
+    droite = _page_penchee(0.0, 1.5)
+    image, angles = S.redresser_et_mesurer(droite, 300)
+    assert image is droite and angles == [0.0]
+    penchee = _page_penchee(-4.0, 1.5)
+    image, angles = S.redresser_et_mesurer(penchee, 300)
+    assert image.size == penchee.size and abs(angles[0] - 4.0) <= 0.3
+
+
+def test_ocr_classique_lit_la_page_redressee(tmp_path, monkeypatch):
+    """#569 : l'extracteur Tesseract classique passait la page penchée telle quelle à l'OCR."""
+    import io
+
+    import numpy as np
+    import pymupdf
+
+    from app.services import pdf_extractor
+
+    penchee = _page_penchee(-4.0, 1.5)
+    tampon = io.BytesIO()
+    penchee.save(tampon, format="PNG")
+    pdf = tmp_path / "photo.pdf"
+    with pymupdf.open() as doc:
+        page = doc.new_page(width=penchee.width * 72 / 300, height=penchee.height * 72 / 300)
+        page.insert_image(page.rect, stream=tampon.getvalue())
+        doc.save(str(pdf))
+
+    lues = []
+
+    class Resultat:
+        returncode, stdout, stderr = 0, b"texte", b""
+
+    def faux_tesseract(_cmd, input, **_):
+        lues.append(Image.open(io.BytesIO(input)).convert("L"))
+        return Resultat()
+
+    monkeypatch.setattr(pdf_extractor, "tesseract_disponible", lambda: True)
+    monkeypatch.setattr(pdf_extractor, "_langues_tesseract", lambda: "eng")
+    monkeypatch.setattr(pdf_extractor.subprocess, "run", faux_tesseract)
+    assert pdf_extractor.extraire_texte(str(pdf), "tesseract") == "texte"
+    lue = lues[0].resize((round(lues[0].width / 1.5), round(lues[0].height / 1.5)), Image.BILINEAR)
+    assert S.estimer_inclinaison(np.array(lue)) == 0.0     # l'OCR a reçu une page droite
+
+
+def _etat_scan(pdf, job_id, fin):
+    sorties = S.chemins_sortie(str(pdf))
+    return {"job_id": job_id, "chemin_pdf": str(pdf), "chemin_sortie": sorties["markdown"],
+            "dossier_pages": sorties["pages"], "chemin_etat": sorties["etat"], "langue_ocr": "eng",
+            "double_page": False, "travailleurs": 1, "page_debut": 1, "page_fin": fin, "pages_total": fin,
+            "pages_faites": 0, "pages_en_erreur": [], "pages_redressees": [], "statut": "en_attente",
+            "temps_ecoule_secondes": 0.0, "demarre_a": 0}
+
+
+def test_le_scan_note_les_pages_redressees(tmp_path, monkeypatch):
+    """#570 : le redressement était invisible ; l'état du scan liste les pages tournées et leurs angles."""
+    pdf = tmp_path / "doc.pdf"
+    _pdf_trois_colonnes(pdf)
+    angles = {1: [0.0], 2: [0.0, 4.2], 3: []}
+    monkeypatch.setattr(S, "_traiter_et_ecrire_page",
+                        lambda _c, n, *_: {"blocs": [], "redressement": angles[n]})
+    etat = _etat_scan(pdf, "redresse", 3)
+    S.enregistrer_job("redresse")
+    S._executer(etat)
+    assert S.lire_etat(str(pdf))["pages_redressees"] == [{"page": 2, "angles": [0.0, 4.2]}]
+
+
+def test_page_en_cache_sans_angle_mesuree_sans_refaire_l_ocr(tmp_path, monkeypatch):
+    """Une page lue avant #570 n'a pas d'angle noté : on le mesure (rendu seul) plutôt que de refaire l'OCR ou de
+    taire un redressement."""
+    pdf = tmp_path / "doc.pdf"
+    _pdf_trois_colonnes(pdf)
+    sorties = S.chemins_sortie(str(pdf))
+    os.makedirs(sorties["pages"], exist_ok=True)
+    reglages = {"langue": "eng", "double_page": False, "algo": S.VERSION_ALGO, "regions": None}
+    chemin = os.path.join(sorties["pages"], "page-0001.json")
+    with open(chemin, "w") as f:
+        json.dump({"blocs": [["texte", "déjà lu"]], "page": 1, "reglages": reglages}, f)
+    monkeypatch.setattr(S, "traiter_page", lambda *_a, **_k: pytest.fail("OCR refait"))
+    res = S._traiter_et_ecrire_page(str(pdf), 1, sorties["pages"], "eng", False)
+    assert res["redressement"] == [0.0, 0.0] and res["blocs"] == [["texte", "déjà lu"]]   # paysage : deux moitiés
+    with open(chemin) as f:
+        assert json.load(f)["redressement"] == [0.0, 0.0]
