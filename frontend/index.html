@@ -11,10 +11,10 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/components.css?v=1">
   <link rel="stylesheet" href="css/theme-toledo.css?v=2">
-  <link rel="stylesheet" href="css/style.css?v=42">
+  <link rel="stylesheet" href="css/style.css?v=43">
   <link rel="stylesheet" href="css/styles-visuels.css?v=5">
   <link rel="stylesheet" href="css/commutateurs.css?v=2">
-  <link rel="stylesheet" href="css/scan-etapes.css?v=1">
+  <link rel="stylesheet" href="css/scan-etapes.css?v=2">
   <script>
     // Applique le thème mémorisé AVANT le premier rendu (évite le flash de couleur).
     (function () {
@@ -393,6 +393,12 @@
                   title="Apposer une signature sur un PDF de ce document (copie _signe.pdf)">✍ Signer un PDF…</button>
           <span id="doc-export-statut" class="aide doc-export-statut" role="status"></span>
         </div>
+        <!-- Infos du document choisi : tirées du registre (GET /api/bibliotheque) et des chapitres déjà chargés,
+             aucun appel de plus (js/module-bibliotheque.js › rendreMeta). Une valeur absente s'affiche « — ». -->
+        <details class="lecture-meta" id="lecture-meta" hidden>
+          <summary><span class="lecture-meta-titre">ⓘ Infos</span> <span id="lecture-meta-resume"></span></summary>
+          <dl class="lecture-meta-grille" id="lecture-meta-grille"></dl>
+        </details>
         <div class="lecture-echec" id="lecture-echec" hidden>
           <span class="lecture-echec-icone">⚠</span>
           <span id="lecture-echec-texte"></span>
@@ -1033,13 +1039,13 @@
 
   <script src="js/commun.js?v=12"></script>
   <script src="js/module-import.js?v=20"></script>
-  <script src="js/module-bibliotheque.js?v=15"></script>
+  <script src="js/module-bibliotheque.js?v=16"></script>
   <script src="js/bibliotheque-exports.js?v=6"></script>
   <script src="js/module-laboratoire.js?v=13"></script>
   <script src="js/module-chronique.js?v=1"></script>
   <script src="js/module-anticipation.js?v=4"></script>
   <script src="js/labo-scan-colonnes.js?v=16"></script>
-  <script src="js/labo-scan-etapes.js?v=2"></script>
+  <script src="js/labo-scan-etapes.js?v=3"></script>
   <script src="js/labo-decoupe.js?v=1"></script>
   <script src="js/ui-ids.js?v=2"></script>
   <script src="js/reglages.js?v=4"></script>

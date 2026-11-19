@@ -175,6 +175,7 @@
     $("lecture-doc-nom").textContent = doc.nom;
     $("lecture-vide").hidden = true;
     $("barre-audio").hidden = false;
+    rendreMeta(doc);
     rendreBandeauEchec();
     majBoutonExportDocument();
     // Exports « mise en page d'origine » et signature (js/bibliotheque-exports.js).
@@ -203,6 +204,74 @@
 
     chargerFicheExistante();
     rafraichirAudio();
+  }
+
+  // ── Infos du document (registre seulement, aucun appel de plus) ─────────────
+  // Une valeur absente du registre s'affiche « — », jamais 0 ni une valeur inventée. Les entrées
+  // reconstruites depuis un .state.json n'ont ni `cree_a` ni `qualite` (services/bibliotheque.py).
+
+  const LIBELLES_STATUT = { termine: "Terminé", erreur: "Interrompu (erreur)", annule: "Annulé", en_cours: "En cours", en_pause: "En pause" };
+
+  function dateLisible(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleString("fr-CA", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  function dureeLisible(secondes) {
+    if (!secondes || secondes < 0) return "—";
+    const s = Math.round(secondes);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    if (h) return `${h} h ${String(m).padStart(2, "0")} min`;
+    if (m) return `${m} min ${String(r).padStart(2, "0")} s`;
+    return `${r} s`;
+  }
+
+  function rendreMeta(doc) {
+    const bloc = $("lecture-meta");
+    const langues = doc.langue_source && doc.langue_cible ? `${doc.langue_source} → ${doc.langue_cible}` : "—";
+    const nbChap = Array.isArray(doc.chapitres_traduits) ? doc.chapitres_traduits.length : null;
+    // Pas de « N sur M sélectionnés » : un titre sans texte est sélectionné mais jamais marqué traduit, et un
+    // document terminé affichait « 15 sur 79 » comme s'il avait des trous (les trous, c'est nb_sections_echouees).
+    const chapitresTxt = nbChap == null ? "—" : String(nbChap);
+    const morceaux = doc.total_sections ? `${doc.sections_completees ?? 0} / ${doc.total_sections}` : "—";
+    const echecs = doc.nb_sections_echouees ? String(doc.nb_sections_echouees) : null;
+    const dossier = (doc.chemin_sortie || "").split("/").slice(0, -1).join("/");
+    const lignes = [
+      ["Statut", LIBELLES_STATUT[doc.statut] || doc.statut || "—"],
+      ["Langues", langues],
+      ["Modèle", doc.modele || "—"],
+      ["Type de source", estMarkdown(doc.chemin_source) ? "Markdown (.md)" : "PDF"],
+      // Source .md : aucun PDF lu, le registre y garde l'extracteur par défaut — ces deux lignes mentiraient.
+      ...(estMarkdown(doc.chemin_source) ? [] : [
+        ["Extraction", doc.qualite ? libelleExtraction(doc.qualite) : "—"],
+        ["Extracteur", doc.extracteur_pdf || "—"],
+      ]),
+      ["Chapitres traduits", chapitresTxt],
+      ["Morceaux traduits", morceaux],
+      ...(echecs ? [["Morceaux en échec", echecs]] : []),
+      ["Temps de traduction", dureeLisible(doc.temps_ecoule_secondes)],
+      ["Ajouté le", dateLisible(doc.cree_a)],
+      ["Mis à jour le", dateLisible(doc.maj_a)],
+      ["Source", doc.chemin_source || "—", true],
+      ["Traduction", doc.chemin_sortie || "—", true],
+      ["Dossier", dossier || "—", true],
+    ];
+    const grille = $("lecture-meta-grille");
+    grille.innerHTML = "";
+    for (const [cle, valeur, chemin] of lignes) {
+      const dt = document.createElement("dt");
+      dt.textContent = cle;
+      const dd = document.createElement("dd");
+      dd.textContent = valeur;
+      if (chemin) dd.classList.add("lecture-meta-chemin");
+      grille.append(dt, dd);
+    }
+    const resume = [langues, doc.modele, nbChap != null ? `${nbChap} chapitre${nbChap > 1 ? "s" : ""}` : null,
+                    doc.maj_a ? `mis à jour le ${dateLisible(doc.maj_a)}` : null].filter((x) => x && x !== "—");
+    $("lecture-meta-resume").textContent = resume.join(" · ");
+    bloc.hidden = false;
   }
 
   // ── Bandeau « traduction interrompue » (job erreur ou annulé) ───────────────

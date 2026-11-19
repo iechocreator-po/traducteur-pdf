@@ -543,6 +543,21 @@ html.avance .biblio-lecture {
   color: var(--amber);
   font-size: 0.85rem;
 }
+/* Infos du document (js/module-bibliotheque.js › rendreMeta) : une ligne repliée, une grille dépliée. */
+.lecture-meta { margin: 0.6rem 2.4rem 0; font-size: 0.82rem; color: var(--text-2); }
+.lecture-meta > summary { cursor: pointer; width: fit-content; max-width: 100%; }
+.lecture-meta-titre { color: var(--accent); font-weight: 600; }
+.lecture-meta-grille { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px;
+                       margin: 0.6rem 0 0; padding: 0.7rem 0.9rem; border: 1px solid var(--border);
+                       border-radius: var(--radius-sm); background: var(--surface-2); }
+.lecture-meta-grille dt { color: var(--text-3); }
+.lecture-meta-grille dd { margin: 0; color: var(--text); min-width: 0; }
+.lecture-meta-chemin { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.76rem; word-break: break-all; }
+@media (max-width: 600px) {
+  .lecture-meta { margin-inline: 1rem; }
+  .lecture-meta-grille { grid-template-columns: minmax(0, 1fr); }
+  .lecture-meta-grille dd { margin-bottom: 4px; }
+}
 .lecture-echec-icone { font-size: 1rem; }
 .lecture-echec button { margin-left: auto; }
 .lecture-corps {

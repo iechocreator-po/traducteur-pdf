@@ -236,10 +236,14 @@
       if (ok && finObservee && traduireEnsuite()) {
         document.dispatchEvent(new CustomEvent("ajouter-au-lot-et-traduire", { detail: { chemin: s.chemin_sortie, reglages: etat.reglages } }));
         document.dispatchEvent(new CustomEvent("retirer-du-lot", { detail: s.chemin_pdf }));
-        actions = `<p class="se-note">Traduction lancée : suivez-la dans « Vos traductions ».</p>`;
+        actions = `<p class="se-note">Traduction lancée : suivez-la dans « Vos traductions ».</p>` +
+          `<div class="se-actions"><button type="button" class="ds-btn ds-btn--primary" id="se-autre">Traiter un autre document</button></div>`;
       } else {
-        actions = `<div class="se-actions"><button type="button" class="ds-btn ds-btn--primary" id="se-envoyer">Envoyer vers Nouveau document</button></div>`;
+        actions = `<div class="se-actions"><button type="button" class="ds-btn ds-btn--primary" id="se-envoyer">Envoyer vers Nouveau document</button>` +
+          `<button type="button" class="ds-btn" id="se-autre">Traiter un autre document</button></div>`;
       }
+    } else {
+      actions = `<div class="se-actions"><button type="button" class="ds-btn" id="se-autre">Traiter un autre document</button></div>`;
     }
     b.className = `se-bilan${ok ? "" : " partiel"}`;
     b.innerHTML = `<span class="se-bilan-titre">${esc(titre)}</span>` +
@@ -250,5 +254,35 @@
       document.dispatchEvent(new CustomEvent("ajouter-au-lot", { detail: s.chemin_sortie }));
       activerModule("import");
     });
+    $("se-autre")?.addEventListener("click", recommencer);
+  }
+
+  // Revenir à l'étape 1, carte vide. Le scan déjà lancé n'est pas touché (il continue côté backend, et la
+  // traduction enchaînée vit dans « Vos traductions »). Le choix « nettoyer seulement / puis traduire » est
+  // gardé : on traite souvent plusieurs documents de la même façon.
+  function recommencer() {
+    clearTimeout(etat.minuteur);
+    Object.assign(etat, { chemin: null, pages: null, page: 1, minuteur: null, vuActif: false, reglages: null });
+    $("se-chemin").value = "";
+    info("");
+    $("se-debut").value = 1;
+    $("se-fin").value = "";
+    $("se-fin").removeAttribute("max");
+    $("se-double-page").value = "auto";
+    $("se-suivant1").disabled = true;
+    $("se-apercu").hidden = true;
+    $("se-apercu").removeAttribute("src");
+    $("se-page").textContent = "1";
+    $("se-total").textContent = "";
+    $("se-apercu-statut").textContent = "";
+    $("se-bilan").hidden = true;
+    $("se-bilan").innerHTML = "";
+    $("se-progres").hidden = true;
+    $("se-arreter").hidden = true;
+    $("se-lancer").disabled = false;
+    $("se-note-lancer").hidden = false;
+    aller(0);
+    $("carte-scan-etapes").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("se-parcourir").focus({ preventScroll: true });
   }
 })();
