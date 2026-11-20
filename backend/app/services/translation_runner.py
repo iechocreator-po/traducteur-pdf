@@ -55,6 +55,7 @@ from app.services.translator import (
     AppelInterrompu,
 )
 from app.services import cache_traduction, controle_langue, glossaire, metriques, stats, store
+from app.services.controle_langue import MARQUE_NON_TRADUIT
 from app.services.persistance import ecrire_texte_atomique
 from app.services.job_manager import (
     sauvegarder_etat,
@@ -240,6 +241,25 @@ def _deux_moities(texte: str) -> list[str] | None:
     return ["\n\n".join(paragraphes[:coupe]), "\n\n".join(paragraphes[coupe:])]
 
 
+def _par_paragraphes(texte: str, traduire, acceptable) -> tuple[str, int]:
+    """Chaque paragraphe traduit seul, deux essais (le second plus chaud) ; celui qui échoue encore reste dans sa
+    langue d'origine, précédé de MARQUE_NON_TRADUIT. Renvoie (texte, nombre de paragraphes laissés)."""
+    sortie, laisses = [], 0
+    for p in (p.strip() for p in re.split(r"\n\s*\n", texte)):
+        if not p:
+            continue
+        if not re.search(r"[A-Za-z]{2}", re.sub(r"⟦[^⟧]*⟧|\*\*[\d?]{4}\*\*", "", p)):
+            sortie.append(p)            # numéro d'entrée, pictogramme seul : rien à traduire
+            continue
+        t = traduire(p)
+        if not acceptable(t, p):
+            t = traduire(p, TEMPERATURES_LANGUE[0])
+        if not acceptable(t, p):
+            t, laisses = f"{MARQUE_NON_TRADUIT}\n{p}", laisses + 1
+        sortie.append(t)
+    return "\n\n".join(sortie), laisses
+
+
 def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], etiquette: str) -> str:
     """
     Traduit un texte avec cache, glossaire et contrôle qualité anti-résumé.
@@ -298,7 +318,13 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
             traduit, ratio = nouvelle, nouveau_ratio
             trop_court = ratio < RATIO_TRADUCTION_SUSPECT
             trop_long = ratio > RATIO_TRADUCTION_MAX
-        if trop_court or trop_long:
+        # Un morceau glissé vers le chinois est aussi trop COURT (les idéogrammes sont denses : ratio 0,41, Cycle I
+        # section 3, 19/11/2026) : rendu ici sur le seul avertissement de ratio, il échappait au contrôle de langue
+        # ci-dessous et le chinois arrivait dans le PDF. Un défaut de langue ou de structure passe donc d'abord par
+        # ses propres tentatives (dont le ratio fait partie de `acceptable`).
+        if (trop_court or trop_long) and not (
+                controle_langue.langue_inattendue(texte, traduit, state.langue_cible.value)
+                or marqueurs_perdus(texte, traduit) or entrees_deplacees(texte, traduit)):
             cause = "possiblement résumée" if trop_court else "possiblement en boucle de répétition"
             avertissement = f"{etiquette} : traduction {cause} (ratio longueur {ratio:.2f})"
             state.avertissements.append(avertissement)
@@ -363,6 +389,18 @@ def _traduire_avec_controle(texte: str, state: EtatJob, cache: dict[str, str], e
             morceaux = par_moities(texte, 2)
             if morceaux is not None:
                 traduit, reussi = morceaux, True
+        if not reussi and controle_langue.langue_inattendue(texte, traduit, cible):
+            # Dernier recours pour la LANGUE : paragraphe par paragraphe ; celui qui reste en chinois (ou dans une autre
+            # langue) est remplacé par l'ORIGINAL, signalé par MARQUE_NON_TRADUIT (rendu en couleur : PDF, HTML,
+            # Bibliothèque). Mieux vaut un paragraphe anglais visible qu'un paragraphe chinois (demande du 19/11/2026).
+            traduit, laisses = _par_paragraphes(texte, traduire, acceptable)
+            if laisses:
+                avertissement = (f"{etiquette} : {laisses} paragraphe(s) laissé(s) en {state.langue_source.value} "
+                                 f"et signalé(s) ({defaut})")
+                state.avertissements.append(avertissement)
+                journaliser_erreur(state.chemin_sortie, avertissement)
+                return traduit
+            reussi = True
         if not reussi:
             avertissement = f"{etiquette} : traduction défectueuse ({defaut})"
             state.avertissements.append(avertissement)

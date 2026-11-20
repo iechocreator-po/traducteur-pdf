@@ -11,6 +11,11 @@ al hombre »). Le ratio de longueur ne voit rien : la longueur est normale. Deux
 
 import re
 
+# Paragraphe resté dans sa langue d'origine parce que toutes les traductions dérivaient (chinois…) : commentaire
+# Markdown placé sur la ligne qui le précède. Invisible pour l'audio (tts retire les commentaires) ; rendu en couleur
+# par la mise en page (reconstruction) et le lecteur de la Bibliothèque.
+MARQUE_NON_TRADUIT = "<!-- non-traduit -->"
+
 MOTS_MIN_PARAGRAPHE = 8
 DOMINATION_MIN = 3          # mots-outils de l'autre langue, au minimum
 FACTEUR_DOMINATION = 2      # … et au moins deux fois plus que ceux de la langue cible

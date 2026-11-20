@@ -365,3 +365,40 @@ def test_numero_invente_sous_un_intertitre():
 
 def test_gras_ajoute_sous_un_intertitre():
     assert translator.gras_en_trop("**Starting a Campaign**\n\nPrepare.", "**Début d'une Campagne**\n**END**\n\nPréparez.")
+
+
+def test_tableau_de_tirage_ne_traduit_que_les_libelles():
+    """Cycle I section 3 p. 5 : la clé (α, 1–2, Ω) et la case de chaque rangée sont des sentinelles."""
+    from app.services import translator as T
+    src = "Choose.\n\n| α | Comes a Savior |\n| 1–2 | Mazed Forest | ☐ |\n| Ω | Till Death |\n\nNext."
+    masque, tags = T._masquer_images(src)
+    assert "α" not in masque and "☐" not in masque and "Comes a Savior" in masque
+    tr = (masque.replace("Choose.", "Choisissez.").replace("Comes a Savior", "Viendra un Sauveur")
+          .replace("Mazed Forest", "Forêt labyrinthique").replace("Till Death", "Jusqu'à la mort")
+          .replace("Next.", "Suite.").replace("⟦IMG3⟧\n", "⟦IMG3⟧ "))      # deux rangées collées par le modèle
+    sortie = T._restaurer_images(tr, tags)
+    assert sortie == ("Choisissez.\n\n| α | Viendra un Sauveur |\n| 1–2 | Forêt labyrinthique | ☐ |\n"
+                      "| Ω | Jusqu'à la mort |\n\nSuite.")
+    assert T.marqueurs_perdus(src, sortie) == []
+    assert T.marqueurs_perdus(src, "| α | Viendra un Sauveur |\n\nSuite.")       # rangées perdues : signalées
+
+
+def test_tableau_de_tirage_traduit_libelle_par_libelle(monkeypatch):
+    """qwen2.5 mélangeait les rangées masquées par sentinelles (Cycle I section 3 p. 5) : chaque libellé part seul."""
+    from app.services import translator as T
+    envoyes = []
+
+    def faux_ollama(texte, *a, **k):
+        envoyes.append(texte)
+        return {"Comes a Savior": "Viendra un Sauveur", "Mazed Forest": "Forêt labyrinthique",
+                "Choose.": "Choisissez.", "Next.": "Suite."}[texte]
+    orig = T.traduire_texte
+
+    def appel(texte, *a, **k):
+        if not T._RE_TABLEAU.search(texte) and texte in ("Comes a Savior", "Mazed Forest", "Choose.", "Next."):
+            return faux_ollama(texte)
+        return orig(texte, *a, **k)
+    monkeypatch.setattr(T, "traduire_texte", appel)
+    sortie = orig("Choose.\n\n| α | Comes a Savior |\n| 1–2 | Mazed Forest | ☐ |\n\nNext.", "m", "anglais", "français")
+    assert sortie == "Choisissez.\n\n| α | Viendra un Sauveur |\n| 1–2 | Forêt labyrinthique | ☐ |\n\nSuite."
+    assert sorted(envoyes) == ["Choose.", "Comes a Savior", "Mazed Forest", "Next."]

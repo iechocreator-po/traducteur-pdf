@@ -555,3 +555,40 @@ def test_reconstruction_lit_les_regions_du_scan_pas_celles_retouchees_depuis(tmp
     assert R._regions_du_scan(pdf, str(pages), 2) == S.reglage_page(pdf, 2)           # pas lue par le scan : repli
     page = R.preparer_geometrie(pdf, str(tmp_path / "illus"), [1], False, str(pages))["pages"]["1"]
     assert not any(i["rect"] == [40, 40, 240, 240] for i in page["illustrations"])
+
+
+def test_figure_au_trait_englobe_ses_traits_fins_sans_le_texte_voisin():
+    """Cycle I section 3 p. 5 (19/11/2026) : l'ouverture morphologique ne gardait que les corps des deux personnages ;
+    la lance, les rochers et les pieds étaient coupés et la scène sortait en deux images."""
+    from app.services import reconstruction
+    img = Image.new("RGB", (900, 1100), (230, 225, 210))
+    d = ImageDraw.Draw(img)
+    d.ellipse([500, 600, 580, 760], fill=(40, 30, 20))          # corps du grand personnage
+    d.ellipse([380, 680, 430, 760], fill=(40, 30, 20))          # petit personnage, à 70 px
+    d.line([500, 640, 400, 600], fill=(40, 30, 20), width=3)    # lance tenue par le grand, vers le petit
+    d.line([450, 620, 455, 740], fill=(40, 30, 20), width=2)    # trait de rocher entre les deux
+    d.line([560, 760, 575, 820], fill=(40, 30, 20), width=3)    # pied
+    for i in range(12):                                          # une ligne de texte à droite
+        d.rectangle([640 + i * 12, 700, 648 + i * 12, 712], fill=(20, 20, 20))
+    rects = reconstruction.detecter_illustrations(img)
+    figures = [r for r in rects if r[0] < 600]
+    assert len(figures) == 1, rects
+    x0, y0, x1, y1 = figures[0]
+    assert x0 <= 382 and y0 <= 602 and x1 >= 575 and y1 >= 818    # les deux personnages, la lance et le pied
+    assert x1 < 640                                               # pas la ligne de texte
+
+
+def test_tableau_de_tirage_rendu_en_table():
+    blocs = R._blocs_traduits("Texte.\n\n| α | Viendra un Sauveur |\n| 1–2 | Forêt | ☐ |\n\nSuite.")
+    assert [k for k, _ in blocs] == ["para", "tirage", "para"]
+    html = R._blocs_html(blocs)
+    assert '<table class="tirage">' in html and html.count("<tr>") == 2 and html.count('class="case"') == 1
+    assert "α" in html and "Forêt" in html
+
+
+def test_paragraphe_non_traduit_rendu_en_couleur():
+    blocs = R._blocs_traduits("Texte.\n\n<!-- non-traduit -->\nStill English.\n\n<!-- non-traduit -->\n> Fail: see 0006.")
+    html = R._blocs_html(blocs)
+    assert '<p class="non-traduit" title=' in html and ">Still English.</p>" in html
+    assert '<div class="encadre non-traduit"' in html and "Fail: see 0006." in html
+    assert "⁠" not in html and "<p>Texte.</p>" in html

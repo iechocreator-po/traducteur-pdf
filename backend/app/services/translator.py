@@ -125,12 +125,15 @@ _RE_TAG_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 # disparaissait (9 sur 106 sur le Cycle I, 17/11/2026) ; masqué, il revient intact, à sa place.
 # Début d'encadré (« > ») : laissé au modèle, il le retirait (19 encadrés sur 330, Cycle I) ; masqué, il revient en
 # tête de son paragraphe.
+# Rangée de tableau de tirage (scan_colonnes._texte_tirage) : « | 1–2 | Mazed Forest | ☐ | ». Seul le libellé est
+# traduit ; la clé et la case sont des sentinelles, comme le « > » d'un encadré.
+_TIRAGE = r"(?m:^\| [^|\n]{1,5} \| )|(?m: \|(?: ☐ \|)?$)"
 _RE_PROTEGE = re.compile(
     r"!\[[^\]]*\]\([^)]*\)|<!-- conserver -->\n.*?\n<!-- /conserver -->|⟦icône(?::\d+\.\d+)?⟧"
-    r"|(?m:^\*\*[\d?]{4}\*\*$)|(?m:^> )", re.S)
+    r"|(?m:^\*\*[\d?]{4}\*\*$)|(?m:^> )|" + _TIRAGE, re.S)
 _RE_ENTREE_SEULE = re.compile(r"(?m)^(\*\*[\d?]{4}\*\*)[ \t]*$")
 # Ce qui doit se retrouver tel quel dans toute traduction (voir marqueurs_perdus).
-_RE_MARQUEUR_OBLIGATOIRE = re.compile(r"⟦icône(?::\d+\.\d+)?⟧|(?m:^\*\*[\d?]{4}\*\*$)|(?m:^> )")
+_RE_MARQUEUR_OBLIGATOIRE = re.compile(r"⟦icône(?::\d+\.\d+)?⟧|(?m:^\*\*[\d?]{4}\*\*$)|(?m:^> )|" + _TIRAGE)
 
 
 _RE_GRAS_SEUL = re.compile(r"^\*\*(.+)\*\*$", re.S)
@@ -241,6 +244,13 @@ def _restaurer_images(traduit: str, tags: list[str]) -> str:
             if sentinelle in traduit:
                 traduit = re.sub(rf"\s*{re.escape(sentinelle)}\s*", "\n\n> ", traduit).lstrip("\n")
             continue
+        if sentinelle in traduit and tag.startswith("| "):   # début de rangée de tirage : en tête de ligne
+            traduit = re.sub(rf"[ \t]*\n?[ \t]*{re.escape(sentinelle)}[ \t]*", lambda _: "\n" + tag,
+                             traduit).lstrip("\n")
+            continue
+        if sentinelle in traduit and tag.startswith(" |"):   # fin de rangée : collée au libellé, puis fin de ligne
+            traduit = re.sub(rf"[ \t]*{re.escape(sentinelle)}[ \t]*\n?", lambda _: tag + "\n", traduit).rstrip("\n")
+            continue
         if sentinelle in traduit and re.fullmatch(r"\*\*[\d?]{4}\*\*", tag):
             # numéro d'entrée : toujours seul sur sa ligne, même si le modèle a collé la sentinelle à une phrase
             traduit = re.sub(rf"[ \t]*{re.escape(sentinelle)}[ \t]*", f"\n\n{tag}\n\n", traduit)
@@ -252,6 +262,25 @@ def _restaurer_images(traduit: str, tags: list[str]) -> str:
         else:
             traduit = traduit.rstrip() + "\n\n" + tag
     return traduit
+
+
+_RE_TABLEAU = re.compile(r"((?:^\| [^\n]*\|[ \t]*(?:\n|$))+)", re.M)
+
+
+def _traduire_tableau(tableau: str, modele: str, langue_source: str, langue_cible: str, termes_a_conserver,
+                      interruption, temperature: float) -> str:
+    """Rangées « | clé | libellé | ☐ | » : seul le libellé part chez le modèle, seul ; clé et case restent."""
+    lignes = []
+    for ligne in tableau.splitlines():
+        m = re.match(r"^(\| [^|]*\| )(.*?)( \|(?: ☐ \|)?)[ \t]*$", ligne)
+        if not m or not m.group(2).strip():
+            lignes.append(ligne)
+            continue
+        libelle = traduire_texte(m.group(2).strip(), modele, langue_source, langue_cible,
+                                 termes_a_conserver=termes_a_conserver, interruption=interruption,
+                                 temperature=temperature)
+        lignes.append(m.group(1) + " ".join(libelle.split()).replace("|", "/") + m.group(3))
+    return "\n".join(lignes)
 
 
 def traduire_texte(
@@ -272,6 +301,22 @@ def traduire_texte(
     Les tags images `![](...)` sont masqués par une sentinelle avant l'appel (le
     chemin n'est jamais envoyé au modèle) puis restaurés à l'identique.
     """
+    # Tableau de tirage (« | 1–2 | Mazed Forest | ☐ | ») : traduit à part, libellé par libellé. Masqué par sentinelles
+    # au milieu du texte, il revenait en désordre (qwen2.5, Cycle I section 3 p. 5, 19/11/2026 : libellés décalés d'une
+    # rangée, quatre rangées rejetées plus loin sans libellé).
+    blocs = _RE_TABLEAU.split(texte)
+    if len(blocs) > 1:
+        sortie = []
+        for i, bloc in enumerate(blocs):
+            if i % 2:
+                sortie.append(_traduire_tableau(bloc.strip("\n"), modele, langue_source, langue_cible,
+                                                termes_a_conserver, interruption, temperature))
+            elif bloc.strip():
+                sortie.append(traduire_texte(bloc.strip(), modele, langue_source, langue_cible,
+                                             termes_a_conserver=termes_a_conserver, interruption=interruption,
+                                             temperature=temperature))
+        return "\n\n".join(sortie)
+
     # Numéros d'entrée : le morceau est coupé à chacun et chaque partie traduite à part. Masqués (sentinelles), ils
     # étaient parfois déplacés par le modèle loin de leur texte (« 0001 » remonté sous un intertitre de la page
     # précédente, Cycle I, 17/11/2026) ; coupés, ils restent exactement à leur place.

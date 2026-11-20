@@ -30,10 +30,11 @@ import re
 import time
 
 from app.services import scan_colonnes
+from app.services.controle_langue import MARQUE_NON_TRADUIT
 from app.services.persistance import ecrire_binaire_atomique, ecrire_json_atomique, ecrire_texte_atomique, lire_json_tolerant
 
 SUFFIXE_SCAN = "_scan_colonnes"
-VERSION_CACHE = 12           # à incrémenter quand la détection change (invalide le cache)
+VERSION_CACHE = 13           # à incrémenter quand la détection change (invalide le cache)
 DPI_APERCU = 90              # scan d'origine embarqué dans le HTML (mode « Pages »)
 QUALITE_ILLUS = 85
 QUALITE_APERCU = 65
@@ -65,6 +66,17 @@ COTE_MIN_FIGURE = 0.035                 # × hauteur de page, pour chaque côté
 # à un bord de la page et 3 à 25 fois plus hautes que larges ; aucune vraie figure dans ce cas).
 ALLONGEMENT_MAX_AU_BORD = 2.5
 RECOUVREMENT_MAX_FIGURE = 0.3           # part d'une figure déjà couverte par une illustration : c'est la même
+# Figure au trait sur le papier (Cycle I section 3, p. 5 et 9, 19/11/2026) : l'ouverture ci-dessus garde les aplats
+# (corps des personnages) et efface les traits fins qui en font partie (lance, rochers, pieds, gouttes) ; deux
+# personnages d'une même scène sortaient en deux images rognées. La figure est donc étendue à l'encre GRAPHIQUE qui
+# la touche à moins de RAYON_FIGURE_PX, de proche en proche (MARGE_EXTENSION_FIGURE px par tour), sans franchir la
+# gouttière ni les marges haute et basse (ombre de reliure, folio). Le texte voisin n'est pas de l'encre graphique :
+# une composante de la taille d'une lettre collée à une voisine sur la même ligne (lettres d'un mot) est écartée.
+RAYON_FIGURE_PX = 12
+MARGE_EXTENSION_FIGURE = 60
+TOURS_EXTENSION_FIGURE = 3
+ECART_MAX_LETTRES_PX = 6
+AIRE_MIN_TRAIT_PX = 20     # une goutte de la p. 9 fait 50 à 100 px ; un grain à 3 px du titre « Labyrinth Tiles » 5
 # Bords d'une illustration pleine (photo, peinture) : la détection, lissée, déborde de quelques lignes sur le papier
 # (Cycle I p. 3 : la bande blanche portant « 0001 So it begins » restait sous le bandeau, à 97 % de papier). Une
 # ligne ou colonne de bord faite de papier à PART_PAPIER_BORD ou plus est retirée, puis un liseré de LISERE_ILLUS du
@@ -202,8 +214,95 @@ def detecter_illustrations(image) -> list[tuple[int, int, int, int]]:
             continue
         rects.append((int(x0), int(y0), int(x1), int(y1)))
     rects = _ajouter_figures_pleines(rects, gris, sat, fond, sat_papier)
+    pleines = [r for r in rects if not _sur_papier(gris, r, fond)]
+    rects = _fusionner([_etendre_figure(gris, r, fond, pleines) if r not in pleines else r for r in rects])
     rects = [_rogner_bords(gris, r, fond) for r in rects]
     return sorted(rects, key=lambda r: (r[0] >= w // 2, r[1], r[0]))
+
+
+def _encre_graphique(encre, hauteur_page: int, largeur_page: int):
+    """Masque de l'encre qui n'est pas du texte (voir RAYON_FIGURE_PX) : les lettres et mots alignés sont retirés."""
+    import cv2
+    import numpy as np
+
+    nb, lab, st, _ = cv2.connectedComponentsWithStats(encre, connectivity=8)
+    if nb <= 1:
+        return encre
+    x, y, w, h = (st[1:, i].astype(int) for i in range(4))
+    petit = (h <= HAUTEUR_MAX_CARACTERE * hauteur_page) & (w <= LARGEUR_MAX_MOT * largeur_page)
+    recouv = np.minimum(y[:, None] + h[:, None], (y + h)[None, :]) - np.maximum(y[:, None], y[None, :])
+    ecart = np.maximum(x[None, :] - (x + w)[:, None], x[:, None] - (x + w)[None, :])
+    # l'écart d'un mot à l'autre croît avec le corps : un titre gras (« Labyrinth Tiles ») a des mots d'un seul tenant
+    hmin = np.minimum(h[:, None], h[None, :])
+    voisin = (recouv >= 0.5 * hmin) & (ecart <= np.maximum(ECART_MAX_LETTRES_PX, 0.8 * hmin)) \
+        & petit[None, :] & ~np.eye(len(x), dtype=bool)
+    texte = petit & voisin.any(axis=1)
+    poussiere = st[1:, 4] < AIRE_MIN_TRAIT_PX     # point isolé (grain du papier, point d'un « i ») : rien à rattacher
+    garder = np.concatenate([[False], ~texte & ~poussiere])
+    return garder[lab].astype(np.uint8)
+
+
+def _sur_papier(gris, rect, fond: float) -> bool:
+    """Figure posée sur le papier (au moins PAPIER_MAX_IMAGE_PLEINE de papier), et non image pleine (peinture)."""
+    import numpy as np
+
+    x0, y0, x1, y1 = rect
+    papier = np.abs(gris[y0:y1, x0:x1].astype(np.int16) - int(fond)) < ECART_PAPIER
+    return bool(papier.size) and float(papier.mean()) >= PAPIER_MAX_IMAGE_PLEINE
+
+
+def _etendre_figure(gris, rect, fond: float, pleines: list = ()) -> tuple[int, int, int, int]:
+    """Figure au trait sur papier → rectangle qui englobe aussi ses traits fins (voir RAYON_FIGURE_PX). L'encre des
+    images pleines (`pleines`) n'en fait jamais partie : la bande de tuiles de la section 1 p. 2, à 40 px sous le
+    navire, s'y soudait et le rectangle obtenu masquait le paragraphe entre les deux."""
+    import cv2
+    import numpy as np
+
+    H, W = gris.shape
+    x0, y0, x1, y1 = rect
+    gx = scan_colonnes.detecter_gouttiere(gris) if W / H >= scan_colonnes.RATIO_DOUBLE_PAGE else None
+    cx = (x0 + x1) / 2
+    marge_pli = int(MARGE_GOUTTIERE * 2 * W)
+    bx0, bx1 = (0, W) if gx is None else ((0, gx - marge_pli) if cx < gx else (gx + marge_pli, W))
+    bx0, bx1 = min(bx0, x0), max(bx1, x1)
+    by0, by1 = min(int(MARGE_HAUT * H), y0), max(int(MARGE_BAS * H), y1)
+    noyau = np.ones((2 * RAYON_FIGURE_PX + 1,) * 2, np.uint8)
+    for _ in range(TOURS_EXTENSION_FIGURE):
+        X0, Y0 = max(bx0, x0 - MARGE_EXTENSION_FIGURE), max(by0, y0 - MARGE_EXTENSION_FIGURE)
+        X1, Y1 = min(bx1, x1 + MARGE_EXTENSION_FIGURE), min(by1, y1 + MARGE_EXTENSION_FIGURE)
+        graphique = _encre_graphique((gris[Y0:Y1, X0:X1] < fond - 60).astype(np.uint8), H, W)
+        for a0, b0, a1, b1 in pleines:
+            graphique[max(0, b0 - Y0):max(0, b1 - Y0), max(0, a0 - X0):max(0, a1 - X0)] = 0
+        _, lab = cv2.connectedComponents(cv2.dilate(graphique, noyau))
+        ids = [i for i in np.unique(lab[y0 - Y0:y1 - Y0, x0 - X0:x1 - X0]) if i]
+        ys, xs = (np.isin(lab, ids) & (graphique > 0)).nonzero()
+        if not len(ys):
+            break
+        n = (min(x0, X0 + int(xs.min())), min(y0, Y0 + int(ys.min())),
+             max(x1, X0 + int(xs.max()) + 1), max(y1, Y0 + int(ys.max()) + 1))
+        if n == (x0, y0, x1, y1):
+            break
+        x0, y0, x1, y1 = n
+    return (int(x0), int(y0), int(x1), int(y1))
+
+
+def _fusionner(rects: list) -> list:
+    """Rectangles qui se chevauchent → leur union (deux morceaux d'une même figure, une fois étendus)."""
+    rects = [tuple(r) for r in rects]
+    change = True
+    while change:
+        change = False
+        for i in range(len(rects)):
+            for j in range(i + 1, len(rects)):
+                a, b = rects[i], rects[j]
+                if min(a[2], b[2]) > max(a[0], b[0]) and min(a[3], b[3]) > max(a[1], b[1]):
+                    rects[i] = (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
+                    del rects[j]
+                    change = True
+                    break
+            if change:
+                break
+    return rects
 
 
 def _ton_papier(gris) -> float:
@@ -565,19 +664,30 @@ def preparer_geometrie(chemin_pdf: str, dossier: str, pages: list[int], double_p
 # ── Texte traduit rattaché à sa page ─────────────────────────────────────────
 
 _RE_MARQUEUR = re.compile(r"<!-- === chapitre (\d+) : (.*?) === -->")
+# Paragraphe non traduit (controle_langue.MARQUE_NON_TRADUIT) : le commentaire disparaît avec les autres ; un caractère
+# invisible en tête du texte le remplace jusqu'au rendu, où il devient la classe « non-traduit » (fond ambré).
+PREFIXE_NON_TRADUIT = "\u2060"
+TITRE_NON_TRADUIT = "Laissé en langue d'origine : la traduction dérivait vers une autre langue"
 
 
 def _blocs_traduits(corps: str) -> list[tuple[str, str]]:
     """Corps Markdown d'un chapitre traduit → [(type, texte)] ('titre' | 'encadre' | 'para')."""
     blocs = []
     for morceau in re.split(r"\n\s*\n", corps):
+        signale = MARQUE_NON_TRADUIT in morceau
         morceau = re.sub(r"<!--.*?-->", "", morceau, flags=re.S).strip()
         if not morceau:
             continue
+        if signale:     # resté dans la langue d'origine (translation_runner._par_paragraphes) : rendu en couleur
+            morceau = morceau[:2] + PREFIXE_NON_TRADUIT + morceau[2:] if morceau.startswith("> ") \
+                else PREFIXE_NON_TRADUIT + morceau
         num = re.match(r"^\*\*([\d?]{4})\*\*\s+(\S.*)$", morceau, re.S)
         if num:     # le modèle a collé le numéro d'entrée au paragraphe qui le suit : on le remet en tête, seul
             blocs.append(("para", f"**{num.group(1)}**"))
             morceau = num.group(2)
+        if morceau.startswith("| "):        # tableau de tirage (scan_colonnes._texte_tirage) : gardé tel quel
+            blocs.append(("tirage", morceau))
+            continue
         if morceau.startswith("#"):
             premiere, _, reste = morceau.partition("\n")
             blocs.append(("titre", premiere.lstrip("#").strip()))
@@ -761,6 +871,20 @@ _RE_LIGNE_SOMMAIRE = re.compile(r"^(?P<titre>[^.!:;]{2,80}?[^\d\s.])\s+(?P<page>
 LIGNES_MIN_SOMMAIRE = 4
 
 
+def _tirage_html(texte: str, icones=None) -> str:
+    """Tableau de tirage « | clé | libellé | ☐ | » → table HTML : clé, libellé, case à cocher dessinée (un glyphe ☐
+    peut manquer à la police du PDF)."""
+    rangees = []
+    for ligne in texte.splitlines():
+        cellules = [c.strip() for c in ligne.strip().strip("|").split("|")]
+        if len(cellules) < 2:
+            continue
+        case = '<span class="case"></span>' if len(cellules) > 2 and cellules[2] else ""
+        rangees.append(f'<tr><td class="tirage-cle">{html_mod.escape(cellules[0])}</td>'
+                       f'<td>{inline_html(cellules[1], icones)}</td><td class="tirage-case">{case}</td></tr>')
+    return f'<table class="tirage">{"".join(rangees)}</table>'
+
+
 def _blocs_html(blocs: list[tuple[str, str]], ancre_chap=None, icones=None) -> str:
     """Un paragraphe tout en gras est un numéro d'entrée (« **0001** ») ou un intertitre (scan_colonnes) : rendu en
     titre, plus gros que le texte, au début de ce qu'il introduit. Une suite de lignes « titre … page » est rendue
@@ -785,11 +909,19 @@ def _blocs_html(blocs: list[tuple[str, str]], ancre_chap=None, icones=None) -> s
             classe = "entree" if re.fullmatch(r"[\d?]{3,5}", gras.group(1).strip()) else "intertitre"
             sortie.append(f'<h4 class="{classe}">{inline_html(gras.group(1).strip(), icones)}</h4>')
             continue
+        signale = t.startswith(PREFIXE_NON_TRADUIT)
+        t = t.replace(PREFIXE_NON_TRADUIT, "")
+        nt = f' title="{TITRE_NON_TRADUIT}"' if signale else ""
         if k == "titre":
             ident = f' id="{ancre_chap(t)}"' if ancre_chap else ""
             sortie.append(f"<h3{ident}>{inline_html(t, icones)}</h3>")
         elif k == "encadre":
-            sortie.append(f'<div class="encadre"><p>{inline_html(t, icones)}</p></div>')
+            classe = "encadre non-traduit" if signale else "encadre"
+            sortie.append(f'<div class="{classe}"{nt}><p>{inline_html(t, icones)}</p></div>')
+        elif k == "tirage":
+            sortie.append(_tirage_html(t, icones))
+        elif signale:
+            sortie.append(f'<p class="non-traduit"{nt}>{inline_html(t, icones)}</p>')
         else:
             sortie.append(f"<p>{inline_html(t, icones)}</p>")
     return "\n".join(sortie)
@@ -811,6 +943,13 @@ h4.intertitre {{ font-size: {inter}pt; color: #3a2a1c; font-weight: bold; margin
 table.toc {{ width: 100%; border-collapse: collapse; margin: 0 0 {espace}pt 0; }}
 table.toc td {{ padding: 1pt 0; border-bottom: 0.4pt dotted #8a6d3b; text-align: left; }}
 table.toc td.toc-page {{ text-align: right; width: 12%; }}
+table.tirage {{ width: 100%; border-collapse: collapse; margin: 0 0 {espace}pt 0; background-color: #ffffff;
+               border: 0.6pt solid #8a6d3b; }}
+table.tirage td {{ padding: 1.5pt 3pt; border-bottom: 0.4pt solid #b9a27a; text-align: left; vertical-align: middle; }}
+table.tirage td.tirage-cle {{ width: 2.8em; text-align: center; font-weight: bold; border-right: 0.4pt solid #b9a27a; }}
+table.tirage td.tirage-case {{ width: 1.6em; text-align: center; }}
+.non-traduit {{ background-color: #fbe3b4; border-left: 1.5pt solid #c77d12; padding-left: 2pt; }}
+.case {{ display: inline-block; width: 0.9em; height: 0.9em; border: 0.6pt solid #1f1a14; }}
 """
 
 
@@ -1080,6 +1219,12 @@ h4.intertitre { font-size:1.45em; margin:1em 0 .2em; }
 table.toc { width:100%; border-collapse:collapse; margin:.4em 0 1em; }
 table.toc td { padding:.25em 0; border-bottom:1px dotted var(--bord); }
 table.toc td.toc-page { text-align:right; width:4em; font-variant-numeric:tabular-nums; }
+table.tirage { width:100%; border-collapse:collapse; margin:1em 0; border:1px solid var(--bord); }
+table.tirage td { padding:.3em .6em; border-bottom:1px solid var(--bord); }
+table.tirage td.tirage-cle { width:4em; text-align:center; font-weight:bold; border-right:1px solid var(--bord); }
+table.tirage td.tirage-case { width:2.5em; text-align:center; }
+.non-traduit { background:#fbe3b4; color:#3a2a1c; border-left:4px solid #c77d12; padding-left:.4em; }
+.case { display:inline-block; width:.9em; height:.9em; border:1px solid currentColor; vertical-align:middle; }
 figure { margin:1.2em 0; text-align:center; }
 figure img { max-width:100%; height:auto; border-radius:6px; cursor:zoom-in; box-shadow:0 2px 10px rgba(0,0,0,.15); }
 figcaption { font:12px -apple-system, system-ui, sans-serif; color:var(--doux); margin-top:4px; }

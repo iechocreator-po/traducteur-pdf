@@ -59,13 +59,20 @@ ECHELLE_OCR = 3            # agrandissement avant Tesseract (mesuré : ×3 suffi
 CONFIANCE_MIN_LIGNE = 55   # sous ce seuil, la ligne est du bruit (illustration, ombre de reliure)
 CONFIANCE_MIN_ZONE = 40    # dans une zone déclarée texte par l'utilisateur (voir ocr_lignes)
 CONFIANCE_MIN_TITRE = 70   # idem pour une bande de titre (voir ocr_titre)
-VERSION_ALGO = 14           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
+VERSION_ALGO = 15           # à incrémenter quand un résultat de page n'est plus valable (invalide le cache)
 # Redressement (voir estimer_inclinaison). Mesuré sur les 23 pages du Cycle I : les scans à plat restent sous 1°
 # (bruit de mesure ±0,7°), la double page photographiée de biais (section 2, p. 8) est à -4,2° / -5,1°. Sous 1°, on
 # ne touche pas l'image : une rotation déplacerait les réglages déjà posés à la main pour un gain nul.
 INCLINAISON_MIN = 1.0
 INCLINAISON_MAX = 6.0
 GAIN_MIN_INCLINAISON = 1.3  # l'angle trouvé doit rendre les lignes nettement plus nettes qu'à 0°
+# Cisaillement (voir estimer_cisaillement) : page photographiée en biais, lignes horizontales mais colonnes penchées.
+# Mesuré sur le Cycle I section 3 (20 demi-pages, 19/11/2026) : p. 8 et 10 à gauche, gouttières décalées de 20 à
+# 30 px entre le haut et le bas (k = -0,028 et -0,022, gain 1,19 et 1,13), lues en 1 et 2 colonnes au lieu de 3 ;
+# toutes les autres sous |k| = 0,010 et sous un gain de 1,08.
+CISAILLEMENT_MIN = 0.012     # dx/dy
+CISAILLEMENT_MAX = 0.03
+GAIN_MIN_CISAILLEMENT = 1.1  # le cisaillement trouvé doit rendre les gouttières nettement plus nettes
 RATIO_DOUBLE_PAGE = 1.25   # largeur/hauteur au-delà duquel la page est une double page
 # Page qui n'est pas du texte courant (page titre, couverture) : peu de bandes horizontales ont la forme
 # d'un texte en colonnes. Mesuré sur le Cycle I : page titre 5/41, page avec grande illustration 7/20,
@@ -85,6 +92,7 @@ CENTILE_ENCRE_CLAIRSEMEE = 85
 LARGEUR_MIN_CLAIRSEMEE = 40    # px ; en dessous, c'est un trait ou une ombre
 ECART_MAX_RATTACHEMENT = 60    # px entre la colonne et la bande clairsemée qui la prolonge
 MODES_MOITIE = ("auto", "colonnes", "image", "ignorer")
+LARGEUR_MIN_COLONNE_DETECTEE = 120  # px : en dessous, une plage d'encre détectée n'est pas une colonne
 LARGEUR_MIN_COLONNE = 30       # px : une colonne réglée à la main plus étroite est ignorée
 # Zones dessinées à la main dans l'aperçu. Leur contenu n'est plus lu par les colonnes (il est masqué) ;
 # chaque zone est rendue selon son type, à sa place dans l'ordre de lecture :
@@ -119,6 +127,16 @@ CONFIANCE_MAX_VIGNETTE = 50
 HAUTEUR_VIGNETTE = 1.5          # × hauteur médiane des mots de la ligne
 CONFIANCE_MAX_VOISIN_ICONE = 20     # « sei » 6, « a » 16 ; à 40, une ligne entière collée à une icône y passait
 PONCTUATION_OK = set(".,;:!?—–-“”\"'’‘()…")
+# Symbole de jeu imprimé en NOIR juste après une quantité (« Gain +1 Λ », « Lose -1 ✕ », « +2 Ψ ») : ni coloré ni
+# toujours peu sûr, il échappe aux règles ci-dessus. Tesseract lit Λ « A », Ω « Q », Ψ « Y »/« W »/« ¥ », ✕ « X »,
+# souvent avec 80-96 % de confiance (Cycle I section 3, p. 7 : 30 symboles perdus sur une page, 19/11/2026). Après
+# une quantité, un mot de deux lettres au plus qui n'est pas un mot-outil, un mot plus haut que la ligne, ou un mot
+# court peu sûr est ce symbole. « Qand » (Ω collé à « and ») est coupé en deux.
+_RE_QUANTITE = re.compile(r"^[+\-−–]\d{1,2}$")
+MOTS_APRES_QUANTITE = {"to", "or", "of", "in", "on", "at", "if", "an", "as", "per", "and", "for", "the"}
+CONFIANCE_MAX_SYMBOLE = 60
+_RE_SYMBOLE_COLLE = re.compile(r"^([AQXWYΛΩΨ¥])(and|or|to)([.,;:]?)$")
+_RE_QUANTITE_COLLEE = re.compile(r"^([+\-−–]\d{1,2})\.?([AQXWYΛΩΨ¥])([.,;:]?)$")     # « +1.Q. »
 CONNECTEURS = {"the", "of", "a", "an", "and", "to", "in", "for", "on", "at", "by", "with"}
 
 # Numéro d'entrée (« 0001 », gros chiffres en tête de ligne) et intertitre (« HOW TO USE THIS BOOK? », corps plus
@@ -240,7 +258,7 @@ def detecter_colonnes(gris, x0: int, x1: int, bande: int = 50,
             fusion[-1] = (fusion[-1][0], b)
         else:
             fusion.append((a, b))
-    colonnes = [(a, b) for a, b in fusion if b - a > 120]
+    colonnes = [(a, b) for a, b in fusion if b - a > LARGEUR_MIN_COLONNE_DETECTEE]
     colonnes = _rattacher_encre_clairsemee(np.array(profils), colonnes, journal)
     return [(max(x0 + a - 6, 0), x0 + b + 6) for a, b in colonnes]
 
@@ -264,7 +282,13 @@ def _rattacher_encre_clairsemee(profils, colonnes: list[tuple[int, int]],
             continue
         if any(min(b, q) > max(a, p) for p, q in sortie):
             continue
-        gauche = [i for i, (p, q) in enumerate(sortie) if q <= a and a - q <= ECART_MAX_RATTACHEMENT]
+        # Large comme une colonne : c'est une colonne dont le texte s'arrête tôt (le bas est une figure ou du blanc),
+        # pas des numéros de page. Rattachée à sa voisine, elle était lue en travers des deux (Cycle I section 3,
+        # p. 9 : texte sur le tiers haut de la 3ᵉ colonne, 19/11/2026).
+        if b - a > LARGEUR_MIN_COLONNE_DETECTEE:
+            sortie = sorted(sortie + [(a, b)])
+            continue
+        gauche =[i for i, (p, q) in enumerate(sortie) if q <= a and a - q <= ECART_MAX_RATTACHEMENT]
         if not gauche:
             continue
         i = gauche[-1]
@@ -328,7 +352,7 @@ def langues_tesseract() -> list[str]:
     return [ligne.strip() for ligne in sortie.splitlines()[1:] if ligne.strip()]
 
 
-def _tesseract(image, psm: int, langue: str, tsv: bool = False) -> str:
+def _tesseract(image, psm: int, langue: str, tsv: bool = False, options: list[str] | None = None) -> str:
     """Appelle Tesseract sur une image PIL agrandie, via un fichier temporaire PROPRE
     à l'appel (plusieurs pages tournent en parallèle)."""
     from PIL import Image
@@ -336,7 +360,7 @@ def _tesseract(image, psm: int, langue: str, tsv: bool = False) -> str:
     with tempfile.TemporaryDirectory(prefix="scan_") as dossier:
         chemin = os.path.join(dossier, "r.png")
         grande.save(chemin)
-        cmd = ["tesseract", chemin, "stdout", "-l", langue, "--psm", str(psm)]
+        cmd = ["tesseract", chemin, "stdout", "-l", langue, "--psm", str(psm)] + list(options or [])
         if tsv:
             cmd.append("tsv")
         env = {**os.environ, "OMP_THREAD_LIMIT": "1"}   # un fil par appel : le parallélisme est au niveau page
@@ -369,6 +393,7 @@ def ocr_lignes(image, langue: str, y_decalage: int = 0, zone: bool = False) -> l
         ))
     res = []
     for mots in lignes.values():
+        mots = _relire_numero_entree(image, mots, langue)
         if sum(m["c"] for m in mots) / len(mots) < (CONFIANCE_MIN_ZONE if zone else CONFIANCE_MIN_LIGNE):
             continue
         # sans un vrai mot (≥ 3 lettres), c'est du bruit d'illustration
@@ -382,6 +407,46 @@ def ocr_lignes(image, langue: str, y_decalage: int = 0, zone: bool = False) -> l
         ))
     res.sort(key=lambda L: L["haut"])
     return res
+
+
+def _relire_numero_entree(image, mots: list[dict], langue: str) -> list[dict]:
+    """
+    Gros numéro d'entrée en tête de ligne mal lu (« 0 '@) P, Ff » pour 0027, « 0 0 0 iF » pour 0007 : Cycle I
+    section 3 p. 7, 19/11/2026) : ses mots hauts sont relus ensemble, chiffres seuls (liste blanche). Lu sur 3 à 5
+    chiffres, il remplace les mots de tête ; sinon rien ne change (numero_entree et reparer_entrees prennent le relais).
+    Une tête sans aucun chiffre lu (intertitre, lettrine) n'est pas touchée.
+    """
+    hauteurs = sorted(m["h"] for m in mots)
+    ref = hauteurs[len(hauteurs) // 2]
+    tete = 0
+    while tete < len(mots) and mots[tete]["h"] > HAUTEUR_VIGNETTE * ref:
+        tete += 1
+    if not tete or tete == len(mots):
+        return mots
+    lu = "".join(re.sub(r"[^A-Za-z0-9]", "", m["txt"]) for m in mots[:tete])
+    if re.fullmatch(r"\d{4}", lu) or not re.search(r"\d", lu.translate(CHIFFRES_LUS)):
+        return mots
+    x0 = min(m["l"] for m in mots[:tete]) // ECHELLE_OCR
+    y0 = min(m["t"] for m in mots[:tete]) // ECHELLE_OCR
+    x1 = max(m["l"] + m["w"] for m in mots[:tete]) // ECHELLE_OCR
+    y1 = max(m["t"] + m["h"] for m in mots[:tete]) // ECHELLE_OCR
+    p = 3
+    boite = (max(0, x0 - p), max(0, y0 - p), min(image.width, x1 + p), min(image.height, y1 + p))
+    try:
+        relu = _tesseract(image.crop(boite), 7, langue, options=["-c", "tessedit_char_whitelist=0123456789"]).strip()
+    except ScanColonnesEchec:
+        return mots
+    relu = re.sub(r"\s", "", relu)
+    if not re.fullmatch(r"\d{3,5}", relu):
+        return mots
+    premier = mots[0]
+    l, t = min(m["l"] for m in mots[:tete]), min(m["t"] for m in mots[:tete])
+    numero = dict(premier, txt=relu, c=95.0, l=l, t=t,
+                  w=max(m["l"] + m["w"] for m in mots[:tete]) - l, h=max(m["t"] + m["h"] for m in mots[:tete]) - t)
+    if all("boite" in m for m in mots[:tete]):
+        bs = [m["boite"] for m in mots[:tete]]
+        numero["boite"] = [min(b[0] for b in bs), min(b[1] for b in bs), max(b[2] for b in bs), max(b[3] for b in bs)]
+    return [numero] + mots[tete:]
 
 
 def ocr_titre(image, langue: str) -> tuple[str, float]:
@@ -444,16 +509,57 @@ def _est_pictogramme(mot: dict, hauteur_mediane: float, zone: bool = False) -> b
     return zone and mot["c"] < CONFIANCE_MAX_VIGNETTE and mot["h"] > HAUTEUR_VIGNETTE * hauteur_mediane
 
 
+def _couper_symboles_colles(mots: list[dict]) -> list[dict]:
+    """« +1 Qand » → « +1 », « Q », « and » : le symbole collé au mot suivant (voir _RE_QUANTITE). La boîte est
+    partagée au prorata des caractères."""
+    sortie = []
+    for i, m in enumerate(mots):
+        q = _RE_QUANTITE_COLLEE.match(m["txt"])
+        c = _RE_SYMBOLE_COLLE.match(m["txt"]) if sortie and _RE_QUANTITE.match(sortie[-1]["txt"]) else None
+        if not (c or q):
+            sortie.append(m)
+            continue
+        # q : quantité puis symbole (« +1.Q. ») ; c : symbole puis mot (« Qand »)
+        gauche, droite = (q.group(1), q.group(2) + q.group(3)) if q else (c.group(1), c.group(2) + c.group(3))
+        part = len(gauche) / len(m["txt"])
+        w1 = max(1, round(m["w"] * part))
+        sym = dict(m, txt=gauche, w=w1)
+        reste = dict(m, txt=droite, l=m["l"] + w1, w=m["w"] - w1)
+        if "boite" in m:
+            x0, y0, x1, y1 = m["boite"]
+            xc = x0 + max(1, round((x1 - x0) * part))
+            sym["boite"], reste["boite"] = [x0, y0, xc, y1], [xc, y0, x1, y1]
+        sortie += [sym, reste]
+    return sortie
+
+
+def _symbole_apres_quantite(mot: dict, precedent: dict | None, h_med: float) -> bool:
+    """Mot qui suit « +1 » / « -2 » et qui est un symbole de jeu lu comme des lettres (voir _RE_QUANTITE)."""
+    if precedent is None or not _RE_QUANTITE.match(precedent["txt"]):
+        return False
+    coeur = re.sub(r"[^A-Za-z0-9]", "", mot["txt"])
+    if coeur.isdigit():
+        return False
+    if not coeur:                       # « ‘ », « ® » : ponctuation seule après une quantité
+        return True
+    if coeur.lower() in MOTS_APRES_QUANTITE:
+        return False
+    return (len(coeur) <= 2 or mot["h"] > HAUTEUR_VIGNETTE * h_med
+            or (len(coeur) <= 4 and mot["c"] < CONFIANCE_MAX_SYMBOLE))
+
+
 def texte_ligne(ligne: dict, icones: dict | None = None) -> str:
     """
     Texte d'une ligne OCR. Les pictogrammes consécutifs ne font qu'un. `icones` ({"page": n, "boites": [...]}) :
     chaque pictogramme y range sa boîte (union des mots fusionnés) et devient « ⟦icône:page.k⟧ » ; sans lui,
     « ⟦icône⟧ » (rendu en losange).
     """
-    mots = ligne["mots"]
+    mots = _couper_symboles_colles(ligne["mots"])
     hauteurs = sorted(m["h"] for m in mots)
     h_med = hauteurs[len(hauteurs) // 2] if hauteurs else 0
     jetons = [nettoyer_mot(m, mots[i + 1]["txt"] if i + 1 < len(mots) else "") for i, m in enumerate(mots)]
+    jetons = [MARQUEUR_ICONE if _symbole_apres_quantite(m, mots[i - 1] if i else None, h_med) else j
+              for i, (m, j) in enumerate(zip(mots, jetons))]
     # numéro d'entrée en tête de ligne : les mots hauts du début, s'il y a un chiffre parmi eux, restent du texte
     tete = 0
     while tete < len(mots) and mots[tete]["h"] > HAUTEUR_VIGNETTE * h_med:
@@ -704,6 +810,8 @@ def blocs_vers_markdown(blocs: list[tuple[str, str]]) -> str:
             md.append(f"{MARQUE_CONSERVER[0]}\n{t}\n{MARQUE_CONSERVER[1]}\n")
         elif k in ("entree", "intertitre"):
             md.append(f"**{t}**\n")
+        elif k == "tirage":
+            md.append(t + "\n")
         else:
             md.append(t + "\n")
     return "\n".join(md)
@@ -866,14 +974,23 @@ def traiter_page(image, langue: str = "eng", double_page: bool | None = None, re
                     bas = min(h, y0 + s1 + DEBORD_ENCADRE) if sk == "encadre" else y0 + s1
                     lignes = _ancrer(ocr_lignes(image_lue.crop((a + marge, haut, b - marge, bas)),
                                                 langue, y_decalage=haut), a + marge)
+                    if not lignes and sk == "encadre" and bas - haut <= HAUTEUR_MAX_RANGEE:
+                        # petit encadré d'une ligne écarté par la confiance (rangée de tableau : « 3-4 » lu « go » à
+                        # 0 %, case à cocher à 49 %) : relu avec les seuils d'une zone
+                        lignes = _ancrer(ocr_lignes(image_lue.crop((a + marge, haut, b - marge, bas)),
+                                                    langue, y_decalage=haut, zone=True), a + marge)
                     if lignes:
                         lus.append((cle, sk, lignes, b - a))
+    lus = _regrouper_tirages(lus, image_lue, langue)
     # Corps du texte de la PAGE : sert aux segments trop courts pour mesurer le leur. Masquer les illustrations a
     # isolé « HOW TO USE THIS BOOK? » dans un segment d'une ligne, qui ne savait plus qu'il était plus gros.
     medianes = [st.median(m["h"] for m in L["mots"]) for _, _, lignes, _ in lus for L in lignes if L["mots"]]
     corps_page = st.median(medianes) if len(medianes) >= 3 else None
     pieds: list = []
     for cle, sk, lignes, largeur in lus:
+        if sk == "tirage":
+            blocs.append((cle, "tirage", _texte_tirage(lignes, icones)))
+            continue
         for k, t in lignes_vers_blocs(lignes, largeur, h, icones=icones, corps_defaut=corps_page, pieds=pieds):
             # lignes_vers_blocs renvoie des 'para' (et numéros, intertitres) ; dans un encadré, 'para' → 'encadre'
             blocs.append((cle, "encadre" if sk == "encadre" and k == "para" else k, t))
@@ -882,6 +999,103 @@ def traiter_page(image, langue: str = "eng", double_page: bool | None = None, re
     blocs.sort(key=lambda b: b[0])      # tri stable : sans zone, l'ordre est celui de la boucle
     return {"blocs": [(k, t) for _, k, t in blocs], "avertissements": avert,
             "icones": icones["boites"] if icones else [], "pieds": pieds}
+
+
+# ── Tableau de tirage ────────────────────────────────────────────────────────
+# « α Comes a Savior / 1–2 Mazed Forest ☐ / … / Ω Till Death » (Cycle I section 3 p. 5, 19/11/2026) : une rangée
+# par petit encadré, une clé (tirage de dé, α, Ω) séparée du libellé par un grand blanc, une case à cocher à droite.
+# Lu comme du texte, chaque rangée devenait un encadré séparé, α « a », Ω « Q », les cases des lettres (« 8 », « S »,
+# « ea »), et « 3-4 » (lu « go ») faisait écarter sa rangée. Regroupées, les rangées forment UN bloc « tirage » :
+# Markdown « | clé | libellé | ☐ | », dont la traduction ne touche que le libellé (translator._RE_PROTEGE).
+HAUTEUR_MAX_RANGEE = 60          # px : un encadré plus haut n'est pas une rangée d'une ligne
+RANGEES_MIN_TIRAGE = 3
+ECART_CELLULE = 2.5              # × hauteur médiane des mots : blanc entre deux cellules
+CASE_A_COCHER = "☐"
+_RE_CLE_TIRAGE = re.compile(r"^\d{1,2}(?:[-–]\d{1,2})?$")
+CLES_LETTRES = {"a": "α", "α": "α", "@": "α", "Q": "Ω", "O": "Ω", "Ω": "Ω", "0": "Ω"}
+
+
+def _cellules(L: dict) -> list[list[dict]]:
+    """Mots d'une ligne groupés en cellules (blanc de plus de ECART_CELLULE hauteurs de lettre entre deux mots)."""
+    mots = sorted(L["mots"], key=lambda m: m["l"])
+    # hauteur d'une lettre du libellé : le quartile bas, la clé et la case étant plus hautes que le texte
+    h = sorted(m["h"] for m in mots)[len(mots) // 4] or 1
+    cellules = [[mots[0]]]
+    for a, b in zip(mots, mots[1:]):
+        if b["l"] - (a["l"] + a["w"]) > ECART_CELLULE * h:
+            cellules.append([])
+        cellules[-1].append(b)
+    return cellules
+
+
+def _cle_lue(mot: dict, image, langue: str) -> str | None:
+    """Clé d'une rangée : « 1-2 » → « 1–2 », « a » → α, « Q » → Ω ; illisible (« go »), relue en chiffres seuls."""
+    t = mot["txt"].strip(".,;:")
+    if _RE_CLE_TIRAGE.match(t):
+        return t.replace("-", "–")
+    if t in CLES_LETTRES:
+        return CLES_LETTRES[t]
+    if len(t) > 3 or "boite" not in mot:
+        return None
+    x0, y0, x1, y1 = mot["boite"]
+    try:
+        relu = _tesseract(image.crop((max(0, x0 - 3), max(0, y0 - 3), x1 + 3, y1 + 3)), 7, langue,
+                          options=["-c", "tessedit_char_whitelist=0123456789-"]).strip()
+    except ScanColonnesEchec:
+        return None
+    return relu.replace("-", "–") if _RE_CLE_TIRAGE.match(relu) else None
+
+
+def _rangee(L: dict, image, langue: str) -> dict | None:
+    """Ligne → {cle, mots du libellé, case} si c'est une rangée de tirage, sinon None."""
+    cellules = _cellules(L)
+    if not 2 <= len(cellules) <= 3 or len(cellules[0]) != 1:
+        return None
+    cle = _cle_lue(cellules[0][0], image, langue)
+    if cle is None:
+        return None
+    libelle, case = cellules[1], False
+    if len(cellules) == 3:
+        if len(cellules[2]) > 1:
+            return None
+        case = True     # seule à droite, après un grand blanc : la case (lue « 8 », « S », « ea », « @ »)
+    elif len(libelle) > 1:
+        dernier = libelle[-1]
+        if dernier["h"] > 1.6 * min(m["h"] for m in libelle[:-1]) and len(dernier["txt"]) <= 2:
+            libelle, case = libelle[:-1], True
+    return dict(cle=cle, mots=libelle, case=case)
+
+
+def _regrouper_tirages(lus: list, image, langue: str) -> list:
+    """Suites d'au moins RANGEES_MIN_TIRAGE encadrés d'une ligne, dans la même colonne, qui sont des rangées de
+    tirage → une entrée « tirage » (lignes = rangées). Le reste est rendu tel quel."""
+    sortie, i = [], 0
+    while i < len(lus):
+        j, rangees = i, []
+        while j < len(lus):
+            cle, sk, lignes, _ = lus[j]
+            if sk != "encadre" or len(lignes) != 1 or (rangees and cle[:2] != lus[i][0][:2]):
+                break
+            r = _rangee(lignes[0], image, langue)
+            if r is None:
+                break
+            rangees.append(r)
+            j += 1
+        if len(rangees) >= RANGEES_MIN_TIRAGE:
+            sortie.append((lus[i][0], "tirage", rangees, lus[i][3]))
+            i = j
+        else:
+            sortie.append(lus[i])
+            i += 1
+    return sortie
+
+
+def _texte_tirage(rangees: list[dict], icones: dict | None) -> str:
+    lignes = []
+    for r in rangees:
+        libelle = texte_ligne(dict(mots=r["mots"], zone=False), icones)
+        lignes.append(f"| {r['cle']} | {libelle} |" + (f" {CASE_A_COCHER} |" if r["case"] else ""))
+    return "\n".join(lignes)
 
 
 def _masquer_zones(gris, image, zones: list[dict]):
@@ -1117,6 +1331,39 @@ def estimer_inclinaison(gris) -> float:
     return angle
 
 
+def _cisailler(image, k: float, fond=0):
+    """Décale chaque ligne de k × (y − milieu) px vers la gauche : une gouttière x = a + k·y devient verticale."""
+    from PIL import Image
+    w, h = image.size
+    return image.transform((w, h), Image.AFFINE, (1, k, -k * h / 2, 0, 1, 0), resample=Image.BICUBIC, fillcolor=fond)
+
+
+def estimer_cisaillement(gris) -> float:
+    """
+    Cisaillement (dx/dy) qui remet les colonnes à la verticale, ou 0.0. Même méthode que estimer_inclinaison sur le
+    profil VERTICAL des lettres : les gouttières sont les plus nettes quand elles sont droites. Une rotation ne
+    suffit pas : la page photographiée en biais garde ses lignes horizontales (Cycle I section 3, p. 10).
+    """
+    from PIL import Image
+    np = _numpy()
+    masque = _masque_lettres(np.ascontiguousarray(gris))
+    if masque.mean() < 0.5:
+        return 0.0
+    image = Image.fromarray(masque)
+
+    def nettete(k: float) -> float:
+        return float(np.var(np.asarray(_cisailler(image, k), dtype=float).sum(axis=0)))
+
+    grossier = np.arange(-CISAILLEMENT_MAX, CISAILLEMENT_MAX + 1e-9, 0.002)
+    meilleur = float(grossier[int(np.argmax([nettete(k) for k in grossier]))])
+    fin = np.arange(meilleur - 0.002, meilleur + 0.0021, 0.0005)
+    scores = [nettete(k) for k in fin]
+    k = round(float(fin[int(np.argmax(scores))]), 4)
+    if abs(k) < CISAILLEMENT_MIN or max(scores) < GAIN_MIN_CISAILLEMENT * (nettete(0.0) or 1.0):
+        return 0.0
+    return k
+
+
 def redresser(image, dpi: int = DPI_RENDU):
     """Image redressée seule (voir redresser_et_mesurer)."""
     return redresser_et_mesurer(image, dpi)[0]
@@ -1148,15 +1395,24 @@ def redresser_et_mesurer(image, dpi: int = DPI_RENDU):
         moities_mesure = [(0, wm)]
         moities = [(0, w)]
     angles = [estimer_inclinaison(gris[:, x0:x1]) for x0, x1 in moities_mesure]
-    if not any(angles):
-        return image, angles
-    gris = np.array(image.convert("L")) if mesure is not image else gris
-    sortie = image.copy()
-    for (x0, x1), angle in zip(moities, angles):
-        if angle:
-            papier = int(np.percentile(gris[:, x0:x1], 85))
-            moitie = image.crop((x0, 0, x1, h)).rotate(angle, resample=Image.BICUBIC, fillcolor=(papier,) * 3)
-            sortie.paste(moitie, (x0, 0))
+    gris_plein = np.array(image.convert("L")) if mesure is not image else gris
+    sortie = image
+    if any(angles):
+        sortie = image.copy()
+        for (x0, x1), angle in zip(moities, angles):
+            if angle:
+                papier = int(np.percentile(gris_plein[:, x0:x1], 85))
+                moitie = image.crop((x0, 0, x1, h)).rotate(angle, resample=Image.BICUBIC, fillcolor=(papier,) * 3)
+                sortie.paste(moitie, (x0, 0))
+        gris = np.array((sortie if dpi == DPI_RENDU else sortie.resize((wm, hm), Image.BILINEAR)).convert("L"))
+    # Puis le cisaillement, mesuré sur la demi-page déjà tournée (k est sans unité : valable à tout dpi).
+    cisaillements = [estimer_cisaillement(gris[:, x0:x1]) for x0, x1 in moities_mesure]
+    if any(cisaillements):
+        sortie = sortie.copy() if sortie is image else sortie
+        for (x0, x1), k in zip(moities, cisaillements):
+            if k:
+                papier = int(np.percentile(gris_plein[:, x0:x1], 85))
+                sortie.paste(_cisailler(sortie.crop((x0, 0, x1, h)), k, (papier,) * 3), (x0, 0))
     return sortie, angles
 
 

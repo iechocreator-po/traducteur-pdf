@@ -805,3 +805,45 @@ def test_page_en_cache_sans_angle_mesuree_sans_refaire_l_ocr(tmp_path, monkeypat
     assert res["redressement"] == [0.0, 0.0] and res["blocs"] == [["texte", "déjà lu"]]   # paysage : deux moitiés
     with open(chemin) as f:
         assert json.load(f)["redressement"] == [0.0, 0.0]
+
+
+def test_symbole_noir_apres_une_quantite_devient_pictogramme():
+    """Cycle I section 3 p. 7 (19/11/2026) : Λ, Ω, Ψ, ✕ imprimés en noir après « +1 » étaient lus « A », « Q »,
+    « YW », « X » (jusqu'à 96 % de confiance) et traduits comme des lettres."""
+    def L(*mots):
+        return dict(mots=[_mot_situe(t, c=c, h=h, x=i * 10) for i, (t, c, h) in enumerate(mots)],
+                    gauche=0, droite=200, haut=0)
+    assert S.texte_ligne(L(("Gain", 96, 27), ("+2", 95, 27), ("A", 96, 30), ("to", 95, 22),
+                                       ("add", 96, 27), ("+2.", 95, 27))) == "Gain +2 ⟦icône⟧ to add +2."
+    assert S.texte_ligne(L(("subtract", 96, 27), ("-2", 95, 27), ("WY.", 33, 38))) == "subtract -2 ⟦icône⟧"
+    assert S.texte_ligne(L(("gains", 96, 27), ("+1", 95, 27), ("Qand", 87, 31), ("+2", 95, 27),
+                                       ("Λ.", 89, 30))) == "gains +1 ⟦icône⟧ and +2 ⟦icône⟧"
+    assert S.texte_ligne(L(("leader", 96, 27), ("gains", 96, 27), ("+1.Q.", 80, 30),
+                                       ("See", 96, 27))) == "leader gains +1 ⟦icône⟧ See"
+    # un vrai mot après une quantité reste un mot
+    assert S.texte_ligne(L(("Gain", 96, 27), ("+1", 95, 27), ("Priest", 97, 26))) == "Gain +1 Priest"
+    assert S.texte_ligne(L(("Lose", 96, 27), ("-1", 95, 27), ("Titan.", 96, 27))) == "Lose -1 Titan."
+
+
+def test_rangees_de_tirage_regroupees_en_un_tableau():
+    """Cycle I section 3 p. 5 : une rangée par petit encadré (clé, grand blanc, libellé, case) → un bloc « tirage »."""
+    def rangee(cle, libelle, case=None, y=0):
+        mots = [dict(l=90, t=40, w=33, h=30, c=80, txt=cle, sat=0.0, boite=[914, y, 925, y + 10])]
+        x = 260
+        for t in libelle.split():
+            mots.append(dict(l=x, t=45, w=len(t) * 15, h=26, c=96, txt=t, sat=0.0, boite=[970, y, 990, y + 9]))
+            x += len(t) * 15 + 10
+        if case:
+            mots.append(dict(l=595, t=29, w=61, h=62, c=45, txt=case, sat=0.0, boite=[1082, y, 1102, y + 20]))
+        return [dict(mots=mots, gauche=30, droite=220, haut=y)]
+    lus = [((1, 0, 600), "encadre", rangee("a", "Comes a Savior", y=600), 235),
+           ((1, 0, 640), "encadre", rangee("1-2", "Mazed Forest", "@", y=640), 235),
+           ((1, 0, 680), "encadre", rangee("7", "Words of Love", "S", y=680), 235),
+           ((1, 0, 720), "encadre", rangee("Q", "Till Death", y=720), 235),
+           ((1, 0, 760), "texte", [dict(mots=[mot("Following"), mot("rumors")], gauche=0, droite=200, haut=760)], 235)]
+    sortie = S._regrouper_tirages(lus, None, "eng")
+    assert [e[1] for e in sortie] == ["tirage", "texte"]
+    assert S._texte_tirage(sortie[0][2], None) == ("| α | Comes a Savior |\n| 1–2 | Mazed Forest | ☐ |\n"
+                                                   "| 7 | Words of Love | ☐ |\n| Ω | Till Death |")
+    # deux rangées seulement : pas un tableau
+    assert [e[1] for e in S._regrouper_tirages(lus[:2], None, "eng")] == ["encadre", "encadre"]

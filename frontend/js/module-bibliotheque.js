@@ -514,6 +514,9 @@
     const lignes = markdown.split("\n");
     let paragraphe = [];
     let premierTitreSaute = false;
+    // « <!-- non-traduit --> » : le paragraphe suivant est resté dans sa langue d'origine (la traduction dérivait vers
+    // une autre langue, voir controle_langue.MARQUE_NON_TRADUIT) ; il est affiché sur fond ambré.
+    let nonTraduit = false;
     // Extraction d'images = fonctionnalité de mode avancé — flag ET mode avancé requis.
     const imagesActives = featureFlags.extraction_images_pdf === true
       && document.documentElement.classList.contains("avance");
@@ -533,6 +536,11 @@
       // http(s)/#/mailto). Ne jamais y passer une chaîne qui n'est pas sortie
       // de cette fonction.
       p.innerHTML = markdownEnLigne(paragraphe.join(" "));
+      if (nonTraduit) {
+        p.classList.add("non-traduit");
+        p.title = "Laissé en langue d'origine : la traduction dérivait vers une autre langue";
+        nonTraduit = false;
+      }
       zone.appendChild(p);
       paragraphe = [];
     };
@@ -540,6 +548,7 @@
     for (const ligne of lignes) {
       // Ligne de commentaire HTML (marques « <!-- conserver --> » d'un texte non traduit, marqueurs de
       // chapitre) : invisible, comme dans un vrai rendu Markdown. Elle ne coupe pas le paragraphe.
+      if (/^\s*<!-- non-traduit -->\s*$/.test(ligne)) { viderParagraphe(); nonTraduit = true; continue; }
       if (/^\s*<!--.*-->\s*$/.test(ligne)) continue;
       const image = imagesActives ? ligne.trim().match(/^!\[([^\]]*)\]\(([^)]+)\)$/) : null;
       const titre = ligne.match(/^(#{1,6})\s+(.*)/);
@@ -559,6 +568,23 @@
         // gras (`**Titre**`), qui s'affichait avec ses astérisques.
         h.innerHTML = markdownEnLigne(titre[2]);
         zone.appendChild(h);
+      } else if (/^\|\s.*\|$/.test(ligne.trim())) {
+        // Rangée d'un tableau de tirage du scan (« | 1–2 | Forêt | ☐ | ») : une ligne de tableau, pas du texte.
+        viderParagraphe();
+        let table = zone.lastElementChild;
+        if (!table || !table.classList.contains("lecture-tirage")) {
+          table = document.createElement("table");
+          table.className = "lecture-tirage";
+          zone.appendChild(table);
+        }
+        const tr = document.createElement("tr");
+        const cellules = ligne.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+        for (const c of cellules) {
+          const td = document.createElement("td");
+          td.innerHTML = markdownEnLigne(c);   // échappe d'abord (voir viderParagraphe)
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
       } else if (ligne.trim() === "") {
         viderParagraphe();
       } else {

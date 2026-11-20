@@ -618,6 +618,15 @@ html.avance .biblio-lecture {
 @media (max-width: 900px) {
   .lecture-colonnes.comparaison { grid-template-columns: 1fr; gap: 1.5rem 0; }
 }
+/* Paragraphe laissé en langue d'origine (la traduction dérivait vers le chinois…) */
+.non-traduit { background: var(--amber-bg); border-left: 3px solid var(--amber);
+  padding: 0.2em 0.5em; }
+
+/* Tableau de tirage d'un scan (« | 1–2 | Forêt | ☐ | ») */
+.lecture-tirage { border-collapse: collapse; margin: 0.8em 0; border: 1px solid var(--border); }
+.lecture-tirage td { padding: 0.25em 0.7em; border-bottom: 1px solid var(--border); }
+.lecture-tirage td:first-child { font-weight: 600; text-align: center; border-right: 1px solid var(--border); }
+
 .lecture-image {
   display: block;
   max-width: 100%;

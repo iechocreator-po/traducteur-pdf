@@ -996,3 +996,42 @@ def test_encadres_perdus_retentes(tmp_path, monkeypatch):
     out = translation_runner._traduire_avec_controle("> Fail: See 0006.\n\n> Success: See 0005.",
                                                      _etat_controle(tmp_path), cache, "partie 1/1")
     assert out.startswith("> Échec") and cache
+
+
+def test_chinois_trop_court_passe_par_le_controle_de_langue(tmp_path, monkeypatch):
+    """Cycle I section 3 (19/11/2026) : un paragraphe rendu en chinois est aussi trop court (ratio 0,41) ; le seul
+    avertissement de ratio le laissait passer, chinois compris, jusqu'au PDF. Il est retenté, puis traduit par moitiés."""
+    monkeypatch.setattr(translation_runner.glossaire, "charger_termes", lambda: [])
+
+    def faux(texte, *a, **k):
+        if "First" in texte and "Second" in texte:
+            return "Petra 引导她走向巨大的石块。"
+        return "Premier paragraphe, traduit en français comme il se doit, sans rien perdre du sens." if "First" in texte \
+            else "Second paragraphe, traduit lui aussi en français comme il se doit, sans rien perdre."
+    monkeypatch.setattr(translation_runner, "traduire_texte", faux)
+    texte = ("First paragraph, which must be translated into French without losing any of its meaning at all.\n\n"
+             "Second paragraph, which must also be translated into French without losing anything at all.")
+    cache, state = {}, _etat_controle(tmp_path)
+    out = translation_runner._traduire_avec_controle(texte, state, cache, "partie 1/1")
+    assert "引" not in out and out.startswith("Premier paragraphe") and cache
+
+
+def test_paragraphe_toujours_en_chinois_garde_en_anglais_et_signale(tmp_path, monkeypatch):
+    """Demande du 19/11/2026 : plutôt qu'un paragraphe chinois, l'original anglais, marqué pour être rendu en couleur.
+    Le paragraphe qui se traduit bien est gardé traduit ; rien n'est mis en cache (un re-run retentera)."""
+    monkeypatch.setattr(translation_runner.glossaire, "charger_termes", lambda: [])
+
+    def faux(texte, *a, **k):
+        if "Second" in texte:
+            return "Petra 引导她走向巨大的石块中雕刻出的简陋阶梯。"
+        return "Premier paragraphe, traduit en français comme il se doit, sans rien perdre du sens."
+    monkeypatch.setattr(translation_runner, "traduire_texte", faux)
+    texte = ("First paragraph, which must be translated into French without losing any of its meaning at all.\n\n"
+             "**0027**\n\n"
+             "Second paragraph, which the model keeps writing in Chinese whatever the temperature.")
+    cache, state = {}, _etat_controle(tmp_path)
+    out = translation_runner._traduire_avec_controle(texte, state, cache, "partie 1/1")
+    assert out == ("Premier paragraphe, traduit en français comme il se doit, sans rien perdre du sens.\n\n**0027**\n\n"
+                   "<!-- non-traduit -->\nSecond paragraph, which the model keeps writing in Chinese whatever the "
+                   "temperature.")
+    assert not cache and "laissé(s) en anglais" in state.avertissements[0]
