@@ -89,6 +89,11 @@ Dossier de travail : `traducteur-pdf/backend/`. Un échec est un constat à 100.
     restée cachée le 19/11/2026 parce que `parcours.js` (objectif « Nettoyer » de l'Accueil) lit ses champs `scan-*` et
     appelle `lancerScan` ; elle n'est plus une `.ds-card`, donc hors numérotation des repères (`ui-ids.js` compte aussi les
     cartes cachées). Déplacer un élément du DOM d'une carte à l'autre fait aussi sauter la vue quand il a le focus.
+21. **Une structure entrecoupée de sentinelles revient mélangée par le modèle.** Des rangées de tableau dont la clé et la
+    case sont protégées (`⟦IMGk⟧`) laissent qwen libre de déplacer les libellés d'une rangée à l'autre : traduire chaque
+    morceau à part, comme les numéros d'entrée (`translator._traduire_tableau`, découpage avant celui des entrées). Un
+    dernier repli paragraphe par paragraphe garde en langue d'origine ce qui dérive encore, marqué `<!-- non-traduit -->`
+    et rendu en ambré ; ne jamais rendre ce texte au cache (Cycle I, section 3, 19/11/2026).
 
 ## Zones d'audit
 
