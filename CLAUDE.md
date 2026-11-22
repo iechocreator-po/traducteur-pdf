@@ -149,7 +149,7 @@ le livre complet).
 
 ## Revue de code
 
-Skill commune `/revue-code` (méthode : `2000_DigitalProducts/skills/revue-code/SKILL.md` ; mode d'emploi : `CLAUDE.md` racine, section « Revue de code »). À lancer depuis ce dossier avant chaque push (`/revue-code`) ou pour un état des lieux (`/revue-code audit`). Pièges propres à ce produit, commandes mécaniques et zones d'audit : [`.claude/revue-pieges.md`](.claude/revue-pieges.md). Pièges valables pour plusieurs produits : registre `2000_DigitalProducts/skills/revue-code/pieges-communs.md` (PC-01…) ; un piège qui peut toucher un autre produit y va, pas ici.
+Skill commune `/revue-code` (méthode : `2000_DigitalProducts/skills/revue-code/SKILL.md` ; mode d'emploi : `CLAUDE.md` racine, section « Revue de code »). À lancer depuis ce dossier avant chaque push (`/revue-code`) ou pour un état des lieux (`/revue-code audit`). Pièges propres à ce produit, commandes mécaniques et zones d'audit : [`.claude/revue-pieges.md`](.claude/revue-pieges.md). Pièges valables pour plusieurs produits : registre `2000_DigitalProducts/skills/revue-code/pieges-communs.md` (PC-01…) ; un piège qui peut toucher un autre produit y va, pas ici. Avant d'en ajouter un, ici ou au registre commun, appliquer le **test d'entrée** en quatre critères (`CLAUDE.md` racine, section « Revue de code ») : par défaut, pas de piège.
 
 <!-- bilbao:managed:start -->
 ## Géré par bilbao — ne pas éditer à la main
