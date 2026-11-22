@@ -65,6 +65,11 @@ class EtatJob(BaseModel):
     avertissements: list[str] = Field(default_factory=list)
     journal: list[str] = Field(default_factory=list)
     chapitres_traduits: list[int] = Field(default_factory=list)
+    # Chapitres sans bloc propre dans la sortie, car leur texte est déjà dans celui d'une partie traduite qui les
+    # contient (« Part 4 » contient 17, 18, 19). Faits au même titre que `chapitres_traduits` pour l'utilisateur
+    # (compteur, ✓ dans « ➕ Chapitres »), mais jamais mêlés à eux : `chapitres_traduits` reste la liste exacte des
+    # blocs écrits, que le store et la régénération de la sortie vérifient.
+    chapitres_couverts: list[int] = Field(default_factory=list)
     # Portée d'origine du job (indices de chapitres demandés). Persistée pour
     # qu'une future session sache quoi finir lors d'une reprise. None/[] pour
     # les états d'avant l'unification du moteur (traités comme « tout le doc »).

@@ -232,7 +232,10 @@ def _enrichir(doc: dict) -> dict | None:
         enrichi["job_id"] = etat.job_id
         # Chapitres déjà traduits : le sélecteur de « ➕ Chapitres » les marque
         # (✓ désactivés) pour que l'utilisateur coche uniquement les NOUVEAUX.
-        enrichi["chapitres_traduits"] = etat.chapitres_traduits
+        # Un chapitre couvert (son texte est dans le bloc de sa partie) est fait aussi : sans lui, « Part 4 » traduite
+        # laissait 17, 18 et 19 « non traduits » et re-sélectionnables, donc retraduits en double.
+        enrichi["chapitres_traduits"] = sorted(set(etat.chapitres_traduits) | set(etat.chapitres_couverts))
+        enrichi["chapitres_couverts"] = etat.chapitres_couverts
         # Portée du run courant : sert au compteur « N/M chapitres » de la barre.
         enrichi["chapitres_selectionnes"] = etat.chapitres_selectionnes
         # Extracteur de CE travail : les index de chapitres n'ont de sens qu'avec lui

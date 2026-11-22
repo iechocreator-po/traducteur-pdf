@@ -1035,3 +1035,80 @@ def test_paragraphe_toujours_en_chinois_garde_en_anglais_et_signale(tmp_path, mo
                    "<!-- non-traduit -->\nSecond paragraph, which the model keeps writing in Chinese whatever the "
                    "temperature.")
     assert not cache and "laissé(s) en anglais" in state.avertissements[0]
+
+
+# ── Chapitres couverts par une partie (Advances in Financial ML, 22/11/2026) ──
+# Le contenu d'une partie inclut ses sous-chapitres. Traduire l'une puis les autres, dans le même passage ou dans
+# un passage suivant, traduisait deux fois le même texte ; et des sous-chapitres couverts restaient « non traduits ».
+
+def _source_parties(tmp_path) -> str:
+    """0 Part 1 › 1 Ch 1, 2 Ch 2 ; 3 Part 2 › 4 Ch 3."""
+    bloc = lambda titre, niveau: f"{'#' * niveau} {titre}\n\n" + (f"{titre.lower()} mot " * 60) + "\n\n"
+    contenu = (bloc("Part 1", 1) + bloc("Ch 1", 2) + bloc("Ch 2", 2)
+               + bloc("Part 2", 1) + bloc("Ch 3", 2))
+    chemin = tmp_path / "livre_parties.md"
+    chemin.write_text(contenu, encoding="utf-8")
+    return str(chemin)
+
+
+def _traduire(source, selection):
+    translation_runner.demarrer_traduction(
+        source_path=source, langue_source=Langue.ANGLAIS, langue_cible=Langue.FRANCAIS,
+        modele="llama3.1", chapitres_selectionnes=selection,
+    )
+    return _attendre_statut(translation_runner.build_output_path(source, "llama3.1"),
+                            {StatutJob.TERMINE, StatutJob.ERREUR})
+
+
+def _traducteur_trace(appels):
+    def traducteur(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        appels.append(texte)
+        return texte.upper()
+    return traducteur
+
+
+def test_partie_et_sous_chapitres_dans_le_meme_passage_marques_couverts(tmp_path, monkeypatch):
+    appels = []
+    monkeypatch.setattr(translation_runner, "traduire_texte", _traducteur_trace(appels))
+    etat = _traduire(_source_parties(tmp_path), [0, 1, 2, 3, 4])
+    assert etat.statut == StatutJob.TERMINE
+    assert sorted(etat.chapitres_traduits) == [0, 3]           # un bloc par partie, rien en double
+    assert sorted(etat.chapitres_couverts) == [1, 2, 4]
+    assert sum(t.count("ch 1 mot") > 0 for t in appels) == 1   # le texte du chapitre 1 ne part qu'une fois
+
+
+def test_sous_chapitres_d_une_partie_deja_traduite_ne_sont_pas_retraduits(tmp_path, monkeypatch):
+    appels = []
+    monkeypatch.setattr(translation_runner, "traduire_texte", _traducteur_trace(appels))
+    source = _source_parties(tmp_path)
+    _traduire(source, [0])
+    avant = len(appels)
+    contenu_avant = open(translation_runner.build_output_path(source, "llama3.1"), encoding="utf-8").read()
+
+    etat = _traduire(source, [1, 2])
+    assert len(appels) == avant                                 # aucun appel : leur texte est déjà traduit
+    assert etat.statut == StatutJob.TERMINE
+    assert sorted(etat.chapitres_traduits) == [0] and sorted(etat.chapitres_couverts) == [1, 2]
+    contenu = open(translation_runner.build_output_path(source, "llama3.1"), encoding="utf-8").read()
+    assert contenu.count("CH 1 MOT") == contenu_avant.count("CH 1 MOT")
+
+
+def test_sous_chapitres_non_couverts_si_leur_partie_echoue(tmp_path, monkeypatch):
+    def traducteur(texte, modele, langue_source, langue_cible, termes_a_conserver=None, interruption=None):
+        if "part 2 mot" in texte:
+            raise OllamaErreurApplicative("échec simulé")
+        return texte.upper()
+    monkeypatch.setattr(translation_runner, "traduire_texte", traducteur)
+    etat = _traduire(_source_parties(tmp_path), [0, 1, 2, 3, 4])
+    assert etat.statut == StatutJob.ERREUR and 3 in etat.chapitres_echoues
+    assert sorted(etat.chapitres_couverts) == [1, 2]            # 4 dépend de la partie 2, en échec
+
+
+def test_bibliotheque_compte_les_chapitres_couverts_comme_faits(tmp_path, monkeypatch):
+    from app.services import bibliotheque
+    monkeypatch.setattr(translation_runner, "traduire_texte", _traducteur_trace([]))
+    source = _source_parties(tmp_path)
+    _traduire(source, [0, 1, 2])
+    sortie = translation_runner.build_output_path(source, "llama3.1")
+    doc = next(d for d in bibliotheque.lister_documents() if d["chemin_sortie"] == sortie)
+    assert doc["chapitres_traduits"] == [0, 1, 2] and doc["chapitres_couverts"] == [1, 2]

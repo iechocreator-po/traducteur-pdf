@@ -651,21 +651,55 @@ def _chapitres_ou_implicite(source_path: str, extracteur: str) -> tuple[list[dic
     return implicite, True
 
 
-def _est_couvert_par_ancetre(chap: dict, tous: list[dict], selection: set[int]) -> bool:
+def _ancetre_couvrant(chap: dict, tous: list[dict], candidats: set[int]) -> int | None:
     """
-    Un chapitre B est « couvert » par un ancêtre A sélectionné si A précède B,
-    A est d'un niveau supérieur (moins de #) et la ligne de début de B tombe dans
-    la plage [ligne_debut, ligne_fin) de A. Le contenu d'un chapitre incluant
-    déjà celui de ses sous-chapitres, cela évite de traduire deux fois le même
-    texte quand parent ET enfant sont sélectionnés.
+    Index du premier (le plus englobant) ancêtre A de B parmi `candidats`, ou None. A couvre B si A précède B,
+    A est d'un niveau supérieur (moins de #) et la ligne de début de B tombe dans la plage [ligne_debut, ligne_fin)
+    de A. Le contenu d'un chapitre incluant déjà celui de ses sous-chapitres, traduire B en plus de A traduirait
+    deux fois le même texte.
+
+    `candidats` = la sélection du passage ET les chapitres déjà traduits : une partie traduite lors d'un passage
+    précédent couvre encore ses sous-chapitres. Sans ce second ensemble, sélectionner « Part 1 » puis, une autre
+    fois, ses chapitres 2 à 5 les retraduisait en double (Advances in Financial ML, 22/11/2026 : un tiers du
+    fichier traduit deux fois).
     """
     for autre in tous:
         if autre["index"] >= chap["index"]:
             break
-        if autre["index"] in selection and autre["niveau"] < chap["niveau"]:
+        if autre["index"] in candidats and autre["niveau"] < chap["niveau"]:
             if autre["ligne_debut"] < chap["ligne_debut"] < autre["ligne_fin"]:
-                return True
-    return False
+                return autre["index"]
+    return None
+
+
+def _est_couvert_par_ancetre(chap: dict, tous: list[dict], selection: set[int]) -> bool:
+    return _ancetre_couvrant(chap, tous, selection) is not None
+
+
+def repartir_chapitres(
+    tous: list[dict], selection: set[int], traduits: set[int], couverts: set[int],
+) -> tuple[list[dict], list[int], dict[int, list[int]]]:
+    """
+    Répartit les chapitres sélectionnés d'un passage, une seule règle pour tous les modes (neuf, ajout, reprise) :
+      - à traduire : sélectionnés, ni faits ni couverts par un ancêtre ;
+      - couverts dès maintenant : leur ancêtre est déjà traduit ;
+      - couverts par un ancêtre de CE passage ({ancêtre: [enfants]}) : ils ne seront marqués couverts que si
+        l'ancêtre est écrit — un ancêtre en échec ne doit pas les faire passer pour faits.
+    """
+    candidats = selection | traduits
+    a_traduire, couverts_maintenant, couverts_par = [], [], {}
+    for c in tous:
+        i = c["index"]
+        if i not in selection or i in traduits or i in couverts:
+            continue
+        ancetre = _ancetre_couvrant(c, tous, candidats)
+        if ancetre is None:
+            a_traduire.append(c)
+        elif ancetre in traduits:
+            couverts_maintenant.append(i)
+        else:
+            couverts_par.setdefault(ancetre, []).append(i)
+    return a_traduire, couverts_maintenant, couverts_par
 
 
 def _nb_sous_chunks(chap: dict) -> int:
@@ -723,12 +757,16 @@ def _mettre_a_jour_entete_chapitres(chemin_sortie: str, chapitres_traduits: list
 
 # ── Moteur unifié ─────────────────────────────────────────────────────────────
 
-def _executer_traduction(state: EtatJob, chapitres: list[dict], implicite: bool) -> None:
+def _executer_traduction(
+    state: EtatJob, chapitres: list[dict], implicite: bool, couverts_par: dict[int, list[int]] | None = None,
+) -> None:
     """
     Traduit la liste ordonnée `chapitres`, en append dans le fichier de sortie.
     Progression au grain du sous-morceau, un chapitre écrit seulement s'il réussit
     entièrement. Vérifie pause/annulation avant chaque sous-morceau.
+    `couverts_par` ({chapitre: [sous-chapitres]}) : sous-chapitres marqués couverts quand leur chapitre est écrit.
     """
+    couverts_par = couverts_par or {}
     output_path = state.chemin_sortie
 
     if est_annule(state.job_id):
@@ -809,6 +847,10 @@ def _executer_traduction(state: EtatJob, chapitres: list[dict], implicite: bool)
                 traduit = "\n\n".join(parties)
                 if chap["index"] not in state.chapitres_traduits:
                     state.chapitres_traduits.append(chap["index"])
+                # Avant l'écriture : la même transaction du store enregistre le bloc et ses sous-chapitres couverts.
+                for enfant in couverts_par.get(chap["index"], []):
+                    if enfant not in state.chapitres_couverts:
+                        state.chapitres_couverts.append(enfant)
                 # Un chapitre qui réussit après un échec antérieur quitte la liste des échoués.
                 if chap["index"] in state.chapitres_echoues:
                     state.chapitres_echoues.remove(chap["index"])
@@ -951,6 +993,7 @@ def demarrer_traduction(
             # instantanément ; seuls les trous repartent chez Ollama.
             _ecrire_entete(output_path, modele, langue_source, langue_cible)
             state.chapitres_traduits = []
+            state.chapitres_couverts = []   # recalculés avec les chapitres qui les couvrent
             state.chapitres_echoues = []
             state.sections_echouees = []
             _journaliser(state, "Rejeu à cache chaud — recoud les trous, dans l'ordre")
@@ -1013,15 +1056,17 @@ def demarrer_traduction(
     if state.extracteur_pdf is None:
         state.extracteur_pdf = extracteur
 
-    # Chapitres réellement à traduire ce run : dans la sélection, pas déjà faits,
-    # et non couverts par un ancêtre sélectionné (évite de traduire deux fois).
-    deja = set(state.chapitres_traduits)
-    chapitres_a_traduire = [
-        c for c in tous_chapitres
-        if c["index"] in run_selection
-        and c["index"] not in deja
-        and not _est_couvert_par_ancetre(c, tous_chapitres, run_selection)
-    ]
+    # Chapitres réellement à traduire ce run : dans la sélection, ni faits ni couverts par un ancêtre sélectionné
+    # ou déjà traduit (évite de traduire deux fois le même texte).
+    chapitres_a_traduire, couverts_maintenant, couverts_par = repartir_chapitres(
+        tous_chapitres, run_selection, set(state.chapitres_traduits), set(state.chapitres_couverts),
+    )
+    if couverts_maintenant:
+        state.chapitres_couverts = sorted(set(state.chapitres_couverts) | set(couverts_maintenant))
+        _journaliser(state, f"Déjà couverts par une partie traduite : {couverts_maintenant}")
+    if couverts_par:
+        _journaliser(state, "Couverts par une partie de ce passage : "
+                            + ", ".join(f"{a} → {e}" for a, e in sorted(couverts_par.items())))
 
     total_sc = sum(_nb_sous_chunks(c) for c in chapitres_a_traduire)
     state.total_sections = total_sc
@@ -1044,7 +1089,7 @@ def demarrer_traduction(
 
     soumettre_travail(
         state.job_id,
-        lambda: _executer_traduction(state, chapitres_a_traduire, implicite),
+        lambda: _executer_traduction(state, chapitres_a_traduire, implicite, couverts_par),
     )
     return state.job_id
 
