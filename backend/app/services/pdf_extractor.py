@@ -449,6 +449,30 @@ def _titre_traduit_depuis_corps(contenu: str) -> str | None:
     return None
 
 
+# Numérotation en tête d'un titre SOURCE (« 20 Multiprocessing… », « Part 5: … », « Chapter 3. … », « IV Résultats »).
+# La table des matières la porte, mais le titre du corps traduit souvent pas : dans le PDF, le numéro est sur une ligne
+# à part. Un « I » isolé sans ponctuation n'en est pas un (« I Robot »).
+_RE_NUMERO_TITRE = re.compile(
+    r"^\s*(?P<prefixe>(?:(?P<mot>part|partie|parte|chapter|chapitre|cap[ií]tulo|section|book|livre)\s+)?"
+    r"(?P<num>\d+(?:\.\d+)*|[IVXLC]+)(?P<ponct>[.:)\-–—]?)\s+)(?=\S)",
+    re.IGNORECASE)
+
+
+def numeroter_titre_traduit(titre_source: str, titre_traduit: str | None) -> str | None:
+    """Remet devant le titre traduit la numérotation du titre source quand la traduction l'a perdue
+    (« 20 Multiprocessing and Vectorization » + « Multitraitement et vectorisation » → « 20 Multitraitement… ») :
+    la Bibliothèque montre alors les mêmes numéros que « Nouveau document ». Le préfixe source est gardé tel quel
+    (« Part 5: »), jamais traduit ; rien n'est ajouté si le numéro est déjà dans les premiers mots."""
+    if not titre_traduit:
+        return titre_traduit
+    m = _RE_NUMERO_TITRE.match(titre_source or "")
+    if not m or (m.group("num") == "I" and not m.group("mot") and not m.group("ponct")):
+        return titre_traduit
+    if m.group("num").lower() in re.findall(r"\w+(?:\.\w+)*", titre_traduit.lower())[:3]:
+        return titre_traduit
+    return m.group("prefixe") + titre_traduit
+
+
 def chapitres_depuis_marqueurs(texte: str) -> list[dict]:
     """
     Découpe un document TRADUIT sur les marqueurs posés par le moteur.
@@ -495,7 +519,7 @@ def chapitres_depuis_marqueurs(texte: str) -> list[dict]:
         chapitres.append({
             "index": int(m.group(1)),
             "titre": m.group(2),
-            "titre_traduit": _titre_traduit_depuis_corps(contenu),
+            "titre_traduit": numeroter_titre_traduit(m.group(2), _titre_traduit_depuis_corps(contenu)),
             "niveau": max(1, min(niveau, 6)),
             "contenu": contenu,
             "ligne_debut": ligne_debut,

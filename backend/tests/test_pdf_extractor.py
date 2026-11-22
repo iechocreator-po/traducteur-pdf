@@ -371,3 +371,26 @@ def test_chapitres_depuis_marqueurs_titre_traduit_absent_sur_corps_vide_ou_tronq
         chapitres = chapitres_depuis_marqueurs(texte)
         assert chapitres[0]["titre"] == "Un"
         assert chapitres[0]["titre_traduit"] is None, repr(corps_tronque)
+
+
+# Le numéro de la table des matières est souvent sur une ligne à part dans le PDF : le titre traduit l'a perdu.
+@pytest.mark.parametrize("source, traduit, attendu", [
+    ("20 Multiprocessing and Vectorization", "Multitraitement et vectorisation", "20 Multitraitement et vectorisation"),
+    ("Part 5: High-Performance Computing Recipes", "Recettes de calcul", "Part 5: Recettes de calcul"),
+    ("1.2 Scope", "Portée", "1.2 Portée"),
+    ("IV A Portfolio Approach", "Une approche de portefeuille", "IV Une approche de portefeuille"),
+    ("Chapter 9: From Structure to Function", "Chapitre 9 : de la structure", "Chapitre 9 : de la structure"),
+    ("20 Multiprocessing", "20. Multitraitement", "20. Multitraitement"),
+    ("I Robot", "Moi, robot", "Moi, robot"),
+    ("Preamble", "Préambule", "Préambule"),
+    ("3 Labeling", None, None),
+])
+def test_numeroter_titre_traduit(source, traduit, attendu):
+    from app.services.pdf_extractor import numeroter_titre_traduit
+    assert numeroter_titre_traduit(source, traduit) == attendu
+
+
+def test_chapitres_depuis_marqueurs_garde_le_numero_de_la_table_des_matieres():
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+    texte = _texte_marque("20 Multiprocessing and Vectorization", "### Multitraitement et vectorisation\n\nCorps.")
+    assert chapitres_depuis_marqueurs(texte)[0]["titre_traduit"] == "20 Multitraitement et vectorisation"

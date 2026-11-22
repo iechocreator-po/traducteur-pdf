@@ -770,6 +770,8 @@ html.avance .biblio-lecture {
 .decoupe-pages { max-width: 10rem; }
 .decoupe-liste { max-height: 22rem; overflow: auto; }
 .decoupe-actions { white-space: nowrap; }
+.decoupe-modes { margin: 4px 0 12px; }
+.decoupe-chapitres td:first-child { color: var(--text-2); white-space: nowrap; }
 #section-erreurs { margin-top: 0.8rem; }
 #contenu-erreurs {
   font-size: 0.82rem;

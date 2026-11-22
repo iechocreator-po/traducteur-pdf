@@ -1,4 +1,5 @@
-// Laboratoire › « Découper un PDF » : sections de N pages écrites à côté de la source (services/decoupe.py).
+// Laboratoire › « Découper un PDF » : sections de N pages, ou une par chapitre détecté, écrites à côté de la source
+// (services/decoupe.py).
 // Le calcul des sections vit côté backend (GET /labo/decoupe/plan) : l'aperçu et le lancement ne peuvent pas diverger.
 
 (() => {
@@ -16,7 +17,19 @@
     $("bouton-decoupe-lancer").disabled = enCours || !planCourant || !!attendConfirmation;
   }
 
+  function modeChoisi() {
+    return document.querySelector('input[name="decoupe-mode"]:checked').value;
+  }
+
+  const SOURCES = {
+    signets: "d'après les signets du PDF (sa table des matières intégrée)",
+    typographie: "d'après les titres repérés en haut de page (le PDF n'a pas de signets) : vérifiez la liste",
+  };
+
   function resumePlan(p) {
+    if (p.mode === "chapitres") {
+      return `<strong>${p.pages} pages → ${p.nb_sections} chapitres</strong>, ${SOURCES[p.source_chapitres] || ""}.`;
+    }
     const derniere = p.sections[p.sections.length - 1].pages;
     const courte = derniere < p.pages_par_section ? ` La dernière en compte ${derniere}.` : "";
     return `<strong>${p.pages} pages → ${p.nb_sections} sections de ${p.pages_par_section} page(s).</strong>${courte}`;
@@ -24,6 +37,13 @@
 
   function rendreApercu(p) {
     let html = `<p>${resumePlan(p)}</p>`;
+    if (p.mode === "chapitres") {
+      const lignes = p.sections.map(s => `<tr><td>${s.page_debut} à ${s.page_fin}</td>
+        <td>${_echapperHtml(s.titre)}</td></tr>`).join("");
+      html += `<div class="decoupe-liste"><table class="ds-table decoupe-chapitres">
+        <thead><tr><th>Pages</th><th>Chapitre</th></tr></thead><tbody>${lignes}</tbody></table></div>
+        <p class="aide">Les pages liminaires et les annexes très courtes sont regroupées avec leurs voisines.</p>`;
+    }
     if (p.existants.length) {
       html += `<p class="erreur">⚠ ${p.existants.length} fichier(s) de cette découpe existent déjà : ils ne seront remplacés que si vous cochez la case.</p>`;
     }
@@ -47,17 +67,20 @@
     const no = ++demandeNo;
     const chemin = $("decoupe-chemin").value.trim();
     const saisie = Number($("decoupe-pages").value);
+    const mode = modeChoisi();
     if (!chemin) { effacerPlan(""); return; }
-    if (!Number.isInteger(saisie) || saisie < 1) {
+    if (mode === "pages" && (!Number.isInteger(saisie) || saisie < 1)) {
       effacerPlan("Pages par section : indiquez un nombre entier, 1 ou plus.");
       return;
     }
     // Le plan affiché ne vaut plus pour cette saisie : pas de lancement tant que le nouveau n'est pas là.
     planCourant = null;
     majBouton();
+    if (mode === "chapitres") $("decoupe-apercu").innerHTML = "<em>⏳ Recherche des chapitres…</em>";
+    const parametres = mode === "chapitres" ? "mode=chapitres" : `mode=pages&pages_par_section=${saisie}`;
     try {
       const plan = await apiGet(
-        `/labo/decoupe/plan?chemin_pdf=${encodeURIComponent(chemin)}&pages_par_section=${saisie}`,
+        `/labo/decoupe/plan?chemin_pdf=${encodeURIComponent(chemin)}&${parametres}`,
         API_TIMEOUT_LONG_MS,
       );
       if (no !== demandeNo) return;
@@ -75,6 +98,11 @@
   }
 
   $("decoupe-pages").addEventListener("input", planifierApercu);
+  document.querySelectorAll('input[name="decoupe-mode"]').forEach(r => r.addEventListener("change", () => {
+    $("decoupe-pages-ligne").hidden = modeChoisi() === "chapitres";
+    $("decoupe-resultat").innerHTML = "";
+    chargerPlan();
+  }));
   $("decoupe-chemin").addEventListener("change", () => { $("decoupe-resultat").innerHTML = ""; chargerPlan(); });
   $("decoupe-remplacer").addEventListener("change", majBouton);
 
@@ -107,7 +135,7 @@
 
   function rendreResultat(r) {
     const lignes = r.sections.map(s => `<tr>
-      <td><code>${_echapperHtml(s.nom)}</code></td>
+      <td><code>${_echapperHtml(s.nom)}</code>${s.titre ? `<br><span class="aide">${_echapperHtml(s.titre)}</span>` : ""}</td>
       <td>${s.page_debut} à ${s.page_fin}</td>
       <td>${tailleLisible(s.octets)}</td>
       <td class="decoupe-actions">
@@ -138,6 +166,7 @@
     if (!planCourant) return;
     const corps = {
       chemin_pdf: $("decoupe-chemin").value.trim(),
+      mode: planCourant.mode,
       pages_par_section: planCourant.pages_par_section,
       remplacer: $("decoupe-remplacer").checked,
     };

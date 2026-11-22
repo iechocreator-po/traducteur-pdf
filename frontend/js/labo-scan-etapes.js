@@ -268,7 +268,7 @@
           `<button type="button" class="ds-btn" id="se-autre">Traiter un autre document</button></div>`;
       }
     } else {
-      // Arrêt ou échec : relancer = le même « Nettoyer le document » (mêmes réglages, cache par page côté backend),
+      // Arrêt ou échec : relancer = le même « Traiter le document » (mêmes réglages, cache par page côté backend),
       // avec le choix « seulement / puis traduire » de l'étape tel qu'il est au moment du clic.
       const libelle = s.statut === "annule" ? "Reprendre le nettoyage" : "Réessayer";
       actions = `<div class="se-actions"><button type="button" class="ds-btn ds-btn--primary" id="se-reprendre">${libelle}</button>` +

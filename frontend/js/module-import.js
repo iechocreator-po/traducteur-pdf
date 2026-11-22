@@ -396,6 +396,7 @@
       } else if (item.listeChapitres != null) {
         const liste = document.createElement("div");
         liste.className = "lot-chapitres-liste";
+        liste.dataset.cle = `lot:${item.chemin}`;
         for (const chap of item.listeChapitres) {
           const dejaFait = deja.has(chap.index);
           const ligne = document.createElement("label");
@@ -406,10 +407,11 @@
           // Un chapitre déjà traduit est verrouillé (coché visuellement, non
           // décochable) : on ne le retraduit pas via ce flux additif.
           check.checked = dejaFait || item.chapitresCoches.has(chap.index);
+          check.indeterminate = chapitrePartiel(item.listeChapitres, chap.index, item.chapitresCoches, deja);
           check.disabled = dejaFait;
+          check.dataset.chap = chap.index;
           check.addEventListener("change", () => {
-            if (check.checked) item.chapitresCoches.add(chap.index);
-            else item.chapitresCoches.delete(chap.index);
+            cocherChapitreEtSousChapitres(item.listeChapitres, chap.index, check.checked, item.chapitresCoches, deja);
             rendreLot();
           });
           const titre = document.createElement("span");
@@ -449,6 +451,7 @@
     btnLancer.disabled = prets === 0;
     btnLancer.textContent = prets > 0 ? `Lancer la traduction (${prets})` : "Lancer la traduction";
 
+    const capture = capturerSelecteursChapitres(elListe);
     elListe.innerHTML = "";
     for (const item of lot) {
       const ligne = document.createElement("div");
@@ -536,6 +539,7 @@
 
       elListe.appendChild(ligne);
     }
+    restaurerSelecteursChapitres(elListe, capture);
   }
 
   // ── Écouteurs ───────────────────────────────────────────────────────────────
@@ -641,8 +645,10 @@
 
     $("zone-reprendre").hidden = docs.length === 0;
     const liste = $("liste-reprendre");
+    const capture = capturerSelecteursChapitres(liste);
     liste.innerHTML = "";
     for (const doc of docs) liste.appendChild(rendreLigne(doc));
+    restaurerSelecteursChapitres(liste, capture);
     armerMinutage(docs);
 
     // Le serveur pousse (principe cible ⑥) : tant que le flux SSE vit, aucun
@@ -956,6 +962,7 @@
 
     const liste = document.createElement("div");
     liste.className = "lot-chapitres-liste";
+    liste.dataset.cle = `reprendre:${doc.chemin_sortie}`;
     for (const chap of etat.chapitres) {
       const dejaFait = etat.deja.has(chap.index);
       const ligne = document.createElement("label");
@@ -964,10 +971,11 @@
       const check = document.createElement("input");
       check.type = "checkbox";
       check.checked = dejaFait || etat.coches.has(chap.index);
+      check.indeterminate = chapitrePartiel(etat.chapitres, chap.index, etat.coches, etat.deja);
       check.disabled = dejaFait;
+      check.dataset.chap = chap.index;
       check.addEventListener("change", () => {
-        if (check.checked) etat.coches.add(chap.index);
-        else etat.coches.delete(chap.index);
+        cocherChapitreEtSousChapitres(etat.chapitres, chap.index, check.checked, etat.coches, etat.deja);
         rafraichir();
       });
       const titre = document.createElement("span");

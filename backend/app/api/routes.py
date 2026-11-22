@@ -4,7 +4,7 @@ métier — elle valide les entrées et délègue aux services/agents.
 """
 
 import os
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 from pydantic import AfterValidator, BaseModel, Field, model_validator
@@ -1019,19 +1019,22 @@ def _exiger_flag(nom: str) -> None:
 
 class DecoupeRequest(BaseModel):
     chemin_pdf: str
+    # « pages » : sections de N pages ; « chapitres » : une section par chapitre détecté (N ignoré).
+    mode: Literal["pages", "chapitres"] = "pages"
     # strict : « 12 » ou true ne passent pas pour un nombre de pages ; 12.5 non plus.
-    pages_par_section: int = Field(ge=1, le=100_000, strict=True)
+    pages_par_section: int | None = Field(default=None, ge=1, le=100_000, strict=True)
     remplacer: bool = False
 
 
 @router.get("/labo/decoupe/plan")
-def planifier_decoupe(chemin_pdf: str, pages_par_section: int) -> dict:
-    """Aperçu : sections prévues, fichiers déjà présents. N'écrit rien."""
+def planifier_decoupe(chemin_pdf: str, pages_par_section: int | None = None,
+                      mode: Literal["pages", "chapitres"] = "pages") -> dict:
+    """Aperçu : sections prévues (titres détectés en mode chapitres), fichiers déjà présents. N'écrit rien."""
     _exiger_flag("decoupe_pdf")
     chemin = valider_chemin_source(chemin_pdf, extensions=(".pdf",), label="PDF")
     from app.services.decoupe import DecoupeInvalide, planifier
     try:
-        return planifier(chemin, pages_par_section)
+        return planifier(chemin, pages_par_section, mode)
     except DecoupeInvalide as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -1043,7 +1046,7 @@ def lancer_decoupe(req: DecoupeRequest) -> dict:
     chemin = valider_chemin_source(req.chemin_pdf, extensions=(".pdf",), label="PDF")
     from app.services.decoupe import DecoupeInvalide, SectionsExistantes, decouper
     try:
-        return decouper(chemin, req.pages_par_section, req.remplacer)
+        return decouper(chemin, req.pages_par_section, req.remplacer, req.mode)
     except SectionsExistantes as e:
         raise HTTPException(status_code=409, detail=str(e))
     except DecoupeInvalide as e:

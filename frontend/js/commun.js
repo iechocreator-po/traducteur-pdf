@@ -369,3 +369,55 @@ function libelleExtraction(q) {
   return ({ Excellente: "texte extractible", Correcte: "texte extractible, avec avertissements",
             "Problème": "texte non extractible" })[q] || q;
 }
+
+// ── Sélecteurs de chapitres (lot de « Nouveau document » et « ➕ Chapitres » de « Vos traductions ») ──
+// Chaque coche redessine la liste : sans ces deux fonctions, la liste revenait en haut et le focus se perdait,
+// il fallait redescendre pour cocher le chapitre suivant. La liste porte `data-cle`, chaque case `data-chap`.
+
+function capturerSelecteursChapitres(racine) {
+  const defilements = [...racine.querySelectorAll(".lot-chapitres-liste[data-cle]")]
+    .map(l => [l.dataset.cle, l.scrollTop]);
+  const actif = document.activeElement;
+  const focus = actif && racine.contains(actif) && actif.dataset && actif.dataset.chap != null
+    ? [actif.closest(".lot-chapitres-liste")?.dataset.cle, actif.dataset.chap] : null;
+  return { defilements, focus };
+}
+
+function restaurerSelecteursChapitres(racine, capture) {
+  const liste = (cle) => [...racine.querySelectorAll(".lot-chapitres-liste[data-cle]")].find(l => l.dataset.cle === cle);
+  for (const [cle, haut] of capture.defilements) {
+    const l = liste(cle);
+    if (l) l.scrollTop = haut;
+  }
+  if (capture.focus) {
+    liste(capture.focus[0])?.querySelector(`input[data-chap="${capture.focus[1]}"]`)?.focus({ preventScroll: true });
+  }
+}
+
+// Index des sous-chapitres d'un chapitre : les entrées qui le suivent avec un niveau plus profond, jusqu'au
+// prochain chapitre de même niveau ou plus haut (« Part 5 » → 20, 21, 22).
+function descendantsChapitre(chapitres, index) {
+  const pos = chapitres.findIndex(c => c.index === index);
+  if (pos < 0) return [];
+  const niveau = Math.max(chapitres[pos].niveau || 1, 1);
+  const sous = [];
+  for (let k = pos + 1; k < chapitres.length && Math.max(chapitres[k].niveau || 1, 1) > niveau; k++) {
+    sous.push(chapitres[k].index);
+  }
+  return sous;
+}
+
+// Coche ou décoche un chapitre et tous ses sous-chapitres ; un chapitre déjà traduit (`deja`) n'est jamais touché.
+function cocherChapitreEtSousChapitres(chapitres, index, coche, coches, deja) {
+  for (const i of [index, ...descendantsChapitre(chapitres, index)]) {
+    if (deja.has(i)) continue;
+    if (coche) coches.add(i);
+    else coches.delete(i);
+  }
+}
+
+// Un chapitre décoché dont une partie des sous-chapitres est cochée s'affiche « partiel » (case indéterminée).
+function chapitrePartiel(chapitres, index, coches, deja) {
+  if (coches.has(index) || deja.has(index)) return false;
+  return descendantsChapitre(chapitres, index).some(i => coches.has(i) || deja.has(i));
+}

@@ -363,3 +363,114 @@ def test_preambule_rattache_au_premier_chapitre_sans_l_en_tete(tmp_path):
     seul_en_tete = tmp_path / "propre.md"
     seul_en_tete.write_text("<!-- extracteur : test -->\n\n# Chapitre 1\n\nCorps.\n")
     assert chapitres_avec_contenu(str(seul_en_tete))[0]["contenu"].startswith("# Chapitre 1")
+
+
+# ── Découpe par chapitres ────────────────────────────────────────────────────
+
+def _pdf_titres(dossier, nb_pages, titres: dict[int, str], nom="Roman.pdf", toc=None) -> str:
+    """Chaque page : un titre en 22 pt en haut si `titres` en a un, puis du corps en 11 pt avec son numéro."""
+    chemin = str(dossier / nom)
+    doc = pymupdf.open()
+    for n in range(1, nb_pages + 1):
+        pg = doc.new_page()
+        y = 72
+        if n in titres:
+            pg.insert_text((72, y), titres[n], fontsize=22)
+            y += 40
+        for k in range(12):
+            pg.insert_text((72, y + 18 * k), f"page-{n}-fin corps du texte assez long pour dominer la page {k}",
+                           fontsize=11)
+    if toc:
+        doc.set_toc(toc)
+    doc.save(chemin)
+    doc.close()
+    return chemin
+
+
+def test_chapitres_par_signets_couvrent_tout_le_document(tmp_path):
+    toc = [[1, "Titre", 1], [1, "Dédicace", 2], [1, "Chapitre 1 : Aube", 3], [1, "Chapitre 2 : Midi", 10],
+           [2, "Une sous-section", 12], [1, "Chapitre 3 : Nuit", 18], [1, "Copyright", 25]]
+    src = _pdf(tmp_path, nb_pages=25, toc=toc)
+    plan = decoupe.planifier(src, mode="chapitres")
+    assert plan["source_chapitres"] == "signets" and plan["mode"] == "chapitres"
+    bornes = [(s["page_debut"], s["page_fin"], s["titre"]) for s in plan["sections"]]
+    # Titre + dédicace (1 page chacun) fondus ensemble puis dans le chapitre 1 ; la sous-section n'est pas un
+    # chapitre (médiane trop courte au niveau 2) ; le copyright final rejoint le chapitre 3.
+    assert bornes == [(1, 9, "Titre … Chapitre 1 : Aube (3 parties)"), (10, 17, "Chapitre 2 : Midi"),
+                      (18, 25, "Chapitre 3 : Nuit + Copyright")]
+    assert [s["nom"] for s in plan["sections"]][0] == "Livre_chapitre_01_p01-09.pdf"
+    assert os.listdir(tmp_path) == ["Livre.pdf"]   # l'aperçu n'écrit rien
+
+
+def test_chapitre_numerote_court_n_est_pas_fondu(tmp_path):
+    toc = [[1, "Chapitre 1", 1], [1, "Chapitre 2", 9], [1, "Chapitre 3", 11]]
+    plan = decoupe.planifier(_pdf(tmp_path, nb_pages=20, toc=toc), mode="chapitres")
+    assert [(s["page_debut"], s["page_fin"]) for s in plan["sections"]] == [(1, 8), (9, 10), (11, 20)]
+
+
+def test_niveau_plus_fin_retenu_quand_le_premier_ne_donne_que_des_parties(tmp_path):
+    toc = [[1, "Partie I", 1], [2, "Chapitre 1", 1], [2, "Chapitre 2", 9], [2, "Chapitre 3", 17],
+           [1, "Partie II", 25], [2, "Chapitre 4", 25], [2, "Chapitre 5", 33], [3, "§ 5.1", 35]]
+    plan = decoupe.planifier(_pdf(tmp_path, nb_pages=40, toc=toc), mode="chapitres")
+    assert [s["page_debut"] for s in plan["sections"]] == [1, 9, 17, 25, 33]
+
+
+def test_chapitres_par_typographie_sans_signets(tmp_path):
+    titres = {1: "Mon roman", 2: "Table des matières", 4: "Chapitre premier", 11: "Chapitre deux",
+              19: "Chapitre trois"}
+    src = _pdf_titres(tmp_path, 24, titres)
+    plan = decoupe.planifier(src, mode="chapitres")
+    assert plan["source_chapitres"] == "typographie"
+    assert [(s["page_debut"], s["page_fin"]) for s in plan["sections"]] == [(1, 3), (4, 10), (11, 18), (19, 24)]
+    assert plan["sections"][1]["titre"] == "Chapitre premier"
+
+
+def test_table_des_matieres_a_pointilles_n_est_pas_un_chapitre(tmp_path):
+    titres = {6: "Chapitre un", 12: "Chapitre deux"}
+    src = str(tmp_path / "Doc.pdf")
+    doc = pymupdf.open()
+    for n in range(1, 18):
+        pg = doc.new_page()
+        if n == 5:
+            pg.insert_text((72, 72), "Chapitre un ........ 6", fontsize=22)
+        if n in titres:
+            pg.insert_text((72, 72), titres[n], fontsize=22)
+        for k in range(12):
+            pg.insert_text((72, 120 + 18 * k), f"corps du texte de la page {n} ligne {k} assez long", fontsize=11)
+    doc.save(src)
+    doc.close()
+    assert [s["page_debut"] for s in decoupe.planifier(src, mode="chapitres")["sections"]] == [1, 6, 12]
+
+
+def test_sans_signets_ni_titres_refuse_proprement(tmp_path):
+    with pytest.raises(DecoupeInvalide, match="Aucun chapitre détecté"):
+        decoupe.planifier(_pdf(tmp_path, nb_pages=12), mode="chapitres")
+
+
+def test_un_seul_chapitre_refuse(tmp_path):
+    # « Notes » (2 pages, non numérotées) rejoint « Tout » : il ne reste qu'une section.
+    with pytest.raises(DecoupeInvalide, match="Un seul chapitre"):
+        decoupe.planifier(_pdf(tmp_path, nb_pages=12, toc=[[1, "Tout", 1], [1, "Notes", 11]]), mode="chapitres")
+
+
+def test_decouper_par_chapitres_ecrit_les_pages_et_les_signets(tmp_path):
+    toc = [[1, "Chapitre 1", 1], [2, "Détail", 3], [1, "Chapitre 2", 7]]
+    src = _pdf(tmp_path, nb_pages=12, toc=toc)
+    r = decoupe.decouper(src, mode="chapitres")
+    assert [s["nom"] for s in r["sections"]] == ["Livre_chapitre_01_p01-06.pdf", "Livre_chapitre_02_p07-12.pdf"]
+    assert _textes(r["sections"][1]["chemin"]) == [f"page-{n}-fin" for n in range(7, 13)]
+    assert pymupdf.open(r["sections"][0]["chemin"]).get_toc() == [[1, "Chapitre 1", 1], [2, "Détail", 3]]
+    with pytest.raises(SectionsExistantes):
+        decoupe.decouper(src, mode="chapitres")
+    # Une découpe par taille du même PDF signale la découpe par chapitres comme « autre découpe ».
+    assert len(decoupe.planifier(src, 4)["autres_decoupes"]) == 2
+
+
+def test_route_chapitres(client, tmp_path):
+    src = _pdf(tmp_path, nb_pages=12, toc=[[1, "Chapitre 1", 1], [1, "Chapitre 2", 7]])
+    r = client.get("/api/labo/decoupe/plan", params={"chemin_pdf": src, "mode": "chapitres"})
+    assert r.status_code == 200 and r.json()["nb_sections"] == 2
+    r = client.post("/api/labo/decoupe", json={"chemin_pdf": src, "mode": "chapitres"})
+    assert r.status_code == 200 and r.json()["sections"][1]["titre"] == "Chapitre 2"
+    assert client.get("/api/labo/decoupe/plan", params={"chemin_pdf": src, "mode": "rien"}).status_code == 422
+    assert client.post("/api/labo/decoupe", json={"chemin_pdf": src, "mode": "pages"}).status_code == 422

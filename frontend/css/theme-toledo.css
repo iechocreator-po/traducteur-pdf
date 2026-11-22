@@ -47,3 +47,23 @@
 .ds-btn:where(:not(.ds-btn--primary, .ds-btn--danger, .ds-btn--shine, .ds-btn--pulse, .ds-btn--orbit)):hover {
   background: color-mix(in srgb, var(--surface-2) 88%, var(--text));
 }
+
+/* Style « Classique », mode jour : les cartes blanches se distinguaient mal du fond crème (bordure à 12 %
+   d'opacité). Fond un cran plus foncé, contour tiré du texte et ombre légère. Le mode nuit et les autres
+   styles (html[data-style]) ne sont pas touchés : les variables ne sont posées qu'en clair. */
+:root:not([data-style]):not([data-theme="dark"]) {
+  --bg:            var(--ds-neutral-100);
+  --contour-carte: color-mix(in srgb, var(--text) 26%, transparent);
+  --ombre-carte:   0 1px 2px rgba(20, 20, 18, 0.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-style]):not([data-theme]) {
+    --bg:            var(--ds-neutral-950);
+    --contour-carte: initial;
+    --ombre-carte:   initial;
+  }
+}
+html:not([data-style]) .ds-card {
+  border-color: var(--contour-carte, var(--border));
+  box-shadow: var(--ombre-carte, none);
+}
