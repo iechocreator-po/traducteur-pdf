@@ -37,7 +37,10 @@ from app.services.job_manager import (
     supprimer_job_registre,
 )
 
-SECONDES_PAR_ETAPE_ESTIME = 20  # estimation initiale avant les vraies mesures
+# Tâches d'un chapitre (FicheChapitre.a_faire), toujours faites dans cet ordre : le quiz « sections » se bâtit sur
+# les points quand ils existent.
+TACHE_POINTS = "points"
+TACHE_QUIZ = "quiz"
 
 
 class AnnulationDemandee(Exception):
@@ -274,7 +277,8 @@ def _generer_points_selon_strategie(
 
 
 def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
-    """Exécuté par le worker de la file. Vérifie pause/annulation entre les étapes."""
+    """Exécuté par le worker de la file. Fait, chapitre par chapitre, les tâches de `a_faire` (« points » puis
+    « quiz ») ; vérifie pause/annulation entre les étapes."""
     if est_annule(etat.job_id):
         etat.statut = StatutJob.ANNULE
         _journaliser(etat, "Job annulé avant démarrage")
@@ -283,28 +287,37 @@ def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
         return
 
     etat.statut = StatutJob.EN_COURS
+    etat.debut_session = time.time()
+    etat.estimation_maj_a = etat.debut_session   # le décompte part du vrai début, pas de la mise en file
     _journaliser(etat, "Démarrage de la fiche d'étude")
     _sauvegarder_etat(etat)
     temps_debut_session = time.time()
     session_debut_stats = time.time()
     compteurs = metriques.demarrer()   # jetons et durées réels de CE passage (stats.py)
-    caracteres_source = sum(
-        len(contenus.get(c.index, "")) for c in etat.chapitres if c.etape != "termine"
-    )
+    caracteres_source = sum(len(contenus.get(c.index, "")) for c in etat.chapitres if c.a_faire)
+    traites = {c.index for c in etat.chapitres if c.a_faire}
+    etat.echecs_passage = []
 
     def _fin_etape() -> None:
+        # Rythme observé de CE passage (comme « Vos traductions ») : il remplace l'estimation de la Chronique dès
+        # la première étape faite.
         etat.etapes_completees += 1
-        elapsed = etat.temps_ecoule_secondes + (time.time() - temps_debut_session)
-        if etat.etapes_completees > 0:
-            etat.estimation_temps_total_secondes = (elapsed / etat.etapes_completees) * etat.total_etapes
+        maintenant = time.time()
+        session = maintenant - etat.debut_session
+        restantes = max(0, etat.total_etapes - etat.etapes_completees)
+        etat.estimation_restante_secondes = session / etat.etapes_completees * restantes
+        etat.estimation_maj_a = maintenant
+        etat.estimation_temps_total_secondes = etat.temps_ecoule_secondes + session + etat.estimation_restante_secondes
 
     try:
         for chap in sorted(etat.chapitres, key=lambda c: c.index):
-            if chap.etape == "termine":
+            if not chap.a_faire:
                 continue
             contenu = contenus.get(chap.index, "")
             if not contenu.strip():
                 chap.etape = "erreur"
+                chap.a_faire = []
+                etat.echecs_passage.append(chap.index)
                 msg = f"Chapitre {chap.index} ({chap.titre}) : contenu introuvable dans le document"
                 etat.erreurs.append(msg)
                 _journaliser(etat, msg)
@@ -323,52 +336,62 @@ def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
                         _condense.append(_texte_pour_generation(chap, contenu, etat))
                     return _condense[0]
 
-                # Étape 1 : points à retenir (déjà faits si reprise en cours de chapitre)
-                if chap.etape != "questions" or not chap.points:
+                # Étape « points » : points à retenir (régénérés si demandé, sinon absents)
+                if TACHE_POINTS in chap.a_faire:
                     chap.etape = "points"
                     _sauvegarder_etat(etat)
                     nb_pts = etat.nb_points or calculer_nb_points(len(contenu))
                     chap.points = _generer_points_selon_strategie(
                         chap, contenu, texte_condense, nb_pts, etat
                     )
+                    chap.a_faire.remove(TACHE_POINTS)
                     _fin_etape()
-                    chap.etape = "questions"
                     _journaliser(etat, f"Chapitre {chap.index} ({chap.titre}) : {len(chap.points)} points générés")
                     _sauvegarder_etat(etat)
                     _rendre_markdown(etat)
 
-                # Étape 2 : questions de compréhension
-                _verifier_interruption(etat)
-                # Un chapitre de 55 000 caractères ne tient pas dans un prompt de
-                # questions : il faut une matière de taille maîtrisée.
-                #
-                # « condensation » utilise le texte condensé, comme avant.
-                # « sections » part de ses POINTS CONSOLIDÉS — ils sont ancrés dans
-                # le texte réel et portent la substance du chapitre. Ça supprime la
-                # condensation de son chemin : elle n'en avait besoin QUE pour les
-                # questions, et c'est ce qui la rendait 13 % plus lente (454 s
-                # contre 400 s sur Chapter 9). Mesuré aussi : les deux stratégies
-                # produisaient des questions presque identiques, parce qu'elles
-                # lisaient toutes deux le même texte condensé — le gain de
-                # « sections » ne les atteignait pas.
-                depuis_points = (
-                    etat.strategie == STRATEGIE_SECTIONS and bool(chap.points)
-                )
-                texte_q = "" if depuis_points else texte_condense()
-                nb_q = etat.nb_questions or calculer_nb_questions(len(contenu))
-                # Les points sont transmis : les questions ne doivent ni les
-                # reformuler, ni porter deux fois sur le même fait.
-                chap.questions = generer_questions(
-                    texte_q, etat.modele_ollama, etat.langue_fiche, nb_q,
-                    points=chap.points, depuis_les_points=depuis_points,
-                )
-                _fin_etape()
+                # Étape « quiz » : questions de compréhension
+                if TACHE_QUIZ in chap.a_faire:
+                    _verifier_interruption(etat)
+                    chap.etape = "questions"
+                    _sauvegarder_etat(etat)
+                    # Un chapitre de 55 000 caractères ne tient pas dans un prompt de
+                    # questions : il faut une matière de taille maîtrisée.
+                    #
+                    # « condensation » utilise le texte condensé, comme avant.
+                    # « sections » part de ses POINTS CONSOLIDÉS — ils sont ancrés dans
+                    # le texte réel et portent la substance du chapitre. Ça supprime la
+                    # condensation de son chemin : elle n'en avait besoin QUE pour les
+                    # questions, et c'est ce qui la rendait 13 % plus lente (454 s
+                    # contre 400 s sur Chapter 9). Mesuré aussi : les deux stratégies
+                    # produisaient des questions presque identiques, parce qu'elles
+                    # lisaient toutes deux le même texte condensé — le gain de
+                    # « sections » ne les atteignait pas.
+                    # Quiz seul, sans points (l'utilisateur ne les a pas demandés) : « sections » retombe sur le texte
+                    # condensé, faute de points sur lesquels bâtir.
+                    depuis_points = (
+                        etat.strategie == STRATEGIE_SECTIONS and bool(chap.points)
+                    )
+                    texte_q = "" if depuis_points else texte_condense()
+                    nb_q = etat.nb_questions or calculer_nb_questions(len(contenu))
+                    # Les points sont transmis : les questions ne doivent ni les
+                    # reformuler, ni porter deux fois sur le même fait.
+                    chap.questions = generer_questions(
+                        texte_q, etat.modele_ollama, etat.langue_fiche, nb_q,
+                        points=chap.points, depuis_les_points=depuis_points,
+                    )
+                    chap.a_faire.remove(TACHE_QUIZ)
+                    _fin_etape()
+                    _journaliser(etat, f"Chapitre {chap.index} ({chap.titre}) : {len(chap.questions)} questions générées")
                 chap.etape = "termine"
-                _journaliser(etat, f"Chapitre {chap.index} ({chap.titre}) : {len(chap.questions)} questions générées")
             except (AnnulationDemandee, PauseDemandee):
                 raise
             except Exception as e:
+                # Ce qui existait (points d'un passage précédent…) reste affiché ; la tâche ratée n'est pas
+                # reportée : l'utilisateur la relance depuis la fiche du chapitre.
                 chap.etape = "erreur"
+                chap.a_faire = []
+                etat.echecs_passage.append(chap.index)
                 msg = f"Chapitre {chap.index} ({chap.titre}) : {e}"
                 etat.erreurs.append(msg)
                 _journaliser(etat, msg)
@@ -378,10 +401,12 @@ def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
             _sauvegarder_etat(etat)
             _rendre_markdown(etat)
 
-        en_erreur = [c for c in etat.chapitres if c.etape == "erreur"]
-        etat.statut = StatutJob.ERREUR if en_erreur and all(
-            c.etape != "termine" for c in etat.chapitres
-        ) else StatutJob.TERMINE
+        # Le statut juge CE passage : tout ce qu'il a traité a échoué → erreur. Un échec d'un passage précédent
+        # ne fait pas échouer celui-ci.
+        en_erreur = etat.echecs_passage
+        etat.statut = StatutJob.ERREUR if traites and set(en_erreur) >= traites else StatutJob.TERMINE
+        etat.estimation_restante_secondes = 0.0
+        etat.estimation_maj_a = time.time()
         _journaliser(etat, f"Fiche d'étude terminée — {len(en_erreur)} chapitre(s) en erreur")
         _sauvegarder_etat(etat)
 
@@ -410,6 +435,111 @@ def _executer_etude(etat: EtatJobEtude, contenus: dict[int, str]) -> None:
 
 # ── Démarrage / reprise ───────────────────────────────────────────────────────
 
+def _taches_heritees(chap: FicheChapitre) -> list[str]:
+    """Tâches restantes d'un chapitre mis en pause. Les états d'avant `a_faire` (22/11/2026) n'en ont pas : on les
+    déduit de l'étape, sans migration (« questions » avec des points = seul le quiz manque)."""
+    if chap.a_faire or chap.etape in ("termine", "erreur"):
+        return list(chap.a_faire)
+    if chap.etape == "questions" and chap.points:
+        return [TACHE_QUIZ]
+    return [TACHE_POINTS, TACHE_QUIZ]
+
+
+def planifier_etude(
+    source_path: str,
+    chapitres_selectionnes: list[int],
+    modele: str,
+    langue_fiche: str = "français",
+    strategie: str = STRATEGIE_PAR_DEFAUT,
+    avec_points: bool = True,
+    avec_quiz: bool = True,
+    regenerer: bool = False,
+    extracteur: str = "pymupdf4llm",
+) -> tuple[list[FicheChapitre], dict[int, str]]:
+    """
+    Décide, chapitre par chapitre, ce qu'un passage doit générer — sans rien lancer (sert aussi à l'estimation).
+
+    La fiche (une par document × modèle × stratégie) GARDE tous ses chapitres d'un passage à l'autre, quelles que
+    soient les options : changer le nombre de questions ou ne demander que le quiz n'efface plus les fiches déjà
+    faites (avant le 22/11/2026, toute option différente repartait de zéro). Pour chaque chapitre sélectionné :
+    « points » si demandés et absents (ou `regenerer`), « quiz » de même. Une fiche en pause reprend en plus ses
+    tâches restantes. Seule une langue de fiche différente repart de zéro (les deux langues ne se mélangent pas).
+    """
+    if not (avec_points or avec_quiz):
+        raise ValueError("Rien à générer : choisis les points clés, le quiz, ou les deux.")
+    tous_chapitres = chapitres_avec_contenu(source_path, extracteur)
+    par_index = {c["index"]: c for c in tous_chapitres}
+    introuvables = [i for i in chapitres_selectionnes if i not in par_index]
+    if introuvables:
+        raise ValueError(f"Chapitre(s) inconnu(s) : {introuvables}")
+
+    chemin_sortie = build_output_path(source_path, modele, strategie)
+    existant = lire_statut_etude(source_path, modele, strategie)
+    if existant is not None and existant.statut in (StatutJob.EN_COURS, StatutJob.EN_ATTENTE):
+        raise ValueError("Une génération est déjà en cours pour cette fiche : attends sa fin ou mets-la en pause.")
+    garder = (
+        existant is not None
+        and existant.chemin_sortie == chemin_sortie
+        and existant.langue_fiche == langue_fiche
+    )
+    reprise = garder and existant.statut == StatutJob.EN_PAUSE
+    fiche: dict[int, FicheChapitre] = {}
+    for c in (existant.chapitres if garder else []):
+        copie = c.model_copy(deep=True)
+        copie.a_faire = _taches_heritees(copie) if reprise else []
+        fiche[c.index] = copie
+
+    for i in chapitres_selectionnes:
+        chap = fiche.get(i) or FicheChapitre(index=i, titre=par_index[i]["titre"])
+        taches = set(chap.a_faire)
+        if avec_points and (regenerer or not chap.points):
+            taches.add(TACHE_POINTS)
+        if avec_quiz and (regenerer or not chap.questions):
+            taches.add(TACHE_QUIZ)
+        chap.a_faire = [t for t in (TACHE_POINTS, TACHE_QUIZ) if t in taches]
+        fiche[i] = chap
+
+    chapitres = sorted(fiche.values(), key=lambda c: c.index)
+    contenus = {c.index: par_index[c.index].get("contenu", "") for c in chapitres if c.a_faire and c.index in par_index}
+    return chapitres, contenus
+
+
+def estimer_etude(
+    chapitres: list[FicheChapitre], contenus: dict[int, str], modele: str, strategie: str,
+    avec_points: bool, avec_quiz: bool,
+) -> dict:
+    """
+    Durée d'un passage planifié, d'après ce que les fiches ont réellement coûté (Chronique, `stats.estimer`).
+    Retour : `taches`, `chapitres` et `caracteres` à traiter, plus l'estimation (`statut` « ok » avec
+    `secondes`/`min`/`max`/`echantillons`/`portee`, « insuffisant », ou « rien » s'il n'y a rien à faire).
+    """
+    a_traiter = [c for c in chapitres if c.a_faire]
+    resultat = {
+        "taches": sum(len(c.a_faire) for c in a_traiter),
+        "chapitres": len(a_traiter),
+        "caracteres": sum(len(contenus.get(c.index, "")) for c in a_traiter),
+    }
+    if not a_traiter:
+        return {**resultat, "statut": "rien"}
+    return {**resultat, **stats.estimer(
+        modele, caracteres=resultat["caracteres"] or None, type_="etude",
+        strategie=strategie, parties=stats.parties_fiche(avec_points, avec_quiz),
+    )}
+
+
+def decrire_base_estimation(est: dict) -> str | None:
+    """Phrase courte qui dit d'où vient une estimation (affichée telle quelle par le frontend)."""
+    if est.get("statut") != "ok":
+        return None
+    portee = {
+        "identique": "fiches identiques",
+        "meme_strategie": "même stratégie, tous contenus",
+        "meme_contenu": "même contenu, toutes stratégies",
+        "modele": "toutes fiches de ce modèle",
+    }.get(est.get("portee"), "mesures")
+    return f"d'après {est['echantillons']} fiche(s) passée(s) — {portee}"
+
+
 def demarrer_etude(
     source_path: str,
     chapitres_selectionnes: list[int],
@@ -419,69 +549,54 @@ def demarrer_etude(
     nb_points: int = 5,
     nb_questions: int = 3,
     extracteur: str = "pymupdf4llm",
+    avec_points: bool = True,
+    avec_quiz: bool = True,
+    regenerer: bool = False,
 ) -> EtatJobEtude:
     """
-    Enfile un job de fiche d'étude et retourne son état initial.
-    Si une fiche existe déjà pour ce fichier avec les mêmes options, les
-    chapitres déjà terminés sont conservés tels quels (mode ajout/reprise) ;
-    seuls les chapitres sélectionnés non terminés sont (re)générés.
+    Enfile un passage de fiche d'étude et retourne son état initial (voir `planifier_etude` pour ce qui est
+    généré). S'il n'y a rien à faire, rien n'est enfilé ni écrit : l'état retourné a `total_etapes == 0`.
+    `nb_points` / `nb_questions` valent pour CE passage (0 = automatique, selon la longueur du chapitre).
     """
-    tous_chapitres = chapitres_avec_contenu(source_path, extracteur)
-    par_index = {c["index"]: c for c in tous_chapitres}
-    introuvables = [i for i in chapitres_selectionnes if i not in par_index]
-    if introuvables:
-        raise ValueError(f"Chapitre(s) inconnu(s) : {introuvables}")
-
-    chemin_sortie = build_output_path(source_path, modele, strategie)
-    existant = lire_statut_etude(source_path, modele, strategie)
-    memes_options = (
-        existant is not None
-        and existant.chemin_sortie == chemin_sortie
-        and existant.langue_fiche == langue_fiche
-        and existant.strategie == strategie
-        and existant.nb_points == nb_points
-        and existant.nb_questions == nb_questions
+    chapitres, contenus = planifier_etude(
+        source_path, chapitres_selectionnes, modele, langue_fiche, strategie,
+        avec_points, avec_quiz, regenerer, extracteur,
     )
-    conserves: dict[int, FicheChapitre] = (
-        {c.index: c for c in existant.chapitres if c.etape in ("termine", "questions")}
-        if memes_options else {}
-    )
-
-    # Chapitres du nouveau job : les terminés conservés + la sélection courante
-    indices = sorted(set(chapitres_selectionnes) | set(conserves))
-    chapitres = [
-        conserves.get(i) or FicheChapitre(index=i, titre=par_index[i]["titre"])
-        for i in indices
-    ]
-    completees = sum(
-        2 if c.etape == "termine" else (1 if c.etape == "questions" and c.points else 0)
-        for c in chapitres
-    )
-
+    est = estimer_etude(chapitres, contenus, modele, strategie, avec_points, avec_quiz)
+    total = est["taches"]
     etat = EtatJobEtude(
         job_id=str(uuid.uuid4()),
         chemin_source=source_path,
-        chemin_sortie=chemin_sortie,
+        chemin_sortie=build_output_path(source_path, modele, strategie),
         modele_ollama=modele,
         langue_fiche=langue_fiche,
         strategie=strategie,
         nb_points=nb_points,
         nb_questions=nb_questions,
-        statut=StatutJob.EN_ATTENTE,
+        avec_points=avec_points,
+        avec_quiz=avec_quiz,
+        statut=StatutJob.EN_ATTENTE if total else StatutJob.TERMINE,
         chapitres=chapitres,
-        etapes_completees=completees,
-        total_etapes=2 * len(chapitres),
+        etapes_completees=0,
+        total_etapes=total,
         temps_debut=time.time(),
-        estimation_temps_total_secondes=(2 * len(chapitres) - completees) * SECONDES_PAR_ETAPE_ESTIME,
+        # Jamais un chiffre inventé : sans assez de fiches mesurées, pas d'estimation (le rythme réel prendra le
+        # relais dès la première étape).
+        estimation_temps_total_secondes=est.get("secondes"),
+        estimation_restante_secondes=est.get("secondes"),
+        estimation_maj_a=time.time() if est.get("secondes") is not None else None,
+        estimation_base=decrire_base_estimation(est),
     )
+    if not total:
+        return etat
     _journaliser(
         etat,
-        f"Fiche d'étude : {len(chapitres)} chapitre(s), dont {len(conserves)} conservé(s) d'un run précédent",
+        f"Fiche d'étude : {est['chapitres']} chapitre(s) à traiter, {total} étape(s) "
+        f"({'points' if avec_points else ''}{' + ' if avec_points and avec_quiz else ''}{'quiz' if avec_quiz else ''}"
+        f"{', régénération' if regenerer else ''})",
     )
     _journaliser(etat, "Job ajouté à la file d'attente")
     _sauvegarder_etat(etat)
     enregistrer_job(etat.job_id)
-
-    contenus = {i: par_index[i].get("contenu", "") for i in indices if i in par_index}
     soumettre_travail(etat.job_id, lambda: _executer_etude(etat, contenus))
     return etat

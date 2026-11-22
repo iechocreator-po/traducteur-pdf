@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/components.css?v=1">
   <link rel="stylesheet" href="css/theme-toledo.css?v=3">
-  <link rel="stylesheet" href="css/style.css?v=48">
+  <link rel="stylesheet" href="css/style.css?v=49">
   <link rel="stylesheet" href="css/styles-visuels.css?v=5">
   <link rel="stylesheet" href="css/commutateurs.css?v=2">
   <link rel="stylesheet" href="css/scan-etapes.css?v=4">
@@ -335,38 +335,72 @@
             <div class="sidebar-titre">Résumé &amp; Quiz</div>
             <button type="button" id="biblio-toggle-lecture" class="ds-btn ds-btn--sm">📖 Afficher le texte</button>
           </div>
-          <p class="aide">Coche des chapitres à gauche, puis génère leurs points clés + quiz par l'IA locale.</p>
-          <!-- Deux stratégies de génération coexistent (18/8) : leur fiche porte
-               un nom distinct, donc on peut produire les deux sur un même
-               chapitre et les comparer. « condensation » reste le défaut. -->
-          <div class="ia-strategie">
-            <label for="ia-strategie">Stratégie</label>
-            <select class="ds-select" id="ia-strategie">
-              <option value="sections" selected>Par sections (recommandée)</option>
-              <option value="condensation">Condensation (historique)</option>
-            </select>
+          <p class="aide">Coche des chapitres à gauche, choisis quoi générer, puis lance : l'IA locale écrit la fiche.</p>
+          <!-- Options de génération (22/11/2026) : contenu (points et/ou quiz), stratégie en deux boutons, quantités.
+               Les choix sont mémorisés pour ce navigateur (js/module-bibliotheque.js › optionsFiche). Chaque stratégie
+               garde sa propre fiche : on peut générer les deux sur un chapitre et les comparer. -->
+          <div class="ia-options">
+            <div class="ia-ligne">
+              <span class="ia-libelle" id="ia-libelle-contenu">Générer</span>
+              <div class="ia-choix" role="group" aria-labelledby="ia-libelle-contenu">
+                <label class="ia-choix-puce"><input type="checkbox" id="ia-avec-points" checked> Points clés</label>
+                <label class="ia-choix-puce"><input type="checkbox" id="ia-avec-quiz" checked> Quiz</label>
+              </div>
+            </div>
+            <div class="ia-ligne">
+              <span class="ia-libelle" id="ia-libelle-strategie">Stratégie</span>
+              <div class="ia-segment" id="ia-strategie" role="radiogroup" aria-labelledby="ia-libelle-strategie">
+                <button type="button" role="radio" data-strategie="sections" aria-checked="true">Par sections</button>
+                <button type="button" role="radio" data-strategie="condensation" aria-checked="false">Condensation</button>
+              </div>
+            </div>
+            <!-- Bénéfice de la stratégie choisie, en une phrase (js/module-bibliotheque.js › majAideStrategie). -->
+            <p class="ia-strategie-aide" id="ia-strategie-aide" aria-live="polite"></p>
+            <details class="ia-strategie-details">
+              <summary>Comparer les deux stratégies</summary>
+              <table class="ia-strategie-table">
+                <thead><tr><th></th><th>Par sections</th><th>Condensation</th></tr></thead>
+                <tbody>
+                  <tr><th>Le modèle lit</th><td>Le texte réel, section par section</td><td>Un résumé du chapitre (s'il est long)</td></tr>
+                  <tr><th>Couverture</th><td>Tout le chapitre, début comme fin</td><td>Peut privilégier le début</td></tr>
+                  <tr><th>Points clés</th><td>Précis : noms, dates, chiffres conservés</td><td>Plus synthétiques, parfois plus vagues</td></tr>
+                  <tr><th>Quiz</th><td>Bâti sur les points retenus</td><td>Bâti sur le résumé</td></tr>
+                  <tr><th>Durée</th><td>Comparable (souvent un peu plus rapide)</td><td>Comparable</td></tr>
+                  <tr><th>Idéal pour</th><td>Réviser un chapitre dense</td><td>Un aperçu rapide, ou comparer</td></tr>
+                </tbody>
+              </table>
+            </details>
+            <div class="ia-ligne">
+              <span class="ia-libelle">Quantité</span>
+              <div class="ia-quantites">
+                <label id="ia-quantite-points">Points
+                  <input class="ds-input ia-nb" type="number" id="ia-nb-points" min="1" max="20" placeholder="Auto"
+                         title="Vide = automatique, selon la longueur du chapitre"></label>
+                <label id="ia-quantite-quiz">Questions
+                  <input class="ds-input ia-nb" type="number" id="ia-nb-questions" min="1" max="20" placeholder="Auto"
+                         title="Vide = automatique, selon la longueur du chapitre"></label>
+              </div>
+            </div>
           </div>
-          <!-- T2 : bénéfice de chaque stratégie, expliqué à l'utilisateur (texte selon le choix,
-               js/module-bibliotheque.js › majAideStrategie). -->
-          <div class="ia-strategie-aide" id="ia-strategie-aide" aria-live="polite"></div>
-          <details class="ia-strategie-details">
-            <summary>Comparer les deux stratégies</summary>
-            <table class="ia-strategie-table">
-              <thead><tr><th></th><th>Par sections</th><th>Condensation</th></tr></thead>
-              <tbody>
-                <tr><th>Le modèle lit</th><td>Le texte réel, section par section</td><td>Un résumé du chapitre (s'il est long)</td></tr>
-                <tr><th>Couverture</th><td>Tout le chapitre, début comme fin</td><td>Peut privilégier le début</td></tr>
-                <tr><th>Points clés</th><td>Précis : noms, dates, chiffres conservés</td><td>Plus synthétiques, parfois plus vagues</td></tr>
-                <tr><th>Quiz</th><td>Bâti sur les points retenus</td><td>Bâti sur le résumé</td></tr>
-                <tr><th>Durée</th><td>Comparable (souvent un peu plus rapide)</td><td>Comparable</td></tr>
-                <tr><th>Idéal pour</th><td>Réviser un chapitre dense</td><td>Un aperçu rapide, ou comparer</td></tr>
-              </tbody>
-            </table>
-            <p class="aide">Chaque stratégie garde sa propre fiche : vous pouvez générer les deux sur le même chapitre et les comparer.</p>
-          </details>
-          <button id="ia-generer" class="bouton-ia" disabled>Générer les points clés + quiz</button>
-          <button id="ia-exporter" class="ds-btn" hidden>⬇ Exporter la fiche (HTML)…</button>
+          <button id="ia-generer" class="bouton-ia" disabled>Coche des chapitres à générer</button>
+          <!-- Durée estimée AVANT de lancer (POST /api/etude/estimation, d'après la Chronique), puis minutage en direct. -->
+          <p id="ia-estimation" class="ia-estimation" aria-live="polite"></p>
           <p id="ia-statut" class="aide"></p>
+          <details class="ia-export" id="ia-export" hidden>
+            <summary>⬇ Exporter la fiche (HTML)…</summary>
+            <div class="ia-export-corps">
+              <div class="ia-choix" role="group" aria-label="Contenu de l'export">
+                <label class="ia-choix-puce"><input type="checkbox" id="ia-export-points" checked> Points clés</label>
+                <label class="ia-choix-puce"><input type="checkbox" id="ia-export-quiz" checked> Quiz</label>
+                <label class="ia-choix-puce"><input type="checkbox" id="ia-export-reponses"> Réponses dépliées</label>
+              </div>
+              <div class="ia-choix" role="radiogroup" aria-label="Chapitres exportés">
+                <label class="ia-choix-puce"><input type="radio" name="ia-export-portee" value="coches" checked> <span id="ia-export-coches">Chapitres cochés</span></label>
+                <label class="ia-choix-puce"><input type="radio" name="ia-export-portee" value="toutes"> <span id="ia-export-toutes">Toutes les fiches</span></label>
+              </div>
+              <button id="ia-exporter" type="button" class="ds-btn ds-btn--sm ds-btn--primary">Exporter</button>
+            </div>
+          </details>
           <div id="ia-resultats" class="ia-resultats"></div>
         </div>
       </aside>
@@ -492,8 +526,30 @@
 
     <section class="ds-card carte" id="chronique-estimateur">
       <h2>Estimer une durée</h2>
-      <p class="aide">D'après la vitesse médiane du modèle choisi sur vos traitements passés (cache exclu). Le chargement à froid du modèle s'ajoute au premier appel.</p>
+      <p class="aide">D'après la vitesse médiane du modèle choisi sur vos traitements passés (cache exclu). Le chargement à froid du modèle s'ajoute au premier appel. Pour une fiche, l'estimation prend les fiches les plus semblables (stratégie, contenu) et dit lesquelles.</p>
       <div class="chronique-formulaire">
+        <div>
+          <label for="chronique-type">Traitement</label>
+          <select class="ds-select" id="chronique-type">
+            <option value="traduction">Traduction</option>
+            <option value="etude">Fiche d'étude</option>
+          </select>
+        </div>
+        <div data-chronique-fiche hidden>
+          <label for="chronique-strategie">Stratégie</label>
+          <select class="ds-select" id="chronique-strategie">
+            <option value="sections">Par sections</option>
+            <option value="condensation">Condensation</option>
+          </select>
+        </div>
+        <div data-chronique-fiche hidden>
+          <label for="chronique-parties">Contenu</label>
+          <select class="ds-select" id="chronique-parties">
+            <option value="points+quiz">Points + quiz</option>
+            <option value="points">Points seuls</option>
+            <option value="quiz">Quiz seul</option>
+          </select>
+        </div>
         <div>
           <label for="chronique-modele">Modèle</label>
           <select class="ds-select" id="chronique-modele"></select>
@@ -1059,10 +1115,10 @@
 
   <script src="js/commun.js?v=14"></script>
   <script src="js/module-import.js?v=22"></script>
-  <script src="js/module-bibliotheque.js?v=19"></script>
+  <script src="js/module-bibliotheque.js?v=21"></script>
   <script src="js/bibliotheque-exports.js?v=7"></script>
   <script src="js/module-laboratoire.js?v=13"></script>
-  <script src="js/module-chronique.js?v=1"></script>
+  <script src="js/module-chronique.js?v=2"></script>
   <script src="js/module-anticipation.js?v=4"></script>
   <script src="js/labo-scan-colonnes.js?v=16"></script>
   <script src="js/labo-scan-etapes.js?v=7"></script>

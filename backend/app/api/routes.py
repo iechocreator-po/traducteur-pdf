@@ -679,6 +679,11 @@ class EtudeRequest(BaseModel):
     # La valeur vient de la constante du service, pour qu'un futur changement de
     # défaut n'ait pas à être répété ici.
     strategie: str = ""
+    # Quoi générer pour les chapitres sélectionnés (au moins l'un des deux) ; ce qui existe déjà n'est refait que
+    # si `regenerer` (bouton « Régénérer » d'une fiche de chapitre).
+    avec_points: bool = True
+    avec_quiz: bool = True
+    regenerer: bool = False
 
     @model_validator(mode="after")
     def defaut_strategie(self):
@@ -700,15 +705,18 @@ class EtudeRequest(BaseModel):
             raise ValueError("chemin_pdf ou chemin_md est requis.")
         if not self.chapitres_selectionnes:
             raise ValueError("Au moins un chapitre doit être sélectionné.")
+        if not (self.avec_points or self.avec_quiz):
+            raise ValueError("Rien à générer : choisis les points clés, le quiz, ou les deux.")
         return self
 
 
 @router.post("/etude")
 def generer_fiche_etude(req: EtudeRequest) -> dict:
     """
-    Enfile la génération d'une fiche d'étude (points à retenir + questions de
+    Enfile la génération d'une fiche d'étude (points à retenir et/ou questions de
     compréhension) pour les chapitres sélectionnés. Les chapitres déjà générés
-    avec les mêmes options sont conservés (reprise/ajout automatique).
+    sont conservés ; seul ce qui manque est fait (tout, avec `regenerer`).
+    `taches` = 0 : rien à faire, rien n'a été enfilé.
     """
     chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
 
@@ -724,10 +732,35 @@ def generer_fiche_etude(req: EtudeRequest) -> dict:
             nb_points=req.nb_points,
             nb_questions=req.nb_questions,
             extracteur=req.extracteur_pdf,
+            avec_points=req.avec_points,
+            avec_quiz=req.avec_quiz,
+            regenerer=req.regenerer,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    return {"job_id": etat.job_id, "chemin_sortie": etat.chemin_sortie}
+    return {"job_id": etat.job_id, "chemin_sortie": etat.chemin_sortie, "taches": etat.total_etapes}
+
+
+@router.post("/etude/estimation")
+def estimer_fiche_etude(req: EtudeRequest) -> dict:
+    """
+    Ce que ferait `POST /etude` avec ces options (chapitres et étapes à traiter, caractères) et sa durée estimée
+    d'après les fiches déjà mesurées (Chronique). Ne lance rien. Sous 3 fiches comparables : « insuffisant »,
+    jamais un chiffre inventé.
+    """
+    chemin_source = resoudre_source(req.chemin_pdf, req.chemin_md)
+
+    from app.services.study_runner import decrire_base_estimation, estimer_etude, planifier_etude
+
+    try:
+        chapitres, contenus = planifier_etude(
+            chemin_source, req.chapitres_selectionnes, req.modele_ollama, req.langue_fiche, req.strategie,
+            req.avec_points, req.avec_quiz, req.regenerer, req.extracteur_pdf,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    est = estimer_etude(chapitres, contenus, req.modele_ollama, req.strategie, req.avec_points, req.avec_quiz)
+    return {**est, "description_base": decrire_base_estimation(est)}
 
 
 @router.get("/etude/statut", response_model=EtatJobEtude | None)
@@ -868,7 +901,7 @@ def reconstituer_historique() -> dict:
 
 @router.get("/stats/estimation")
 def estimation_duree(modele: str, caracteres: int | None = None, mots: int | None = None,
-                     type: str = "traduction") -> dict:
+                     type: str = "traduction", strategie: str | None = None, parties: str | None = None) -> dict:
     """Durée estimée d'un traitement d'après ce que le même modèle a réellement coûté (fourchette
     en quartiles). Répond « insuffisant » sous 3 échantillons plutôt qu'un chiffre trompeur."""
     if type not in _TYPES_STATS:
@@ -877,7 +910,7 @@ def estimation_duree(modele: str, caracteres: int | None = None, mots: int | Non
         raise HTTPException(status_code=422, detail="caracteres ou mots est requis.")
     from app.services import stats
 
-    return stats.estimer(modele, caracteres=caracteres, mots=mots, type_=type)
+    return stats.estimer(modele, caracteres=caracteres, mots=mots, type_=type, strategie=strategie, parties=parties)
 
 
 # ── Scan multi-colonnes (Laboratoire) ────────────────────────────────────────

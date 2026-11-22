@@ -132,7 +132,8 @@ CREATE TABLE IF NOT EXISTS stats_runs (
     nouvelles_tentatives  INTEGER,
     avertissements        INTEGER,
     erreurs               INTEGER,
-    reconstitue           INTEGER NOT NULL DEFAULT 0
+    reconstitue           INTEGER NOT NULL DEFAULT 0,
+    parties               TEXT                    -- fiches : 'points+quiz' | 'points' | 'quiz' (NULL avant le 22/11/2026 = les deux)
 );
 
 CREATE INDEX IF NOT EXISTS idx_stats_runs_date ON stats_runs (demarre_a);
@@ -174,10 +175,27 @@ def connexion() -> sqlite3.Connection:
     # compromis standard, et il évite un fsync par sous-morceau.
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.executescript(SCHEMA)
+        _migrer(conn)
         conn.commit()
     _local.conn = conn
     _local.chemin = CHEMIN_BASE
     return conn
+
+
+# Colonnes ajoutées après coup : `CREATE TABLE IF NOT EXISTS` ne touche pas une table existante, on les ajoute ici
+# (idempotent ; une autre connexion qui l'a fait entre-temps n'est pas une erreur).
+_COLONNES_AJOUTEES = (("stats_runs", "parties", "TEXT"),)
+
+
+def _migrer(conn: sqlite3.Connection) -> None:
+    for table, colonne, type_sql in _COLONNES_AJOUTEES:
+        existantes = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if colonne not in existantes:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {colonne} {type_sql}")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
 
 
 def fermer() -> None:

@@ -113,7 +113,9 @@ def test_reprise_conserve_les_chapitres_termines(tmp_path, monkeypatch):
     assert "## Conclusion" in contenu
 
 
-def test_options_differentes_repartent_de_zero(tmp_path, monkeypatch):
+def test_changer_les_options_garde_les_fiches_deja_faites(tmp_path, monkeypatch):
+    # Avant le 22/11/2026, un nombre de points différent effaçait toute la fiche : on perdait des heures de
+    # génération pour avoir changé un réglage.
     _mock_generation(monkeypatch)
     source = tmp_path / "livre.md"
     source.write_text(DOCUMENT)
@@ -123,8 +125,96 @@ def test_options_differentes_repartent_de_zero(tmp_path, monkeypatch):
 
     study_runner.demarrer_etude(str(source), [1], modele="llama3.1", nb_points=7)
     final = _attendre_statut(str(source), {StatutJob.TERMINE})
-    # nb_points différent → le chapitre 0 n'est pas conservé
-    assert {c.index for c in final.chapitres} == {1}
+    par_index = {c.index: c for c in final.chapitres}
+    assert set(par_index) == {0, 1}
+    assert len(par_index[0].points) == 5 and len(par_index[1].points) == 7
+
+
+def test_points_seuls_puis_quiz_seul_complete_la_fiche(tmp_path, monkeypatch):
+    _mock_generation(monkeypatch)
+    source = tmp_path / "livre.md"
+    source.write_text(DOCUMENT)
+
+    study_runner.demarrer_etude(str(source), [0], modele="llama3.1", avec_quiz=False)
+    etat = _attendre_statut(str(source), {StatutJob.TERMINE})
+    chap = etat.chapitres[0]
+    assert chap.points and chap.questions == [] and chap.etape == "termine" and etat.total_etapes == 1
+
+    appels = []
+
+    def points_interdits(*a, **k):
+        appels.append("points")
+        return ["ne doit pas remplacer"]
+
+    monkeypatch.setattr(study_runner, "generer_points", points_interdits)
+    study_runner.demarrer_etude(str(source), [0], modele="llama3.1", avec_points=False, avec_quiz=True)
+    etat = _attendre_statut(str(source), {StatutJob.TERMINE})
+    chap = etat.chapitres[0]
+    assert appels == [] and chap.points == ["Point 1", "Point 2", "Point 3", "Point 4", "Point 5"][: len(chap.points)]
+    assert chap.questions and etat.total_etapes == 1
+
+
+def test_rien_a_faire_n_enfile_rien_et_regenerer_refait_tout(tmp_path, monkeypatch):
+    _mock_generation(monkeypatch)
+    source = tmp_path / "livre.md"
+    source.write_text(DOCUMENT)
+    study_runner.demarrer_etude(str(source), [0], modele="llama3.1", nb_points=3)
+    _attendre_statut(str(source), {StatutJob.TERMINE})
+
+    rien = study_runner.demarrer_etude(str(source), [0], modele="llama3.1", nb_points=3)
+    assert rien.total_etapes == 0
+    assert study_runner.lire_statut_etude(str(source)).job_id != rien.job_id   # l'état sur disque n'est pas touché
+
+    refait = study_runner.demarrer_etude(str(source), [0], modele="llama3.1", nb_points=4, regenerer=True)
+    assert refait.total_etapes == 2
+    final = _attendre_statut(str(source), {StatutJob.TERMINE})
+    assert len(final.chapitres[0].points) == 4
+
+
+def test_ni_points_ni_quiz_est_refuse(tmp_path):
+    source = tmp_path / "livre.md"
+    source.write_text(DOCUMENT)
+    import pytest
+    with pytest.raises(ValueError):
+        study_runner.planifier_etude(str(source), [0], "llama3.1", avec_points=False, avec_quiz=False)
+
+
+def test_une_fiche_en_cours_refuse_un_second_passage(tmp_path, monkeypatch):
+    from app.services import job_manager
+    import pytest
+
+    def points_lents(texte, modele, langue, nb):
+        time.sleep(0.3)
+        return _points_factices(texte, modele, langue, nb)
+
+    _mock_generation(monkeypatch)
+    monkeypatch.setattr(study_runner, "generer_points", points_lents)
+    source = tmp_path / "livre.md"
+    source.write_text(DOCUMENT)
+    etat = study_runner.demarrer_etude(str(source), [0, 1], modele="llama3.1")
+    with pytest.raises(ValueError, match="déjà en cours"):
+        study_runner.demarrer_etude(str(source), [2], modele="llama3.1")
+    job_manager.demander_annulation(etat.job_id)
+    _attendre_statut(str(source), {StatutJob.ANNULE, StatutJob.TERMINE})
+
+
+def test_estimation_de_fiche_sans_mesures_ne_donne_pas_de_chiffre(tmp_path, monkeypatch):
+    from app.services import store
+    store.reinitialiser_pour_tests(str(tmp_path / "vide.db"))
+    source = tmp_path / "livre.md"
+    source.write_text(DOCUMENT)
+    chapitres, contenus = study_runner.planifier_etude(str(source), [0, 1], "llama3.1")
+    est = study_runner.estimer_etude(chapitres, contenus, "llama3.1", "sections", True, True)
+    assert est["taches"] == 4 and est["chapitres"] == 2 and est["caracteres"] > 0
+    assert est["statut"] == "insuffisant" and "secondes" not in est
+
+
+def test_etat_d_avant_les_taches_reprend_ce_qui_manquait():
+    from app.models.schemas import FicheChapitre
+    assert study_runner._taches_heritees(FicheChapitre(index=0, titre="t", etape="en_attente")) == ["points", "quiz"]
+    assert study_runner._taches_heritees(
+        FicheChapitre(index=0, titre="t", etape="questions", points=["p"])) == ["quiz"]
+    assert study_runner._taches_heritees(FicheChapitre(index=0, titre="t", etape="termine")) == []
 
 
 def test_annulation(tmp_path, monkeypatch):
@@ -441,3 +531,23 @@ def test_la_condensation_garde_son_chemin_pour_les_questions(tmp_path, monkeypat
 
     assert condensations, "« condensation » demandée explicitement doit condenser"
     assert modes == [False], "la condensation ne doit pas partir des points"
+
+
+def test_un_echec_d_un_passage_precedent_ne_fait_pas_echouer_le_suivant(tmp_path, monkeypatch):
+    _mock_generation(monkeypatch)
+    source = tmp_path / "livre.md"
+    source.write_text(DOCUMENT)
+
+    def points_en_panne(*a, **k):
+        raise RuntimeError("Ollama a répondu n'importe quoi")
+
+    monkeypatch.setattr(study_runner, "generer_points", points_en_panne)
+    study_runner.demarrer_etude(str(source), [0], modele="llama3.1")
+    rate = _attendre_statut(str(source), {StatutJob.ERREUR, StatutJob.TERMINE})
+    assert rate.statut == StatutJob.ERREUR and rate.echecs_passage == [0]
+
+    monkeypatch.setattr(study_runner, "generer_points", _points_factices)
+    study_runner.demarrer_etude(str(source), [1], modele="llama3.1")
+    final = _attendre_statut(str(source), {StatutJob.TERMINE, StatutJob.ERREUR})
+    assert final.statut == StatutJob.TERMINE and final.echecs_passage == []
+    assert {c.index: c.etape for c in final.chapitres} == {0: "erreur", 1: "termine"}

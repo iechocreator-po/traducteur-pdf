@@ -104,6 +104,9 @@ class FicheChapitre(BaseModel):
     etape: str = "en_attente"
     points: list[str] = Field(default_factory=list)
     questions: list[QuestionEtude] = Field(default_factory=list)
+    # Tâches restantes du passage en cours : « points », « quiz » (l'un, l'autre ou les deux). Vide = rien à faire.
+    # Un chapitre peut n'avoir que ses points, ou que son quiz : c'est l'utilisateur qui choisit quoi générer.
+    a_faire: list[str] = Field(default_factory=list)
 
 
 class EtatJobEtude(BaseModel):
@@ -130,6 +133,19 @@ class EtatJobEtude(BaseModel):
     temps_debut: float | None = None
     temps_ecoule_secondes: float = 0.0
     estimation_temps_total_secondes: float | None = None
+    # Ce que la DERNIÈRE demande voulait générer (les chapitres déjà faits gardent ce qu'ils ont).
+    avec_points: bool = True
+    avec_quiz: bool = True
+    # Minutage du passage en cours, pour le « reste ≈ » de la Bibliothèque : début réel du passage (pas de la mise
+    # en file), durée restante estimée et instant de cette estimation (le frontend décompte depuis cet instant).
+    # `estimation_base` dit d'où vient le chiffre initial (Chronique) ; None = pas assez de mesures.
+    debut_session: float | None = None
+    estimation_restante_secondes: float | None = None
+    estimation_maj_a: float | None = None
+    estimation_base: str | None = None
+    # Chapitres en échec PENDANT ce passage (ceux d'un passage précédent restent marqués « erreur » dans
+    # `chapitres`, mais ne doivent pas être annoncés comme un échec de celui-ci).
+    echecs_passage: list[int] = Field(default_factory=list)
     erreurs: list[str] = Field(default_factory=list)
     journal: list[str] = Field(default_factory=list)
 

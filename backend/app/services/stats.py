@@ -33,8 +33,20 @@ _COLONNES = (
     "morceaux_total", "morceaux_traduits", "morceaux_cache", "caracteres_traites",
     "caracteres_cache", "caracteres_sortie", "mots", "appels", "jetons_entree", "jetons_sortie",
     "duree_generation_s", "duree_chargement_s", "reponses_tronquees", "nouvelles_tentatives",
-    "avertissements", "erreurs", "reconstitue",
+    "avertissements", "erreurs", "reconstitue", "parties",
 )
+
+# Contenu d'une fiche (colonne `parties`). Avant le 22/11/2026 une fiche avait toujours points ET quiz : une ligne à
+# NULL compte donc comme « points+quiz ».
+PARTIES_COMPLETES = "points+quiz"
+
+
+def parties_fiche(avec_points: bool, avec_quiz: bool) -> str:
+    return PARTIES_COMPLETES if avec_points and avec_quiz else ("points" if avec_points else "quiz")
+
+
+def _parties(r: dict) -> str:
+    return r.get("parties") or PARTIES_COMPLETES
 
 
 def inserer_run(ligne: dict) -> int:
@@ -130,6 +142,7 @@ def enregistrer_etude(etat, compteurs, session_debut: float, caracteres_source: 
             "reponses_tronquees": c.reponses_tronquees,
             "erreurs": len(etat.erreurs),
             "reconstitue": 0,
+            "parties": parties_fiche(getattr(etat, "avec_points", True), getattr(etat, "avec_quiz", True)),
         }
 
     _enregistrer_sans_risque(fabrique)
@@ -215,18 +228,7 @@ def agreger(runs: list[dict]) -> dict:
     }
 
 
-def estimer(modele: str, caracteres: int | None = None, mots: int | None = None,
-            type_: str = "traduction") -> dict:
-    """
-    Estime la durée d'un traitement de `caracteres` (ou `mots`) avec `modele`, d'après l'historique.
-
-    Retour : {"statut": "ok"|"insuffisant", "secondes", "min", "max", "echantillons", "base",
-    "source"}. `min`/`max` = 1ᵉʳ et 3ᵉ quartiles (ou min/max sous 4 échantillons). `base` dit
-    sur quoi repose le chiffre (« caracteres » ou « mots »), `source` « mesure » ou
-    « reconstitue ». La durée ne contient PAS le chargement à froid du modèle, qui s'y ajoute au
-    premier appel (voir `chargement_moyen_s` dans l'agrégat).
-    """
-    runs = [r for r in lister_runs(type_, limite=5000) if r["modele"] == modele]
+def _estimer_sur(runs: list[dict], caracteres: int | None, mots: int | None) -> dict:
     candidats = []
     if caracteres:
         mesures = [v for r in runs if not r["reconstitue"] and (v := _secondes_par_1000_car(r))]
@@ -245,6 +247,41 @@ def estimer(modele: str, caracteres: int | None = None, mots: int | None = None,
             }
     mieux = max((len(t) for _, _, t, _ in candidats), default=0)
     return {"statut": "insuffisant", "echantillons": mieux, "minimum": ECHANTILLONS_MIN}
+
+
+def estimer(modele: str, caracteres: int | None = None, mots: int | None = None,
+            type_: str = "traduction", strategie: str | None = None, parties: str | None = None) -> dict:
+    """
+    Estime la durée d'un traitement de `caracteres` (ou `mots`) avec `modele`, d'après l'historique.
+
+    Retour : {"statut": "ok"|"insuffisant", "secondes", "min", "max", "echantillons", "base",
+    "source", "portee"}. `min`/`max` = 1ᵉʳ et 3ᵉ quartiles (ou min/max sous 4 échantillons). `base` dit
+    sur quoi repose le chiffre (« caracteres » ou « mots »), `source` « mesure » ou
+    « reconstitue ». La durée ne contient PAS le chargement à froid du modèle, qui s'y ajoute au
+    premier appel (voir `chargement_moyen_s` dans l'agrégat).
+
+    Fiches (`strategie`, `parties`) : on prend les passages les plus semblables qui suffisent, du plus précis au
+    plus large — `portee` « identique » (même stratégie et même contenu), « meme_contenu », « meme_strategie »,
+    puis « modele » (toutes les fiches du modèle). Le frontend affiche cette portée : une estimation tirée de
+    fiches différentes est une approximation et doit le dire.
+    """
+    runs = [r for r in lister_runs(type_, limite=5000) if r["modele"] == modele]
+    portees: list[tuple[str, list[dict]]] = []
+    if strategie and parties:
+        portees.append(("identique", [r for r in runs if r.get("strategie") == strategie and _parties(r) == parties]))
+    # Le contenu d'abord : un quiz seul coûte quelques secondes, une fiche complète plusieurs minutes, alors que
+    # les deux stratégies ont des durées comparables (mesuré, voir study_runner).
+    if parties:
+        portees.append(("meme_contenu", [r for r in runs if _parties(r) == parties]))
+    if strategie:
+        portees.append(("meme_strategie", [r for r in runs if r.get("strategie") == strategie]))
+    portees.append(("modele", runs))
+    resultat = {}
+    for portee, sous_ensemble in portees:
+        resultat = _estimer_sur(sous_ensemble, caracteres, mots)
+        if resultat["statut"] == "ok":
+            return {**resultat, "portee": portee}
+    return resultat
 
 
 # ── Reconstitution depuis les traductions déjà faites ────────────────────────

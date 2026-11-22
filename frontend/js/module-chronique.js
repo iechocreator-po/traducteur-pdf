@@ -87,6 +87,12 @@
     }
   }
 
+  const LIBELLES_PARTIES = { "points+quiz": "points + quiz", points: "points seuls", quiz: "quiz seul" };
+  const LIBELLES_PORTEE = {
+    identique: "fiches identiques", meme_strategie: "même stratégie, tous contenus",
+    meme_contenu: "même contenu, toutes stratégies", modele: "toutes les fiches de ce modèle",
+  };
+
   function rendreRuns(runs) {
     $("chronique-vide").hidden = runs.length > 0;
     const corps = entete($("chronique-table-runs"), [
@@ -98,7 +104,9 @@
       cellule(tr, new Date(r.demarre_a * 1000).toLocaleString("fr-CA", { dateStyle: "short", timeStyle: "short" }));
       const nom = cellule(tr, r.nom || ND, "nom");
       nom.title = r.chemin_source || "";
-      cellule(tr, (r.type === "etude" ? `Fiche${r.strategie ? " · " + r.strategie : ""}` : "Traduction") + (r.reconstitue ? " · reconstitué" : ""));
+      // Contenu d'une fiche : NULL avant le 22/11/2026, où une fiche avait toujours points ET quiz.
+      const contenu = r.type === "etude" ? ` · ${LIBELLES_PARTIES[r.parties || "points+quiz"] || r.parties}` : "";
+      cellule(tr, (r.type === "etude" ? `Fiche${r.strategie ? " · " + r.strategie : ""}${contenu}` : "Traduction") + (r.reconstitue ? " · reconstitué" : ""));
       cellule(tr, r.modele || ND);
       cellule(tr, nombre(r.caracteres_traites), "is-num");
       cellule(tr, nombre(r.jetons_sortie), "is-num");
@@ -120,7 +128,7 @@
   function rendreChoixModeles(modeles) {
     const select = $("chronique-modele");
     const courant = select.value;
-    const noms = [...new Set(modeles.filter((m) => m.type === "traduction" && m.modele).map((m) => m.modele))];
+    const noms = [...new Set(modeles.filter((m) => m.modele).map((m) => m.modele))];
     // Les modèles installés complètent la liste : on peut vouloir estimer un modèle jamais utilisé
     // (réponse « insuffisant », honnête, plutôt que d'omettre le modèle).
     for (const m of (window.modelesDisponibles || [])) if (!noms.includes(m)) noms.push(m);
@@ -151,13 +159,22 @@
     const zone = $("chronique-estimation");
     if (!modele || !taille || taille < 1) { zone.textContent = "Choisissez un modèle et une taille de texte."; return; }
     const unite = $("chronique-unite").value;
+    const type = $("chronique-type").value;
+    const params = new URLSearchParams({ modele, [unite]: String(taille), type });
+    if (type === "etude") {
+      params.set("strategie", $("chronique-strategie").value);
+      params.set("parties", $("chronique-parties").value);
+    }
     try {
-      const e = await apiGet(`/stats/estimation?modele=${encodeURIComponent(modele)}&${unite}=${taille}`);
+      const e = await apiGet(`/stats/estimation?${params}`);
       if (e.statut !== "ok") {
-        zone.textContent = `Pas assez de mesures pour « ${modele} » (${e.echantillons} sur ${e.minimum} minimum). Traduisez quelques documents, ou reconstituez l'historique ci-dessous.`;
+        zone.textContent = type === "etude"
+          ? `Pas assez de fiches mesurées pour « ${modele} » (${e.echantillons} sur ${e.minimum} minimum). Générez quelques fiches dans la Bibliothèque.`
+          : `Pas assez de mesures pour « ${modele} » (${e.echantillons} sur ${e.minimum} minimum). Traduisez quelques documents, ou reconstituez l'historique ci-dessous.`;
         return;
       }
-      const base = e.source === "reconstitue" ? "lignes reconstituées (durée cumulée, cache compris)" : "mesures réelles";
+      const base = (e.source === "reconstitue" ? "lignes reconstituées (durée cumulée, cache compris)" : "mesures réelles")
+        + (type === "etude" && e.portee ? ` — ${LIBELLES_PORTEE[e.portee] || e.portee}` : "");
       zone.innerHTML = "";
       const p = document.createElement("p");
       p.innerHTML = "<strong></strong> <span class='aide'></span>";
@@ -167,6 +184,13 @@
     } catch (err) {
       zone.textContent = `Erreur : ${err.message}`;
     }
+  });
+
+  $("chronique-type").addEventListener("change", () => {
+    const fiche = $("chronique-type").value === "etude";
+    document.querySelectorAll("[data-chronique-fiche]").forEach((el) => { el.hidden = !fiche; });
+    $("chronique-unite").value = "caracteres";   // les fiches ne mesurent pas les mots
+    $("chronique-unite").disabled = fiche;
   });
 
   $("chronique-reconstituer").addEventListener("click", async () => {

@@ -456,37 +456,48 @@
     }
   }
 
-  // Bénéfice de chaque stratégie, dit à l'utilisateur au moment où il choisit (la logique est
-  // dans services/study_runner.py : « sections » lit le texte réel section par section,
-  // « condensation » résume d'abord un chapitre trop long puis travaille sur ce résumé).
+  // Bénéfice de chaque stratégie, en une phrase, au moment où l'utilisateur choisit (la logique est dans
+  // services/study_runner.py : « sections » lit le texte réel section par section, « condensation » résume d'abord
+  // un chapitre trop long puis travaille sur ce résumé). Le détail est dans « Comparer les deux stratégies ».
   const AIDE_STRATEGIE = {
     sections:
-      "<strong>Par sections — la plus fidèle.</strong> Le chapitre est découpé en sections et " +
-      "l'IA relève les points clés de <em>chacune</em>, directement dans le texte, puis garde les " +
-      "meilleurs. Bénéfice : tout le chapitre est couvert (la fin autant que le début) et les " +
-      "détails concrets — noms, dates, chiffres — sont conservés. Le quiz est construit sur ces " +
-      "points. Durée comparable (mesurée : souvent un peu plus rapide). Recommandée par défaut.",
+      "<strong>La plus fidèle :</strong> l'IA relève les points de chaque section dans le texte réel — " +
+      "tout le chapitre est couvert, noms, dates et chiffres compris.",
     condensation:
-      "<strong>Condensation — la plus directe.</strong> Si le chapitre est long, l'IA en écrit " +
-      "d'abord un résumé, puis tire points clés et quiz de ce résumé. Bénéfice : une vue " +
-      "d'ensemble plus synthétique, rédigée à partir d'un texte déjà résumé. Limite : un " +
-      "résumé de résumé peut perdre des détails et privilégier le début. Utile pour un survol " +
-      "rapide, ou pour comparer avec « Par sections » (chaque stratégie garde sa propre fiche).",
+      "<strong>La plus directe :</strong> l'IA résume d'abord le chapitre, puis en tire la fiche — " +
+      "plus synthétique, mais peut perdre des détails de la fin.",
   };
   function majAideStrategie() {
     const aide = $("ia-strategie-aide");
     if (aide) aide.innerHTML = AIDE_STRATEGIE[strategieChoisie()] || "";   // texte statique, jamais de contenu utilisateur
   }
-  majAideStrategie();
 
-  $("ia-strategie").addEventListener("change", () => {
-    // Chaque stratégie a SA fiche : on recharge celle qui correspond.
+  // Choix de stratégie en deux boutons (radiogroup) : flèches gauche/droite comme un vrai groupe radio.
+  function choisirStrategie(valeur) {
+    $("ia-strategie").querySelectorAll("[data-strategie]").forEach((b) => {
+      const actif = b.dataset.strategie === valeur;
+      b.setAttribute("aria-checked", String(actif));
+      b.tabIndex = actif ? 0 : -1;
+    });
+    enregistrerOptionsFiche();
     majAideStrategie();
+    // Chaque stratégie a SA fiche : on recharge celle qui correspond.
     ficheParChapitre = {};
     arreterPollFiche();
     $("ia-statut").textContent = "";
     rendreFiche();
-    chargerFicheExistante();
+    if (docActif) chargerFicheExistante();
+  }
+  $("ia-strategie").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-strategie]");
+    if (b && b.getAttribute("aria-checked") !== "true") choisirStrategie(b.dataset.strategie);
+  });
+  $("ia-strategie").addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const autre = strategieChoisie() === "sections" ? "condensation" : "sections";
+    choisirStrategie(autre);
+    $("ia-strategie").querySelector(`[data-strategie="${autre}"]`).focus();
+    e.preventDefault();
   });
 
   $("doc-comparer").addEventListener("click", () => {
@@ -706,25 +717,86 @@
 
   // Reconstruit ficheParChapitre DEPUIS l'état backend (jamais d'accumulation) :
   // si le backend est reparti de zéro, l'UI ne doit pas garder des fiches mortes.
+  // Un chapitre s'affiche dès qu'il a des points OU un quiz : on peut ne générer que l'un des deux.
   function synchroniserFiches(etat) {
     ficheParChapitre = {};
     for (const chap of etat.chapitres) {
-      if (chap.etape === "termine") ficheParChapitre[chap.index] = chap;
+      if ((chap.points && chap.points.length) || (chap.questions && chap.questions.length)) {
+        ficheParChapitre[chap.index] = chap;
+      }
     }
   }
 
-  // ── Stratégie de génération de fiche (18/8) ─────────────────────────────────
-  // Deux stratégies coexistent, chacune avec sa propre fiche sur le disque.
-  // Le statut doit donc être demandé POUR une stratégie : sans ça, l'interface
-  // afficherait la plus récente des deux, au hasard.
+  // ── Options de génération (contenu, stratégie, quantités) ───────────────────
+  // Mémorisées pour ce navigateur seulement (confort) : sans stockage, les défauts s'appliquent.
+  const CLE_OPTIONS_FICHE = "toledo.options-fiche";
 
   function strategieChoisie() {
-    const sel = $("ia-strategie");
-    // Repli aligné sur le défaut du backend (« sections » depuis le 19/8). Il ne
-    // sert que si le sélecteur est absent du DOM — mais un repli qui contredit
+    const actif = $("ia-strategie")?.querySelector('[aria-checked="true"]');
+    // Repli aligné sur le défaut du backend (« sections » depuis le 19/8) : un repli qui contredit
     // le backend produirait une fiche différente de celle qu'on affiche.
-    return sel ? sel.value : "sections";
+    return actif ? actif.dataset.strategie : "sections";
   }
+
+  function nombreOuAuto(id) {
+    const n = parseInt($(id).value, 10);
+    return Number.isFinite(n) && n > 0 ? Math.min(n, 20) : 0;   // 0 = automatique (selon la longueur du chapitre)
+  }
+
+  function optionsFiche() {
+    return {
+      avec_points: $("ia-avec-points").checked,
+      avec_quiz: $("ia-avec-quiz").checked,
+      nb_points: nombreOuAuto("ia-nb-points"),
+      nb_questions: nombreOuAuto("ia-nb-questions"),
+      strategie: strategieChoisie(),
+    };
+  }
+
+  function enregistrerOptionsFiche() {
+    try { localStorage.setItem(CLE_OPTIONS_FICHE, JSON.stringify(optionsFiche())); } catch { /* stockage indisponible */ }
+  }
+
+  function restaurerOptionsFiche() {
+    let o = null;
+    try { o = JSON.parse(localStorage.getItem(CLE_OPTIONS_FICHE) || "null"); } catch { o = null; }
+    if (!o) return;
+    $("ia-avec-points").checked = o.avec_points !== false;
+    $("ia-avec-quiz").checked = o.avec_quiz !== false;
+    $("ia-nb-points").value = o.nb_points > 0 ? o.nb_points : "";
+    $("ia-nb-questions").value = o.nb_questions > 0 ? o.nb_questions : "";
+    if (o.strategie === "condensation" || o.strategie === "sections") {
+      $("ia-strategie").querySelectorAll("[data-strategie]").forEach((b) => {
+        const actif = b.dataset.strategie === o.strategie;
+        b.setAttribute("aria-checked", String(actif));
+        b.tabIndex = actif ? 0 : -1;
+      });
+    }
+  }
+
+  function majChampsQuantite() {
+    // Une quantité sans objet (quiz décoché) est grisée, pas effacée : elle revient si on recoche.
+    $("ia-nb-points").disabled = !$("ia-avec-points").checked;
+    $("ia-nb-questions").disabled = !$("ia-avec-quiz").checked;
+  }
+
+  for (const id of ["ia-avec-points", "ia-avec-quiz"]) {
+    $(id).addEventListener("change", () => {
+      // Au moins un des deux : décocher le dernier recoche l'autre (une génération vide n'a pas de sens).
+      if (!$("ia-avec-points").checked && !$("ia-avec-quiz").checked) {
+        $(id === "ia-avec-points" ? "ia-avec-quiz" : "ia-avec-points").checked = true;
+      }
+      majChampsQuantite();
+      enregistrerOptionsFiche();
+      majBoutonGenerer();
+    });
+  }
+  for (const id of ["ia-nb-points", "ia-nb-questions"]) {
+    $(id).addEventListener("change", enregistrerOptionsFiche);
+  }
+  restaurerOptionsFiche();
+  majChampsQuantite();
+  majAideStrategie();
 
   function urlStatutFiche() {
     const params = new URLSearchParams({
@@ -746,28 +818,36 @@
     rendreFiche();
   }
 
-  async function genererFiche() {
-    if (!docActif) return;
-    const selection = [...chapitresCoches];
-    if (selection.length === 0) return;
+  // Corps commun de /etude et /etude/estimation. Options ANCRÉES sur le document (modèle, langue), pas sur
+  // les menus d'un autre module : la fiche suit le document.
+  function corpsFiche(selection, surcharge = {}) {
+    const o = optionsFiche();
+    return {
+      chemin_md: docActif.chemin_sortie,
+      chapitres_selectionnes: selection,
+      modele_ollama: docActif.modele,
+      langue_fiche: docActif.langue_cible || "français",
+      strategie: o.strategie,
+      avec_points: o.avec_points,
+      avec_quiz: o.avec_quiz,
+      nb_points: o.nb_points,
+      nb_questions: o.nb_questions,
+      regenerer: false,
+      ...surcharge,
+    };
+  }
+
+  // Lance un passage. `surcharge` sert aux actions d'une fiche de chapitre (régénérer, ajouter le quiz…).
+  async function genererFiche(selection = [...chapitresCoches], surcharge = {}) {
+    if (!docActif || selection.length === 0) return;
     if (!(await exigerSante())) return;
     try {
-      await apiPost("/etude", {
-        chemin_md: docActif.chemin_sortie,
-        chapitres_selectionnes: selection,
-        // Options ANCRÉES sur le document, pas sur les menus d'un autre module :
-        // sinon changer un menu de l'Import efface les fiches déjà générées
-        // (le backend redémarre à zéro si les options diffèrent).
-        modele_ollama: docActif.modele,
-        // 0 = automatique : le backend dérive le nombre de la longueur du
-        // chapitre. Cinq points fixes pour un chapitre de livre de 50 000
-        // caractères ne pouvaient qu'être vagues.
-        nb_points: 0,
-        nb_questions: 0,
-        strategie: strategieChoisie(),
-        langue_fiche: docActif.langue_cible || "français",
-      });
-      $("ia-statut").textContent = "⏳ Génération en cours…";
+      const rep = await apiPost("/etude", corpsFiche(selection, surcharge), API_TIMEOUT_LONG_MS);
+      if (!rep.taches) {
+        $("ia-statut").textContent = "Rien à générer : ces chapitres ont déjà ce contenu. « ↻ Régénérer » sur une fiche la refait.";
+        return;
+      }
+      $("ia-statut").textContent = "⏳ Génération en file d'attente…";
       $("ia-generer").disabled = true;
       demarrerPollFiche();
     } catch (e) {
@@ -775,24 +855,104 @@
     }
   }
 
+  // ── Durée : estimation avant de lancer, minutage pendant ────────────────────
+
+  let dernierEtatFiche = null;
+  let minuteurFiche = null;
+  let estimationEnAttente = null;
+  let numeroEstimation = 0;
+
+  function dureeLisible(secondes) {
+    if (secondes == null || !Number.isFinite(secondes)) return null;
+    const s = Math.max(0, Math.round(secondes));
+    if (s < 60) return `${s} s`;
+    if (s < 3600) return `${Math.round(s / 60)} min`;
+    return `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, "0")}`;
+  }
+
+  function planifierEstimation() {
+    clearTimeout(estimationEnAttente);
+    estimationEnAttente = setTimeout(estimerFiche, 350);   // une seule requête après une rafale de clics
+  }
+
+  async function estimerFiche() {
+    const zone = $("ia-estimation");
+    if (!docActif || pollFiche || chapitresCoches.size === 0) {
+      if (!pollFiche) zone.textContent = "";
+      return;
+    }
+    const numero = ++numeroEstimation;
+    try {
+      const e = await apiPost("/etude/estimation", corpsFiche([...chapitresCoches]), API_TIMEOUT_LONG_MS);
+      if (numero !== numeroEstimation || pollFiche) return;   // réponse périmée (autre sélection entre-temps)
+      majBoutonGenerer(e);
+      if (e.statut === "rien") {
+        zone.textContent = "Déjà généré pour ces chapitres. « ↻ Régénérer » sur une fiche pour la refaire.";
+        return;
+      }
+      const volume = `${e.chapitres} chapitre${e.chapitres > 1 ? "s" : ""} · ${e.taches} étape${e.taches > 1 ? "s" : ""}`;
+      if (e.statut === "ok") {
+        const fourchette = e.min != null && e.max != null && dureeLisible(e.min) !== dureeLisible(e.max)
+          ? ` (${dureeLisible(e.min)} à ${dureeLisible(e.max)})` : "";
+        zone.innerHTML = "<strong></strong><span></span>";
+        zone.children[0].textContent = `≈ ${dureeLisible(e.secondes)}${fourchette}`;
+        zone.children[1].textContent = ` · ${volume} · ${e.description_base}`;
+      } else {
+        zone.textContent = `Durée : pas encore estimable (${e.echantillons ?? 0} fiche${(e.echantillons ?? 0) > 1 ? "s" : ""} `
+          + `mesurée${(e.echantillons ?? 0) > 1 ? "s" : ""} sur ${e.minimum ?? 3}) · ${volume}. La Chronique apprend de chaque fiche.`;
+      }
+    } catch {
+      if (numero === numeroEstimation) zone.textContent = "";
+    }
+  }
+
+  // Minutage en direct : le backend donne la durée restante et l'instant où il l'a calculée ; on décompte d'ici.
+  function texteMinutageFiche(etat) {
+    const morceaux = [`⏳ ${etat.etapes_completees}/${etat.total_etapes} étape${etat.total_etapes > 1 ? "s" : ""}`];
+    if (etat.statut === "en_attente") return `${morceaux[0]} · en file d'attente`;
+    const maintenant = Date.now() / 1000;
+    if (etat.debut_session) morceaux.push(`⏱ ${formaterDuree(maintenant - etat.debut_session)}`);
+    if (etat.estimation_restante_secondes != null && etat.estimation_maj_a) {
+      const reste = etat.estimation_restante_secondes - (maintenant - etat.estimation_maj_a);
+      const origine = etat.etapes_completees > 0 ? "rythme observé" : (etat.estimation_base ? "Chronique" : "");
+      morceaux.push(reste > 0
+        ? `reste ≈ ${dureeLisible(reste)}${origine ? ` (${origine})` : ""}`
+        : "dépasse l'estimation");
+    } else {
+      morceaux.push("reste : estimé après la 1re étape");
+    }
+    return morceaux.join(" · ");
+  }
+
+  function armerMinuteurFiche() {
+    if (minuteurFiche) return;
+    minuteurFiche = setInterval(() => {
+      if (dernierEtatFiche && pollFiche) $("ia-statut").textContent = texteMinutageFiche(dernierEtatFiche);
+    }, 1000);
+  }
+
   async function pollStatutFiche() {
     if (!docActif) { arreterPollFiche(); return; }
     try {
       const etat = await apiGet(urlStatutFiche());
       if (!etat) return;
+      dernierEtatFiche = etat;
       synchroniserFiches(etat);
-      const enErreur = etat.chapitres.filter(c => c.etape === "erreur").length;
-      if (["termine", "erreur", "annule"].includes(etat.statut)) {
+      // Échecs de CE passage seulement (un chapitre raté hier garde son ⚠ sur sa fiche, pas ici).
+      const enErreur = (etat.echecs_passage || []).length;
+      if (["termine", "erreur", "annule", "en_pause"].includes(etat.statut)) {
         arreterPollFiche();
+        const duree = etat.temps_ecoule_secondes ? ` en ${dureeLisible(etat.temps_ecoule_secondes)}` : "";
         if (etat.statut === "annule") $("ia-statut").textContent = "✕ Annulé";
-        else if (enErreur) $("ia-statut").textContent = `⚠ ${enErreur} chapitre(s) en échec — les autres sont prêts.`;
-        else $("ia-statut").textContent = "";
+        else if (etat.statut === "en_pause") $("ia-statut").textContent = "⏸ En pause — « Générer » reprend là où elle s'est arrêtée.";
+        else if (enErreur) $("ia-statut").textContent = etat.statut === "erreur"
+          ? `❌ Échec de la génération (${enErreur} chapitre${enErreur > 1 ? "s" : ""}) — détail sur la fiche du chapitre.`
+          : `⚠ ${enErreur} chapitre(s) en échec — les autres sont prêts.`;
+        else $("ia-statut").textContent = `✓ Fiche prête${duree}.`;
         rendreFiche();
       } else {
-        // Progression globale plutôt que le premier chapitre en cours : lisible
-        // quand plusieurs chapitres sont sélectionnés.
-        $("ia-statut").textContent =
-          `⏳ Génération — ${etat.etapes_completees}/${etat.total_etapes} étapes`;
+        $("ia-statut").textContent = texteMinutageFiche(etat);
+        $("ia-estimation").textContent = "";
         rendreFiche();
       }
     } catch { /* prochain tick */ }
@@ -800,68 +960,124 @@
 
   function demarrerPollFiche() {
     if (pollFiche) return;
-    pollStatutFiche();
     pollFiche = setInterval(pollStatutFiche, 2000);
+    pollStatutFiche();
+    armerMinuteurFiche();
   }
 
   function arreterPollFiche() {
     clearInterval(pollFiche);
     pollFiche = null;
+    clearInterval(minuteurFiche);
+    minuteurFiche = null;
   }
 
-  function majBoutonGenerer() {
+  // `estimation` (facultative) : réponse de /etude/estimation — le bouton dit alors combien de chapitres
+  // ont VRAIMENT quelque chose à générer, pas seulement combien sont cochés.
+  function majBoutonGenerer(estimation) {
     const n = chapitresCoches.size;
     const btn = $("ia-generer");
-    btn.disabled = n === 0 || !!pollFiche;
-    btn.textContent = n === 0
-      ? "Coche des chapitres à générer"
-      : `Générer pour ${n} chapitre${n > 1 ? "s" : ""}`;
+    const o = optionsFiche();
+    const quoi = o.avec_points && o.avec_quiz ? "points clés + quiz" : (o.avec_points ? "points clés" : "quiz");
+    if (n === 0) {
+      btn.disabled = true;
+      btn.textContent = "Coche des chapitres à générer";
+    } else if (estimation && estimation.statut === "rien") {
+      btn.disabled = true;
+      btn.textContent = "Déjà généré pour ces chapitres";
+    } else {
+      const k = estimation ? estimation.chapitres : n;
+      btn.disabled = !!pollFiche;
+      btn.textContent = `Générer ${quoi} · ${k} chapitre${k > 1 ? "s" : ""}`;
+    }
+    if (!estimation) planifierEstimation();
   }
 
-  // Rend un bloc de fiche (points + quiz) pour un chapitre donné.
+  // ── Rendu des fiches, avec les actions de chaque chapitre ───────────────────
+
+  function boutonAction(libelle, titre, action) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "bouton-lien ia-action";
+    b.textContent = libelle;
+    b.title = titre;
+    b.disabled = !!pollFiche;
+    b.addEventListener("click", action);
+    return b;
+  }
+
   function rendreBlocFiche(chap, fiche) {
     const bloc = document.createElement("div");
     bloc.className = "ia-bloc-chapitre";
 
+    const tete = document.createElement("div");
+    tete.className = "ia-bloc-tete";
     const titre = document.createElement("div");
     titre.className = "ia-bloc-titre";
     titre.textContent = titreAffiche(chap);
-    bloc.appendChild(titre);
+    const actions = document.createElement("div");
+    actions.className = "ia-bloc-actions";
+    const aPoints = fiche.points && fiche.points.length > 0;
+    const aQuiz = fiche.questions && fiche.questions.length > 0;
+    if (!aPoints) {
+      actions.appendChild(boutonAction("＋ Points", "Générer les points clés de ce chapitre",
+        () => genererFiche([chap.index], { avec_points: true, avec_quiz: false })));
+    }
+    if (!aQuiz) {
+      actions.appendChild(boutonAction("＋ Quiz", "Générer le quiz de ce chapitre",
+        () => genererFiche([chap.index], { avec_points: false, avec_quiz: true })));
+    }
+    actions.appendChild(boutonAction("↻ Régénérer",
+      "Refaire ce chapitre avec les options choisies ci-dessus (contenu, quantités)",
+      () => genererFiche([chap.index], { regenerer: true })));
+    tete.append(titre, actions);
+    bloc.appendChild(tete);
 
-    const tPoints = document.createElement("div");
-    tPoints.className = "ia-zone-titre";
-    tPoints.textContent = "Points clés";
-    bloc.appendChild(tPoints);
-    for (const point of fiche.points) {
-      const ligne = document.createElement("div");
-      ligne.className = "ia-point";
-      const puce = document.createElement("span");
-      puce.className = "ia-puce";
-      const texte = document.createElement("span");
-      texte.textContent = point;
-      ligne.append(puce, texte);
-      bloc.appendChild(ligne);
+    if (fiche.etape === "erreur") {
+      const alerte = document.createElement("div");
+      alerte.className = "ia-bloc-alerte";
+      alerte.textContent = "⚠ La dernière génération de ce chapitre a échoué ; ce qui est affiché vient d'avant.";
+      bloc.appendChild(alerte);
     }
 
-    const tQuiz = document.createElement("div");
-    tQuiz.className = "ia-zone-titre";
-    tQuiz.textContent = "Quiz";
-    bloc.appendChild(tQuiz);
-    fiche.questions.forEach((q, i) => {
-      const carte = document.createElement("div");
-      carte.className = "ia-question";
-      const question = document.createElement("div");
-      question.className = "ia-question-texte";
-      question.textContent = `Q${i + 1}. ${q.question}`;
-      const details = document.createElement("details");
-      const summary = document.createElement("summary");
-      summary.textContent = "Voir la réponse";
-      const reponse = document.createElement("p");
-      reponse.textContent = q.reponse;
-      details.append(summary, reponse);
-      carte.append(question, details);
-      bloc.appendChild(carte);
-    });
+    if (aPoints) {
+      const tPoints = document.createElement("div");
+      tPoints.className = "ia-zone-titre";
+      tPoints.textContent = "Points clés";
+      bloc.appendChild(tPoints);
+      for (const point of fiche.points) {
+        const ligne = document.createElement("div");
+        ligne.className = "ia-point";
+        const puce = document.createElement("span");
+        puce.className = "ia-puce";
+        const texte = document.createElement("span");
+        texte.textContent = point;
+        ligne.append(puce, texte);
+        bloc.appendChild(ligne);
+      }
+    }
+
+    if (aQuiz) {
+      const tQuiz = document.createElement("div");
+      tQuiz.className = "ia-zone-titre";
+      tQuiz.textContent = "Quiz";
+      bloc.appendChild(tQuiz);
+      fiche.questions.forEach((q, i) => {
+        const carte = document.createElement("div");
+        carte.className = "ia-question";
+        const question = document.createElement("div");
+        question.className = "ia-question-texte";
+        question.textContent = `Q${i + 1}. ${q.question}`;
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = "Voir la réponse";
+        const reponse = document.createElement("p");
+        reponse.textContent = q.reponse;
+        details.append(summary, reponse);
+        carte.append(question, details);
+        bloc.appendChild(carte);
+      });
+    }
     return bloc;
   }
 
@@ -878,28 +1094,42 @@
     }
   }
 
-  $("ia-generer").addEventListener("click", genererFiche);
+  $("ia-generer").addEventListener("click", () => genererFiche());
 
   // ── Export HTML de la fiche d'étude (flag export_fiche_html) ────────────────
 
   function majBoutonExport() {
-    const dispo = featureFlags.export_fiche_html !== false
-      && Object.keys(ficheParChapitre).length > 0;
-    $("ia-exporter").hidden = !dispo;
+    const nbFiches = Object.keys(ficheParChapitre).length;
+    const dispo = featureFlags.export_fiche_html !== false && nbFiches > 0;
+    $("ia-export").hidden = !dispo;
+    if (!dispo) return;
+    const nbCoches = [...chapitresCoches].filter((i) => ficheParChapitre[i]).length;
+    $("ia-export-coches").textContent = `Chapitres cochés (${nbCoches})`;
+    $("ia-export-toutes").textContent = `Toutes les fiches (${nbFiches})`;
+    const radioCoches = document.querySelector('input[name="ia-export-portee"][value="coches"]');
+    radioCoches.disabled = nbCoches === 0;
+    if (nbCoches === 0) document.querySelector('input[name="ia-export-portee"][value="toutes"]').checked = true;
+  }
+
+  function optionsExport() {
+    return {
+      points: $("ia-export-points").checked,
+      quiz: $("ia-export-quiz").checked,
+      reponsesDepliees: $("ia-export-reponses").checked,
+      portee: document.querySelector('input[name="ia-export-portee"]:checked')?.value || "toutes",
+    };
   }
 
   // `echapperHtml` vient de commun.js (échappe aussi les guillemets : les URL des
   // liens et les `alt` des images sont insérés dans des attributs).
 
-  // Chapitres à inclure dans l'export : ceux cochés qui ont une fiche ; si
-  // aucune case n'est cochée, toutes les fiches générées (repli).
-  function indicesPourExport() {
+  function indicesPourExport(portee) {
     const avecFiche = new Set(Object.keys(ficheParChapitre).map(Number));
     const coches = [...chapitresCoches].filter((i) => avecFiche.has(i));
-    return new Set(coches.length ? coches : avecFiche);
+    return new Set(portee === "coches" && coches.length ? coches : avecFiche);
   }
 
-  function construireFicheHtml() {
+  function construireFicheHtml(opts) {
     const titre = echapperHtml(docActif.nom || "Document");
     const meta = [
       docActif.langue_source && docActif.langue_cible
@@ -908,7 +1138,7 @@
       docActif.maj_a ? `Généré le ${echapperHtml(new Date(docActif.maj_a).toLocaleString("fr-CA"))}` : "",
     ].filter(Boolean).join(" · ");
 
-    const inclus = indicesPourExport();
+    const inclus = indicesPourExport(opts.portee);
 
     // Table des matières : tous les chapitres, indentés par niveau.
     const toc = chapitres.map((c) => {
@@ -918,25 +1148,27 @@
       return `<li style="margin-left:${(Math.max(c.niveau, 1) - 1) * 1.2}rem">${lien}</li>`;
     }).join("\n");
 
-    // Sections détaillées : les chapitres inclus dans l'export, dans l'ordre.
+    // Sections détaillées : les chapitres inclus dans l'export, dans l'ordre ; seulement les parties choisies.
     const sections = chapitres
       .filter((c) => inclus.has(c.index))
       .map((c) => {
         const fiche = ficheParChapitre[c.index];
-        const points = (fiche.points || [])
-          .map((p) => `<li>${echapperHtml(p)}</li>`).join("\n");
-        const questions = (fiche.questions || []).map((q, i) => `
+        const blocPoints = opts.points && fiche.points?.length
+          ? `<h3>Points à retenir</h3>\n<ol>${fiche.points.map((p) => `<li>${echapperHtml(p)}</li>`).join("\n")}</ol>` : "";
+        const blocQuiz = opts.quiz && fiche.questions?.length
+          ? `<h3>Questions de compréhension</h3>\n` + fiche.questions.map((q, i) => `
           <div class="question">
             <p class="q">Q${i + 1}. ${echapperHtml(q.question)}</p>
-            <details><summary>Voir la réponse</summary><p>${echapperHtml(q.reponse)}</p></details>
-          </div>`).join("\n");
+            ${opts.reponsesDepliees
+              ? `<p class="r">${echapperHtml(q.reponse)}</p>`
+              : `<details><summary>Voir la réponse</summary><p>${echapperHtml(q.reponse)}</p></details>`}
+          </div>`).join("\n") : "";
+        if (!blocPoints && !blocQuiz) return "";
         return `
         <section id="chap-${c.index}">
           <h2>${echapperHtml(titreAffiche(c))}</h2>
-          <h3>Points à retenir</h3>
-          <ol>${points}</ol>
-          <h3>Questions de compréhension</h3>
-          ${questions}
+          ${blocPoints}
+          ${blocQuiz}
         </section>`;
       }).join("\n");
 
@@ -956,6 +1188,7 @@
   section { border-top: 1px solid #e5e7eb; padding-top: 1rem; margin-top: 2rem; }
   h2 { margin-bottom: .3rem; } h3 { margin: 1.1rem 0 .3rem; font-size: 1rem; color: #444; }
   .question { margin: .6rem 0; } .q { font-weight: 600; margin: 0 0 .2rem; }
+  .r { margin: 0; padding: .5rem .8rem; background: #f9fafb; border-left: 3px solid #2563eb; border-radius: 4px; }
   details { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: .5rem .8rem; }
   summary { cursor: pointer; color: #2563eb; } details[open] summary { margin-bottom: .4rem; }
   details p { margin: 0; }
@@ -963,8 +1196,10 @@
     body { background: #16181c; color: #e5e7eb; } .meta { color: #9aa0a6; }
     nav { background: #22252b; } .question .q { color: #e5e7eb; }
     section { border-color: #33373e; } h3 { color: #b6bcc4; }
-    details { background: #1c1f24; border-color: #33373e; } nav a, summary { color: #6ea8fe; }
+    details, .r { background: #1c1f24; border-color: #33373e; } nav a, summary { color: #6ea8fe; }
+    .r { border-left-color: #6ea8fe; }
   }
+  @media print { details { border: none; padding: 0; } summary { display: none; } details > p { display: block; } }
 </style>
 </head>
 <body>
@@ -991,9 +1226,15 @@
 
   async function exporterFicheHtml() {
     if (!docActif || Object.keys(ficheParChapitre).length === 0) return;
-    const html = construireFicheHtml();
+    const opts = optionsExport();
+    if (!opts.points && !opts.quiz) {
+      $("ia-statut").textContent = "Export : coche les points clés, le quiz, ou les deux.";
+      return;
+    }
+    const html = construireFicheHtml(opts);
     const base = (docActif.nom || "document").replace(/\.[^.]+$/, "");
-    const nomFichier = `${base}_fiche_etude.html`;
+    const suffixe = opts.points && opts.quiz ? "fiche_etude" : (opts.points ? "points_cles" : "quiz");
+    const nomFichier = `${base}_${suffixe}.html`;
 
     // Boîte « Enregistrer sous » native (Chrome/Edge) pour choisir l'emplacement.
     if (window.showSaveFilePicker) {

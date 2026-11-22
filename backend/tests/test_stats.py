@@ -229,3 +229,40 @@ def test_une_traduction_reelle_laisse_ses_jetons_dans_l_historique(tmp_path, mon
     assert r["duree_generation_s"] == pytest.approx(15) and r["duree_chargement_s"] == pytest.approx(3)
     assert 3 * len(corps) <= r["caracteres_traites"] <= 3 * (len(corps) + 40)   # trois sections de ~800 caractères
     assert r["reconstitue"] == 0 and r["job_id"] == job_id
+
+
+
+def _fiche(strategie, parties, secondes, caracteres=10_000):
+    stats.inserer_run({"type": "etude", "modele": "m", "strategie": strategie, "parties": parties,
+                       "demarre_a": time.time(), "duree_secondes": secondes, "caracteres_traites": caracteres,
+                       "reconstitue": 0})
+
+
+def test_estimation_de_fiche_prend_les_fiches_les_plus_semblables():
+    for s in (100, 110, 120):
+        _fiche("sections", "points+quiz", s)
+    for s in (10, 11, 12):
+        _fiche("sections", "quiz", s)
+    e = stats.estimer("m", caracteres=10_000, type_="etude", strategie="sections", parties="quiz")
+    assert e["portee"] == "identique" and round(e["secondes"]) == 11
+
+
+def test_estimation_de_fiche_elargit_et_le_dit():
+    _fiche("sections", None, 100)        # ligne d'avant la colonne : compte comme points+quiz
+    _fiche("condensation", "points+quiz", 200)
+    _fiche("condensation", "points+quiz", 300)
+    e = stats.estimer("m", caracteres=10_000, type_="etude", strategie="sections", parties="points+quiz")
+    assert e["statut"] == "ok" and e["portee"] == "meme_contenu" and e["echantillons"] == 3
+
+
+def test_la_colonne_parties_est_ajoutee_a_une_base_existante(tmp_path):
+    import sqlite3
+    chemin = tmp_path / "ancienne.db"
+    conn = sqlite3.connect(chemin)
+    conn.execute("CREATE TABLE stats_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, "
+                 "demarre_a REAL NOT NULL, reconstitue INTEGER NOT NULL DEFAULT 0)")
+    conn.commit()
+    conn.close()
+    store.reinitialiser_pour_tests(str(chemin))
+    colonnes = {r[1] for r in store.connexion().execute("PRAGMA table_info(stats_runs)")}
+    assert "parties" in colonnes

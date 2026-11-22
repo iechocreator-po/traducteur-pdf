@@ -1281,19 +1281,58 @@ details.reglages-lot > summary .aide { margin: 0; }
 .doc-export-statut { flex-basis: 100%; min-height: 0; }
 .doc-export-statut:empty { display: none; }
 
-/* T2 : explication des stratégies de fiche */
+/* Panneau « Résumé & quiz » (22/11/2026) : options compactes, stratégie en deux boutons, durée estimée */
+.ia-options { display: flex; flex-direction: column; gap: 0.45rem; margin: 0.6rem 0 0.2rem; }
+.ia-ligne { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.ia-libelle { flex: 0 0 4.6rem; font-size: 0.74rem; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.03em; }
+.ia-choix { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.ia-choix-puce {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.25rem 0.6rem; border: 1px solid var(--border); border-radius: 999px;
+  font-size: 0.8rem; color: var(--text-2); cursor: pointer; user-select: none;
+}
+.ia-choix-puce:has(input:checked) { border-color: var(--accent); background: var(--accent-bg); color: var(--text); }
+.ia-choix-puce:has(input:disabled) { opacity: 0.5; cursor: default; }
+.ia-choix-puce input { margin: 0; accent-color: var(--accent); }
+.ia-segment { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.ia-segment button {
+  border: none; background: transparent; color: var(--text-2);
+  padding: 0.3rem 0.75rem; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+}
+.ia-segment button + button { border-left: 1px solid var(--border); }
+.ia-segment button[aria-checked="true"] { background: var(--accent); color: var(--on-accent); }
+.ia-segment button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ia-quantites { display: flex; gap: 0.8rem; flex-wrap: wrap; font-size: 0.8rem; color: var(--text-2); }
+.ia-quantites label { display: inline-flex; align-items: center; gap: 0.35rem; }
+.ia-nb { width: 4.4rem; padding: 0.2rem 0.4rem; font-size: 0.8rem; }
+.ia-nb:disabled { opacity: 0.5; }
+.ia-estimation { margin: 0.1rem 0 0.2rem; font-size: 0.8rem; color: var(--text-2); min-height: 1.1em; }
+.ia-estimation strong { color: var(--text); }
+.ia-export { margin: 0.3rem 0 0.6rem; font-size: 0.8rem; }
+.ia-export summary { cursor: pointer; color: var(--text-2); font-weight: 600; }
+.ia-export-corps { display: flex; flex-direction: column; gap: 0.45rem; padding: 0.55rem 0 0.2rem; align-items: flex-start; }
+.ia-bloc-tete { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+.ia-bloc-actions { display: flex; gap: 0.6rem; flex-shrink: 0; }
+.ia-action { font-size: 0.74rem; }
+.ia-action:disabled { opacity: 0.4; cursor: default; }
+.ia-bloc-alerte {
+  margin: 0.35rem 0 0; padding: 0.35rem 0.6rem; border-radius: var(--radius-sm);
+  background: var(--amber-bg); color: var(--text); font-size: 0.76rem;
+}
+
+/* Bénéfice de la stratégie choisie, en une phrase */
 .ia-strategie-aide {
-  margin: 0.5rem 0 0.2rem;
-  padding: 0.55rem 0.75rem;
+  margin: 0;
+  padding: 0.35rem 0.6rem;
   border-left: 3px solid var(--accent);
   border-radius: var(--radius-sm);
   background: var(--accent-bg);
-  font-size: 0.8rem;
-  line-height: 1.45;
+  font-size: 0.78rem;
+  line-height: 1.4;
   color: var(--text);
 }
 .ia-strategie-aide strong { color: var(--accent); }
-.ia-strategie-details { margin: 0.3rem 0 0.4rem; font-size: 0.8rem; }
+.ia-strategie-details { margin: 0; font-size: 0.78rem; }
 .ia-strategie-details summary { cursor: pointer; color: var(--text-2); }
 .ia-strategie-table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.76rem; }
 .ia-strategie-table th, .ia-strategie-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
