@@ -416,3 +416,86 @@ def test_aligner_niveaux_sur_source_si_index_et_titre_concordent():
     source = [{"index": 0, "titre": "Part 1", "niveau": 1}, {"index": 1, "titre": "2 Data", "niveau": 2},
               {"index": 2, "titre": "Différent", "niveau": 1}]
     assert [c["niveau"] for c in aligner_niveaux_sur_source(traduits, source)] == [1, 2, 3]
+
+
+# ── Sous-chapitres couverts par une partie traduite d'un bloc ────────────────
+def _source_partie():
+    contenu = ("# Part Four\n\nIntro.\n\n### Breaks\n\nAlpha.\n\n###### 17.1 MOTIVATION\n\nA.\n\n"
+               "### Entropy\n\nBeta.\n\n### Index\n\nZ.\n")
+    lignes = contenu.splitlines()
+    debut_b, debut_e, debut_i = (lignes.index(t) for t in ("### Breaks", "### Entropy", "### Index"))
+    return [
+        {"index": 26, "titre": "Part 4: Four", "niveau": 1, "contenu": contenu,
+         "ligne_debut": 0, "ligne_fin": len(lignes)},
+        {"index": 27, "titre": "17 Breaks", "niveau": 2, "contenu": "\n".join(lignes[debut_b:debut_e]),
+         "ligne_debut": debut_b, "ligne_fin": debut_e},
+        {"index": 28, "titre": "18 Entropy", "niveau": 2, "contenu": "\n".join(lignes[debut_e:debut_i]),
+         "ligne_debut": debut_e, "ligne_fin": debut_i},
+    ]
+
+
+def _traduit_partie(titres_niveau_3=("### Ruptures", "### Entropie", "### Index")):
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+    r, e, i = titres_niveau_3
+    texte = ("<!-- === chapitre 26 : Part 4: Four === -->\n\n# Partie quatre\n\nIntro.\n\n"
+             f"{r}\n\nAlpha FR.\n\n###### 17.1 MOTIVATION\n\nA.\n\n# code isolé\n\n{e}\n\nBêta FR.\n\n{i}\n\nZ.\n")
+    return chapitres_depuis_marqueurs(texte)
+
+
+def test_deplier_chapitres_couverts_retrouve_les_sous_chapitres_dans_le_bloc():
+    from app.services.pdf_extractor import deplier_chapitres_couverts
+    resultat = deplier_chapitres_couverts(_traduit_partie(), _source_partie(), [27, 28])
+    assert [c["index"] for c in resultat] == [26, 27, 28]
+    partie, breaks, entropy = resultat
+    assert breaks["titre_traduit"] == "17 Ruptures" and breaks["niveau"] == 2
+    assert breaks["contenu"].startswith("### Ruptures") and "Alpha FR." in breaks["contenu"]
+    assert "Bêta FR." not in breaks["contenu"]
+    # Fin au titre suivant du même niveau : l'index (non couvert) n'entre pas dans le dernier sous-chapitre.
+    assert "Bêta FR." in entropy["contenu"] and "Z." not in entropy["contenu"]
+    # La partie garde tout son texte, et ses sous-chapitres sont imbriqués dans sa plage (export sans doublon).
+    assert "Alpha FR." in partie["contenu"]
+    for enfant in (breaks, entropy):
+        assert partie["ligne_debut"] < enfant["ligne_debut"] < partie["ligne_fin"]
+
+
+def test_deplier_chapitres_couverts_renonce_si_un_titre_manque_dans_la_traduction():
+    from app.services.pdf_extractor import deplier_chapitres_couverts
+    traduits = _traduit_partie(("### Ruptures", "Entropie", "### Index"))  # le modèle a perdu un « ### »
+    assert [c["index"] for c in deplier_chapitres_couverts(traduits, _source_partie(), [27, 28])] == [26]
+
+
+def test_deplier_chapitres_couverts_sans_couverts_ne_change_rien():
+    from app.services.pdf_extractor import deplier_chapitres_couverts
+    traduits = _traduit_partie()
+    assert deplier_chapitres_couverts(traduits, _source_partie(), []) is traduits
+
+
+def test_signet_borne_au_signet_suivant_de_meme_niveau_meme_si_le_markdown_est_plus_profond():
+    # « Index » est un ### dans le Markdown mais un signet de niveau 1 : Part 5 ne doit pas l'englober.
+    from app.services.pdf_extractor import _extraire_chapitres, relier_toc_a_markdown
+    markdown = ("# Computing Recipes\n\nIntro.\n\n### Multiprocessing Vectorization\n\nCorps.\n\n"
+                "### Index\n\nAbsolute return.\n\n## Liens du document original\n\n- http://x\n")
+    toc = [{"index": 0, "titre": "Part 5: Computing Recipes", "niveau": 1, "page": 1},
+           {"index": 1, "titre": "20 Multiprocessing Vectorization", "niveau": 2, "page": 2},
+           {"index": 2, "titre": "Index", "niveau": 1, "page": 3}]
+    part, chap, index = relier_toc_a_markdown(toc, _extraire_chapitres(markdown))
+    assert "Corps." in part["contenu"] and "Absolute return." not in part["contenu"]
+    assert part["ligne_fin"] == index["ligne_debut"]
+    assert "Absolute return." not in chap["contenu"]
+    # Rien n'est perdu : la section qui suit l'Index (ex-contenu de Part 5) rejoint l'Index.
+    assert "Absolute return." in index["contenu"] and "http://x" in index["contenu"]
+
+
+def test_deplier_chapitres_couverts_bloc_traduit_avant_le_bornage_des_signets():
+    # Bloc traduit quand la partie englobait encore l'Index : un titre ### de plus que la source bornée.
+    from app.services.pdf_extractor import deplier_chapitres_couverts
+    source = _source_partie()
+    partie = source[0]
+    coupe = partie["contenu"].index("### Index")
+    lignes_partie = partie["contenu"][:coupe].count("\n")
+    source[0] = {**partie, "contenu": partie["contenu"][:coupe], "ligne_fin": lignes_partie}
+    source.append({"index": 29, "titre": "Index", "niveau": 1, "contenu": "### Index\n\nZ.",
+                   "ligne_debut": lignes_partie, "ligne_fin": lignes_partie + 3})
+    resultat = deplier_chapitres_couverts(_traduit_partie(), source, [27, 28])
+    assert [c["index"] for c in resultat] == [26, 27, 28]
+    assert "Bêta FR." in resultat[2]["contenu"] and "Z." not in resultat[2]["contenu"]

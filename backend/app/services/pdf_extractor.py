@@ -559,6 +559,112 @@ def aligner_niveaux_sur_source(chapitres: list[dict], source: list[dict]) -> lis
     return chapitres
 
 
+_RE_TITRE_MD = re.compile(r"^(#{1,6})\s+\S")
+
+
+def _titres_de_niveau(contenu: str, niveau: int) -> list[tuple[int, str]]:
+    """(position du début de ligne, ligne) de chaque titre Markdown d'EXACTEMENT `niveau` dièses."""
+    resultat, pos = [], 0
+    for ligne in contenu.splitlines(keepends=True):
+        m = _RE_TITRE_MD.match(ligne)
+        if m and len(m.group(1)) == niveau:
+            resultat.append((pos, ligne.strip()))
+        pos += len(ligne)
+    return resultat
+
+
+def deplier_chapitres_couverts(chapitres: list[dict], source: list[dict], couverts: list[int]) -> list[dict]:
+    """
+    Rend visibles, dans un document TRADUIT, les sous-chapitres « couverts » : traduits à l'intérieur du bloc de
+    leur partie (`chapitres_couverts`), ils n'ont pas de marqueur et la Bibliothèque ne les listait pas
+    (Advances in Financial ML, 22/11/2026 : Part 4 et Part 5 sans leurs chapitres 17 à 22).
+
+    Le titre traduit ne se rapproche pas du titre source ; l'ORDRE, si : un sous-chapitre qui commence par le
+    k-ième titre de niveau L (en dièses) du bloc source commence par le k-ième titre de niveau L du bloc traduit.
+    La correspondance n'est retenue que si les deux blocs ont autant de titres de ce niveau (un titre perdu ou
+    inventé par le modèle décalerait tout) ; sinon les sous-chapitres restent dans leur partie, sans entrée.
+    Fin d'un sous-chapitre : le titre suivant du même niveau, ou la fin du bloc. Le bloc de la partie n'est pas
+    raccourci (il contient toujours ses sous-chapitres, comme pour l'export : voir estChapitreImbrique).
+    """
+    if not couverts:
+        return chapitres
+    par_index_src = {c["index"]: c for c in source}
+    presents = {c["index"] for c in chapitres}
+    ajouts: dict[int, list[dict]] = {}
+    for bloc in chapitres:
+        src_bloc = par_index_src.get(bloc["index"])
+        if not src_bloc or "ligne_debut" not in src_bloc:
+            continue
+        enfants = [
+            par_index_src[i] for i in sorted(couverts)
+            if i in par_index_src and i not in presents and "ligne_debut" in par_index_src[i]
+            and src_bloc["ligne_debut"] < par_index_src[i]["ligne_debut"] < src_bloc["ligne_fin"]
+        ]
+        par_niveau: dict[int, list[dict]] = {}
+        for enfant in enfants:
+            m = _RE_TITRE_MD.match((enfant.get("contenu") or "").lstrip())
+            if m:
+                par_niveau.setdefault(len(m.group(1)), []).append(enfant)
+        for niveau_md, groupe in par_niveau.items():
+            titres_src = _titres_de_niveau(src_bloc.get("contenu") or "", niveau_md)
+            titres_trad = _titres_de_niveau(bloc["contenu"], niveau_md)
+            if len(titres_trad) > len(titres_src):
+                # Bloc traduit avant que les signets soient bornés (relier_toc_a_markdown, étape 3) : il déborde
+                # sur les chapitres qui suivent la partie (Part 5 + Index). Les titres en trop doivent alors être,
+                # dans l'ordre, ceux de la source juste après la partie ; ils ne servent que de fin au dernier enfant.
+                suite = [t for c in source if c.get("ligne_debut", -1) >= src_bloc["ligne_fin"]
+                         for t in _titres_de_niveau(c.get("contenu") or "", niveau_md)]
+                titres_src = titres_src + suite[: len(titres_trad) - len(titres_src)]
+            if len(titres_src) != len(titres_trad):
+                continue
+            k = 0
+            for enfant in groupe:
+                premiere = enfant["contenu"].lstrip().splitlines()[0].strip()
+                while k < len(titres_src) and titres_src[k][1] != premiere:
+                    k += 1
+                if k >= len(titres_src):
+                    break
+                debut = titres_trad[k][0]
+                fin = titres_trad[k + 1][0] if k + 1 < len(titres_trad) else len(bloc["contenu"])
+                contenu = bloc["contenu"][debut:fin].strip("\n")
+                ligne_debut = bloc["ligne_debut"] + 1 + bloc["contenu"][:debut].count("\n")
+                ajouts.setdefault(bloc["index"], []).append({
+                    "index": enfant["index"],
+                    "titre": enfant["titre"],
+                    "titre_traduit": numeroter_titre_traduit(enfant["titre"], _titre_traduit_plausible(
+                        enfant["titre"], _titre_traduit_depuis_corps(contenu))),
+                    "niveau": max(1, min(int(enfant.get("niveau") or 1), 6)),
+                    "contenu": contenu,
+                    "ligne_debut": ligne_debut,
+                    "ligne_fin": ligne_debut + contenu.count("\n") + 1,
+                    "couvert": True,
+                })
+                k += 1
+    if not ajouts:
+        return chapitres
+    resultat = []
+    for bloc in chapitres:
+        resultat.append(bloc)
+        resultat.extend(sorted(ajouts.get(bloc["index"], []), key=lambda c: c["index"]))
+    return resultat
+
+
+def _deplier_selon_etat(chemin_traduit: str, chapitres: list[dict]) -> list[dict]:
+    """Applique `deplier_chapitres_couverts` avec l'état du job et les chapitres de la source. Best-effort : sans
+    état, sans sous-chapitre couvert ou sans source lisible, la liste des marqueurs reste telle quelle."""
+    from app.services.job_manager import charger_etat  # import local : job_manager ne dépend pas d'ici
+
+    etat = charger_etat(chemin_traduit)
+    if not etat or not etat.chapitres_couverts or not etat.chemin_pdf or not os.path.isfile(etat.chemin_pdf):
+        return chapitres
+    try:
+        source = chapitres_avec_contenu(etat.chemin_pdf, etat.extracteur_pdf or "pymupdf4llm")
+    except Exception as e:  # noqa: BLE001 — la liste des marqueurs reste lisible
+        print(f"[chapitres] sous-chapitres couverts non dépliés : {e}", flush=True)
+        return chapitres
+    return deplier_chapitres_couverts(chapitres, source, etat.chapitres_couverts)
+
+
 def identifier_chapitres(chemin: str, extracteur: str = "pymupdf4llm") -> list[dict]:
     """
     Identifie tous les chapitres (titres # à ######) dans un PDF ou Markdown.
@@ -571,7 +677,7 @@ def identifier_chapitres(chemin: str, extracteur: str = "pymupdf4llm") -> list[d
     texte = _lire_source(chemin, extracteur)
     depuis_marqueurs = chapitres_depuis_marqueurs(texte)
     if depuis_marqueurs:
-        return depuis_marqueurs
+        return _deplier_selon_etat(chemin, depuis_marqueurs)
     return _extraire_chapitres(texte)
 
 
@@ -732,17 +838,34 @@ def relier_toc_a_markdown(toc: list[dict], chapitres_md: list[dict]) -> list[dic
             "ligne_fin": meilleur["ligne_fin"] if meilleur else 0,
         })
 
-    # 3. Filet : une section que rien ne couvre rejoint le chapitre relié qui la précède.
-    pris = [p for p in positions if p is not None]
+    # 3. Un signet s'arrête au signet suivant de niveau égal ou supérieur (niveaux de la TABLE DES MATIÈRES). Le
+    # bloc Markdown, lui, suit les dièses du PDF : « # Part 5 » courait jusqu'à la fin du livre parce que l'Index
+    # y est un « ### » ; Part 5 contenait alors l'Index, traduit deux fois (Advances in Financial ML, 22/11/2026).
+    for k, chap in enumerate(chapitres_relies):
+        if not chap["contenu"]:
+            continue
+        bornes = [s["ligne_debut"] for s in chapitres_relies[k + 1:]
+                  if s["contenu"] and s["niveau"] <= chap["niveau"]
+                  and chap["ligne_debut"] < s["ligne_debut"] < chap["ligne_fin"]]
+        if bornes:
+            borne = min(bornes)
+            chap["contenu"] = "\n".join(chap["contenu"].split("\n")[: borne - chap["ligne_debut"]]).rstrip("\n")
+            chap["ligne_fin"] = borne
+
+    # 4. Filet : une section que rien ne couvre (plages des signets, une fois bornées) rejoint le chapitre relié
+    # qui la précède.
+    def couvert_par_signet(j: int) -> bool:
+        return any(c["contenu"] and c["ligne_debut"] <= mds[j]["ligne_debut"] < c["ligne_fin"]
+                   for c in chapitres_relies)
+
     for j in range(len(mds)):
-        if couvert(j, pris):
+        if couvert_par_signet(j):
             continue
         hote = max((c for c in chapitres_relies if c["contenu"] and c["ligne_debut"] <= mds[j]["ligne_debut"]),
                    key=lambda c: c["ligne_debut"], default=None)
         if hote is not None:
             hote["contenu"] = hote["contenu"].rstrip("\n") + "\n\n" + mds[j]["contenu"]
             hote["ligne_fin"] = max(hote["ligne_fin"], mds[j]["ligne_fin"])
-        pris.append(j)
     return chapitres_relies
 
 
@@ -762,7 +885,7 @@ def chapitres_avec_contenu(chemin: str, extracteur: str = "pymupdf4llm") -> list
     texte = _lire_source(chemin, extracteur)
     depuis_marqueurs = chapitres_depuis_marqueurs(texte)
     if depuis_marqueurs:
-        return depuis_marqueurs
+        return _deplier_selon_etat(chemin, depuis_marqueurs)
     chapitres_md = _extraire_chapitres(texte)
     toc_pdf = extraire_toc_pdf(chemin) if chemin.lower().endswith(".pdf") else None
     chapitres = relier_toc_a_markdown(toc_pdf, chapitres_md) if toc_pdf else chapitres_md
