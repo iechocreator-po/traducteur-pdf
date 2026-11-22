@@ -421,3 +421,27 @@ function chapitrePartiel(chapitres, index, coches, deja) {
   if (coches.has(index) || deja.has(index)) return false;
   return descendantsChapitre(chapitres, index).some(i => coches.has(i) || deja.has(i));
 }
+
+// ── Rendu commun d'une liste de chapitres (« Nouveau document », « ➕ Chapitres », Bibliothèque) ──
+// Même retrait par niveau, mêmes parties en gras, mêmes titres sans emphase Markdown, même marque « ✓ traduit ».
+function titreChapitreListe(titre) {
+  return String(titre || "")
+    .replace(/\*\*|__|`/g, "")
+    .replace(/^#+\s*/, "")
+    .replace(/(^|[^\w])[*_](\S(?:.*?\S)?)[*_](?=[^\w]|$)/g, "$1$2")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function preparerLigneChapitre(ligne, chapitres, chap) {
+  ligne.classList.add("chap-arbre");
+  ligne.style.setProperty("--chap-niveau", Math.max(chap.niveau || 1, 1) - 1);
+  ligne.classList.toggle("chap-parent", descendantsChapitre(chapitres, chap.index).length > 0);
+}
+
+function marqueChapitreTraduit() {
+  const marque = document.createElement("span");
+  marque.className = "chap-marque-fait";
+  marque.textContent = "✓ traduit";
+  return marque;
+}

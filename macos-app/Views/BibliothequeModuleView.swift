@@ -429,23 +429,26 @@ struct BibliothequeModuleView: View {
         .help(doc.estTermine ? doc.cheminSortie : "Encore en traduction — lisible une fois terminé")
     }
 
+    /// Même arborescence que le web (commun.js › preparerLigneChapitre) : 14 pt de retrait par niveau, parties en gras.
     private func boutonChapitre(_ chap: Chapitre) -> some View {
         let actif = vm.chapActif?.index == chap.index
+        let pos = vm.chapitres.firstIndex { $0.index == chap.index } ?? 0
+        let estPartie = pos + 1 < vm.chapitres.count && vm.chapitres[pos + 1].niveau > chap.niveau
         return Button {
             Task { await vm.selectionner(chapitre: chap) }
         } label: {
-            Text(chap.titre)
-                .font(.system(size: 11.5, weight: .semibold))
+            Text(chap.titreAffiche)
+                .font(.system(size: 11.5, weight: estPartie ? .semibold : .regular))
                 .lineLimit(1)
                 .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .padding(.leading, CGFloat((chap.niveau - 1) * 10))
+                .padding(.vertical, 5)
+                .padding(.leading, CGFloat(max(chap.niveau - 1, 0) * 14))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(actif ? DS.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: DS.radiusSm))
                 .foregroundStyle(actif ? DS.accent : .secondary)
         }
         .buttonStyle(.plain)
-        .help(chap.titre)
+        .help(chap.titreTraduit == nil ? chap.titre : "\(chap.titreAffiche)\n(source : \(chap.titre))")
     }
 
     // MARK: - Zone de lecture

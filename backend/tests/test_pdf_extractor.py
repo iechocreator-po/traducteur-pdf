@@ -394,3 +394,25 @@ def test_chapitres_depuis_marqueurs_garde_le_numero_de_la_table_des_matieres():
     from app.services.pdf_extractor import chapitres_depuis_marqueurs
     texte = _texte_marque("20 Multiprocessing and Vectorization", "### Multitraitement et vectorisation\n\nCorps.")
     assert chapitres_depuis_marqueurs(texte)[0]["titre_traduit"] == "20 Multitraitement et vectorisation"
+
+
+# Bibliothèque et « Nouveau document » montrent la même liste : titres sans emphase, intertitre écarté, niveau source.
+def test_titre_traduit_sans_emphase_markdown():
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+    texte = _texte_marque("Chapter 1: Spherical Cows", "### Chapter 1: **Vaches sphériques**\n\nCorps.")
+    assert chapitres_depuis_marqueurs(texte)[0]["titre_traduit"] == "Chapter 1: Vaches sphériques"
+
+
+def test_titre_traduit_ecarte_un_intertitre_du_corps():
+    from app.services.pdf_extractor import chapitres_depuis_marqueurs
+    texte = _texte_marque("Series", "### **Also available in the Bloomsbury Sigma series:**\n\nCorps.")
+    assert chapitres_depuis_marqueurs(texte)[0]["titre_traduit"] is None
+
+
+def test_aligner_niveaux_sur_source_si_index_et_titre_concordent():
+    from app.services.pdf_extractor import aligner_niveaux_sur_source
+    traduits = [{"index": 0, "titre": "Part 1", "niveau": 6}, {"index": 1, "titre": "2 Data", "niveau": 6},
+                {"index": 2, "titre": "Autre", "niveau": 3}]
+    source = [{"index": 0, "titre": "Part 1", "niveau": 1}, {"index": 1, "titre": "2 Data", "niveau": 2},
+              {"index": 2, "titre": "Différent", "niveau": 1}]
+    assert [c["niveau"] for c in aligner_niveaux_sur_source(traduits, source)] == [1, 2, 3]

@@ -1,8 +1,8 @@
 /**
  * Bibliothèque — exports d'un document et signature (bandeau de lecture).
  *
- *  - « ⬇ PDF mis en page » / « ⬇ HTML interactif » : seulement pour une traduction issue du
- *    Scan multi-colonnes (GET /reconstruction/info). Le backend recrée le document au format
+ *  - « ⬇ PDF mis en page » / « ⬇ HTML interactif » : montrés pour tout document, actifs seulement pour une
+ *    traduction issue du Scan multi-colonnes (GET /reconstruction/info), sinon inactifs avec la raison. Le backend recrée le document au format
  *    d'origine avec ses illustrations (services/reconstruction.py) ; le fichier est écrit à côté
  *    de la traduction, puis téléchargé par /telecharger.
  *  - « 🖼 Mise en page » : le même HTML interactif, LU dans la Bibliothèque (cadre à la place du corps de
@@ -19,24 +19,47 @@
 
   const statut = (t) => { $("doc-export-statut").textContent = t || ""; };
 
+  // Les trois boutons de mise en page sont montrés pour TOUS les documents, pour que la barre soit la même quel
+  // que soit le fichier : hors Scan multi-colonnes, ils restent visibles mais inactifs (aria-disabled, pas
+  // `disabled`, pour garder l'infobulle) et un clic explique pourquoi dans le statut.
+  const BOUTONS_MISE_EN_PAGE = ["doc-vue-interactive", "doc-pdf-mise-en-page", "doc-html-interactif"];
+  const TITRES_MISE_EN_PAGE = Object.fromEntries(BOUTONS_MISE_EN_PAGE.map((id) => [id, $(id).title]));
+  const RAISON_PAR_DEFAUT = "Disponible pour un document passé par Documents complexes (Scan multi-colonnes) : "
+    + "la mise en page d'origine est reconstruite à partir des pages du scan.";
+
+  function regler(disponible, raison) {
+    for (const id of BOUTONS_MISE_EN_PAGE) {
+      const b = $(id);
+      b.hidden = false;
+      b.classList.toggle("is-indisponible", !disponible);
+      if (disponible) b.removeAttribute("aria-disabled");
+      else b.setAttribute("aria-disabled", "true");
+      b.title = disponible ? TITRES_MISE_EN_PAGE[id] : `${TITRES_MISE_EN_PAGE[id]}\n\n⚠ ${raison || RAISON_PAR_DEFAUT}`;
+    }
+  }
+
+  // Vrai si le bouton est inactif : le clic affiche la raison au lieu de lancer la génération.
+  function indisponible(bouton) {
+    if (bouton.getAttribute("aria-disabled") !== "true") return false;
+    statut(`ℹ ${(infoReconstruction && infoReconstruction.raison) || RAISON_PAR_DEFAUT}`);
+    return true;
+  }
+
   async function majBoutons() {
     const r = featureFlags.reconstruction_scan === true;
     const s = featureFlags.signature_pdf === true;
-    $("doc-pdf-mise-en-page").hidden = true;
-    $("doc-html-interactif").hidden = true;
-    $("doc-vue-interactive").hidden = true;
+    BOUTONS_MISE_EN_PAGE.forEach((id) => { $(id).hidden = true; });
     $("doc-signer").hidden = !(s && doc);
     infoReconstruction = null;
     if (!doc || !r) return;
     const courant = doc;
+    regler(false);   // visibles d'emblée, activés si le document s'y prête
     try {
       const info = await apiGet(`/reconstruction/info?chemin_sortie=${encodeURIComponent(doc.chemin_sortie)}`);
       if (courant !== doc) return;   // un autre document a été choisi entre-temps
       infoReconstruction = info;
-      $("doc-pdf-mise-en-page").hidden = !info.disponible;
-      $("doc-html-interactif").hidden = !info.disponible;
-      $("doc-vue-interactive").hidden = !info.disponible;
-    } catch { /* backend absent : boutons masqués */ }
+      regler(!!info.disponible, info.raison);
+    } catch { /* backend absent : boutons inactifs, raison par défaut */ }
   }
 
   async function telecharger(chemin) {
@@ -79,8 +102,8 @@
     }
   }
 
-  $("doc-pdf-mise-en-page").addEventListener("click", () => generer("pdf"));
-  $("doc-html-interactif").addEventListener("click", () => generer("html"));
+  $("doc-pdf-mise-en-page").addEventListener("click", (e) => { if (!indisponible(e.currentTarget)) generer("pdf"); });
+  $("doc-html-interactif").addEventListener("click", (e) => { if (!indisponible(e.currentTarget)) generer("html"); });
 
   // ── Vue « Mise en page » ──────────────────────────────────────────────────
   let urlVue = null;
@@ -127,7 +150,8 @@
     }
   }
 
-  $("doc-vue-interactive").addEventListener("click", () => {
+  $("doc-vue-interactive").addEventListener("click", (e) => {
+    if (indisponible(e.currentTarget)) return;
     if ($("doc-vue-interactive").getAttribute("aria-pressed") === "true") fermerVue();
     else ouvrirVue();
   });

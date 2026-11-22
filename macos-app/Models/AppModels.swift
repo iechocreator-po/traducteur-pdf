@@ -375,8 +375,16 @@ nonisolated struct Chapitre: Codable, Identifiable {
     let titre: String
     let niveau: Int
     let page: Int?
+    /// Titre traduit d'un document traduit (backend, sans emphase Markdown) ; absent pour une source.
+    let titreTraduit: String?
     var id: Int { index }
+    /// Titre montré dans les listes, comme le web (`titreAffiche`) : traduit s'il existe, sinon source.
+    var titreAffiche: String { titreTraduit ?? titre }
     // `contenu`, `ligne_debut`, `ligne_fin` ignorés (backend uniquement)
+    enum CodingKeys: String, CodingKey {
+        case index, titre, niveau, page
+        case titreTraduit = "titre_traduit"
+    }
 }
 
 nonisolated struct ChapitresResponse: Codable {

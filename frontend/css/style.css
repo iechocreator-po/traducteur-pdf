@@ -318,7 +318,7 @@ pre { white-space: pre-wrap; font-size: 0.85rem; }
   margin-top: 0.6rem;
 }
 .lot-chap-fait { opacity: 0.55; }
-.lot-chap-fait span { font-style: italic; }
+.lot-chap-fait .chap-libelle { font-style: italic; }
 .reprendre-chapitres {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
@@ -494,6 +494,15 @@ html:not(.avance) .chap-selection-barre { display: none; }
 .chap-titre { flex: 1; min-width: 0; }
 .chap-titre.sidebar-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .chap-ligne.is-active .chap-titre { background: var(--accent-bg); color: var(--accent); }
+
+/* Arborescence commune des listes de chapitres (commun.js › preparerLigneChapitre) : « Nouveau document »,
+   « ➕ Chapitres » et Bibliothèque ont le même retrait par niveau, les mêmes parties en gras. */
+.chap-arbre { padding-left: calc(4px + var(--chap-niveau, 0) * 14px); }
+.chap-arbre.chap-parent .chap-libelle,
+.chap-arbre.chap-parent .chap-titre { font-weight: 600; color: var(--text); }
+.chap-arbre.chap-parent:not(:first-child) { margin-top: 4px; }
+.chap-ligne.chap-arbre .chap-titre.sidebar-item { padding: 5px 6px; margin: 0; font-size: 0.84rem; }
+.chap-marque-fait { margin-left: auto; padding-left: 8px; font-size: 0.72rem; color: var(--accent); white-space: nowrap; }
 
 /* Bloc de fiche par chapitre (panneau Résumé & Quiz) */
 .ia-bloc-chapitre { padding-bottom: 0.6rem; margin-bottom: 0.6rem; border-bottom: 1px solid var(--border); }
@@ -1326,3 +1335,6 @@ details.reglages-lot > summary .aide { margin: 0; }
 .sig-pied { display: flex; justify-content: flex-end; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding-top: 0.7rem; }
 .sig-pied #sig-statut { margin-right: auto; }
 @media (max-width: 760px) { .sig-grille { grid-template-columns: 1fr; } }
+
+/* Boutons de mise en page hors Scan multi-colonnes : visibles mais inactifs (js/bibliotheque-exports.js › regler). */
+.ds-btn.is-indisponible { opacity: 0.45; cursor: not-allowed; }

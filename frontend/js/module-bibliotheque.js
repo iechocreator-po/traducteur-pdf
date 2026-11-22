@@ -22,7 +22,7 @@
   // ne jamais lui substituer titre_traduit pour la logique, seulement pour
   // ce qui est montré au lecteur. Repli sur le titre source si l'extraction
   // échoue (chapitre implicite, corps tronqué par un arrêt impromptu…).
-  const titreAffiche = (chap) => chap.titre_traduit || chap.titre;
+  const titreAffiche = (chap) => titreChapitreListe(chap.titre_traduit || chap.titre);
 
   // ── Affichage du texte (flag biblio_toggle_contenu) ────────────────────────
   // En mode avancé, le panneau Résumé & Quiz occupe le centre et la colonne de
@@ -339,27 +339,34 @@
     for (const chap of chapitres) {
       const ligne = document.createElement("div");
       ligne.className = "chap-ligne";
+      preparerLigneChapitre(ligne, chapitres, chap);
       if (chapActif && chap.index === chapActif.index) ligne.classList.add("is-active");
 
-      // Case à cocher : sélectionne le chapitre pour la génération de fiche.
+      // Case à cocher : sélectionne le chapitre pour la génération de fiche. Cocher une partie coche ses
+      // sous-chapitres, comme dans « Nouveau document » ; les cases sont mises à jour sur place (focus gardé).
       const check = document.createElement("input");
       check.type = "checkbox";
       check.className = "chap-check";
+      check.dataset.chap = chap.index;
       check.checked = chapitresCoches.has(chap.index);
+      check.indeterminate = chapitrePartiel(chapitres, chap.index, chapitresCoches, new Set());
       check.title = "Inclure ce chapitre dans le résumé & quiz";
       check.addEventListener("change", () => {
-        if (check.checked) chapitresCoches.add(chap.index);
-        else chapitresCoches.delete(chap.index);
+        cocherChapitreEtSousChapitres(chapitres, chap.index, check.checked, chapitresCoches, new Set());
+        zone.querySelectorAll(".chap-check").forEach((c) => {
+          const i = Number(c.dataset.chap);
+          c.checked = chapitresCoches.has(i);
+          c.indeterminate = chapitrePartiel(chapitres, i, chapitresCoches, new Set());
+        });
         majBoutonGenerer();
       });
 
-      // Titre : cliquer lit le chapitre (comportement historique).
+      // Titre : cliquer lit le chapitre (comportement historique). Titre source en infobulle.
       const titre = document.createElement("button");
       titre.type = "button";
       titre.className = "sidebar-item chap-titre";
-      titre.style.paddingLeft = `${8 + (chap.niveau - 1) * 12}px`;
       titre.textContent = titreAffiche(chap);
-      titre.title = titreAffiche(chap);
+      titre.title = chap.titre_traduit ? `${titre.textContent}\n(source : ${chap.titre})` : titre.textContent;
       titre.addEventListener("click", () => {
         montrerLecture();
         selectionnerChapitre(chap);

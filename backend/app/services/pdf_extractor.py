@@ -445,8 +445,24 @@ def _titre_traduit_depuis_corps(contenu: str) -> str | None:
         if not ligne:
             continue
         m = _RE_PREMIERE_LIGNE_TITRE.match(ligne)
-        return m.group(1).strip() if m else None
+        return (_sans_emphase(m.group(1)) or None) if m else None
     return None
+
+
+def _sans_emphase(titre: str) -> str:
+    """Titre sans balises d'emphase Markdown : « Chapter 1: **Vaches sphériques** » → « Chapter 1: Vaches sphériques »."""
+    titre = re.sub(r"\*\*|__|`", "", titre)
+    titre = re.sub(r"(?<!\w)[*_](\S(?:.*?\S)?)[*_](?!\w)", r"\1", titre)
+    return re.sub(r"\s+", " ", titre).strip()
+
+
+def _titre_traduit_plausible(titre_source: str, titre_traduit: str | None) -> str | None:
+    """Écarte un « titre traduit » qui n'est pas la traduction du titre : la première ligne du corps est parfois un
+    intertitre du texte (« Series » → « Also available in the Bloomsbury Sigma series: »). Une traduction de titre ne
+    fait pas plus du double et demi de sa source ; au-delà, on garde le titre source (repli déjà prévu)."""
+    if not titre_traduit or not titre_source:
+        return titre_traduit
+    return titre_traduit if len(titre_traduit) <= 2.5 * len(titre_source) + 20 else None
 
 
 # Numérotation en tête d'un titre SOURCE (« 20 Multiprocessing… », « Part 5: … », « Chapter 3. … », « IV Résultats »).
@@ -519,13 +535,27 @@ def chapitres_depuis_marqueurs(texte: str) -> list[dict]:
         chapitres.append({
             "index": int(m.group(1)),
             "titre": m.group(2),
-            "titre_traduit": numeroter_titre_traduit(m.group(2), _titre_traduit_depuis_corps(contenu)),
+            "titre_traduit": numeroter_titre_traduit(
+                m.group(2), _titre_traduit_plausible(m.group(2), _titre_traduit_depuis_corps(contenu))),
             "niveau": max(1, min(niveau, 6)),
             "contenu": contenu,
             "ligne_debut": ligne_debut,
             "ligne_fin": ligne_fin,
         })
     _ = lignes_avant  # en-tête du document, hors de tout chapitre
+    return chapitres
+
+
+def aligner_niveaux_sur_source(chapitres: list[dict], source: list[dict]) -> list[dict]:
+    """Donne aux chapitres d'un document traduit le niveau de la SOURCE, celui que montre « Nouveau document ».
+    Le marqueur ne porte pas le niveau et `chapitres_depuis_marqueurs` le devine depuis le premier titre du corps,
+    qui suit la mise en forme du PDF et pas la structure (« Series » en ### → niveau 3 au lieu de 1). Le niveau
+    source n'est repris que si l'index ET le titre correspondent ; sinon la valeur devinée reste."""
+    par_index = {c["index"]: c for c in source}
+    for chap in chapitres:
+        src = par_index.get(chap["index"])
+        if src and (src.get("titre") or "").strip() == (chap.get("titre") or "").strip():
+            chap["niveau"] = max(1, min(int(src.get("niveau") or 1), 6))
     return chapitres
 
 

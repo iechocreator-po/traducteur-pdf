@@ -136,6 +136,21 @@ class ChapitresRequest(BaseModel):
         return self
 
 
+def _aligner_sur_source(chemin_sortie: str, chapitres: list[dict]) -> None:
+    from app.services.job_manager import charger_etat
+    from app.services.pdf_extractor import aligner_niveaux_sur_source, extraire_toc_pdf, identifier_chapitres
+
+    etat = charger_etat(chemin_sortie)
+    if not etat or not etat.chemin_pdf or not os.path.isfile(etat.chemin_pdf):
+        return
+    try:
+        source = extraire_toc_pdf(etat.chemin_pdf) or identifier_chapitres(etat.chemin_pdf, etat.extracteur_pdf)
+    except Exception as e:  # noqa: BLE001 — l'arborescence devinée reste affichable
+        print(f"[chapitres] niveaux source indisponibles : {e}", flush=True)
+        return
+    aligner_niveaux_sur_source(chapitres, source)
+
+
 @router.post("/chapitres")
 def lister_chapitres(req: ChapitresRequest) -> dict:
     """
@@ -157,6 +172,11 @@ def lister_chapitres(req: ChapitresRequest) -> dict:
         chapitres = identifier_chapitres(chemin, req.extracteur_pdf)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'identification : {e}")
+
+    # Document traduit (chapitres lus sur les marqueurs) : niveaux repris de la source, pour que la Bibliothèque
+    # montre la même arborescence que « Nouveau document ». Best-effort : la source peut avoir été déplacée.
+    if req.chemin_md and chapitres and "titre_traduit" in chapitres[0]:
+        _aligner_sur_source(req.chemin_md, chapitres)
 
     # ligne_debut/ligne_fin restent exposés (ajout additif, non-destructif) : le
     # frontend en a besoin pour détecter les sous-titres imbriqués (export du

@@ -401,7 +401,7 @@
           const dejaFait = deja.has(chap.index);
           const ligne = document.createElement("label");
           ligne.className = dejaFait ? "lot-chap-ligne lot-chap-fait" : "lot-chap-ligne";
-          ligne.style.paddingLeft = `${4 + (Math.max(chap.niveau, 1) - 1) * 14}px`;
+          preparerLigneChapitre(ligne, item.listeChapitres, chap);
           const check = document.createElement("input");
           check.type = "checkbox";
           // Un chapitre déjà traduit est verrouillé (coché visuellement, non
@@ -415,8 +415,10 @@
             rendreLot();
           });
           const titre = document.createElement("span");
-          titre.textContent = dejaFait ? `${chap.titre}  ✓ déjà traduit` : chap.titre;
+          titre.className = "chap-libelle";
+          titre.textContent = titreChapitreListe(chap.titre);
           ligne.append(check, titre);
+          if (dejaFait) ligne.appendChild(marqueChapitreTraduit());
           liste.appendChild(ligne);
         }
         bloc.appendChild(liste);
@@ -967,7 +969,7 @@
       const dejaFait = etat.deja.has(chap.index);
       const ligne = document.createElement("label");
       ligne.className = dejaFait ? "lot-chap-ligne lot-chap-fait" : "lot-chap-ligne";
-      ligne.style.paddingLeft = `${4 + (Math.max(chap.niveau, 1) - 1) * 14}px`;
+      preparerLigneChapitre(ligne, etat.chapitres, chap);
       const check = document.createElement("input");
       check.type = "checkbox";
       check.checked = dejaFait || etat.coches.has(chap.index);
@@ -979,8 +981,10 @@
         rafraichir();
       });
       const titre = document.createElement("span");
-      titre.textContent = dejaFait ? `${chap.titre}  ✓ déjà traduit` : chap.titre;
+      titre.className = "chap-libelle";
+      titre.textContent = titreChapitreListe(chap.titre);
       ligne.append(check, titre);
+      if (dejaFait) ligne.appendChild(marqueChapitreTraduit());
       liste.appendChild(ligne);
     }
     bloc.appendChild(liste);
