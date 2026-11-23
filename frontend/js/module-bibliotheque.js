@@ -603,6 +603,21 @@
           tr.appendChild(td);
         }
         table.appendChild(tr);
+      } else if (/^\s*[-*+]\s+\S/.test(ligne)) {
+        // Puce (ex. table des matières imprimée, une entrée par ligne, deux espaces par niveau) :
+        // avant, la liste entière se collait en un seul paragraphe avec ses tirets.
+        viderParagraphe();
+        const m = ligne.match(/^(\s*)[-*+]\s+(.*)/);
+        let ul = zone.lastElementChild;
+        if (!ul || ul.tagName !== "UL" || !ul.classList.contains("lecture-liste")) {
+          ul = document.createElement("ul");
+          ul.className = "lecture-liste";
+          zone.appendChild(ul);
+        }
+        const li = document.createElement("li");
+        li.style.marginLeft = `${Math.floor(m[1].length / 2) * 1.2}rem`;
+        li.innerHTML = markdownEnLigne(m[2]);   // échappe d'abord (voir viderParagraphe)
+        ul.appendChild(li);
       } else if (ligne.trim() === "") {
         viderParagraphe();
       } else {
@@ -1418,7 +1433,10 @@
         vider(); fermerCitation(); fermerTableau();
         const voulue = puce ? "ul" : "ol";
         if (liste !== voulue) { fermerListe(); html += `<${voulue}>\n`; liste = voulue; }
-        html += `<li>${markdownEnLigne((puce || numero)[1])}</li>\n`;
+        // Retrait de la source (deux espaces par niveau, ex. table des matières) conservé à l'export.
+        const retrait = Math.floor(ligne.match(/^\s*/)[0].length / 2);
+        const style = retrait ? ` style="margin-left:${retrait * 1.2}rem"` : "";
+        html += `<li${style}>${markdownEnLigne((puce || numero)[1])}</li>\n`;
       } else if (t === "") {
         toutFermer();
       } else {

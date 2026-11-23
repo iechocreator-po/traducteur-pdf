@@ -106,16 +106,68 @@ def _extraire_avec_pymupdf4llm(chemin_pdf: str) -> str:
     mode_ocr = _mode_ocr_jamais()
     options = {"use_ocr": mode_ocr} if mode_ocr is not None else {}
 
+    # Pages de table des matières : pymupdf4llm les fusionne en paragraphes et en faux tableaux
+    # (voir services/table_matieres.py). Sans TdM repérée, le chemin d'origine reste intact.
+    pages_tdm = _pages_tdm(chemin_pdf)
+
     if not est_active("extraction_images_pdf"):
-        return pymupdf4llm.to_markdown(chemin_pdf, **options)
+        if not pages_tdm:
+            return pymupdf4llm.to_markdown(chemin_pdf, **options)
+        # Concaténer les pages découpées redonne exactement la sortie d'un seul appel
+        # (vérifié sur pymupdf4llm 1.28) : seules les pages de TdM changent.
+        pages = pymupdf4llm.to_markdown(chemin_pdf, page_chunks=True, **options)
+        return "".join(_texte_page(p) for p in _remplacer_pages_tdm(pages, chemin_pdf, pages_tdm))
 
     pages = pymupdf4llm.to_markdown(
         chemin_pdf, page_chunks=True, ignore_images=True, **options
     )
+    pages = _remplacer_pages_tdm(pages, chemin_pdf, pages_tdm)
     texte = _assembler_pages_avec_images(pages, chemin_pdf)
     # Filet : sans OCR il ne devrait plus y avoir de « picture text », mais le
     # nettoyage reste inoffensif et protège les documents déjà convertis.
     return _RE_TEXTE_IMAGE.sub(_nettoyer_texte_image, texte)
+
+
+def _texte_page(page_md) -> str:
+    return page_md.get("text", "") if isinstance(page_md, dict) else str(page_md)
+
+
+def _pages_tdm(chemin_pdf: str) -> list[int]:
+    """Pages (base 0) de la table des matières imprimée ; [] en cas de doute ou d'erreur."""
+    import pymupdf
+    from app.services.table_matieres import pages_table_matieres
+    try:
+        with pymupdf.open(chemin_pdf) as doc:
+            return pages_table_matieres(doc)
+    except Exception:
+        return []
+
+
+def _remplacer_pages_tdm(pages: list, chemin_pdf: str, pages_tdm: list[int]) -> list:
+    """
+    Remplace le Markdown des pages de TdM par leur rendu ligne par ligne. La table ENTIÈRE est écrite à
+    la place de sa première page et les suivantes sont vidées : un saut de page ne doit pas ouvrir de
+    paragraphe (voir table_matieres.rendre_table — le retrait de tête serait perdu à la traduction).
+    """
+    pages_tdm = [n for n in pages_tdm if n < len(pages)]
+    if not pages_tdm:
+        return pages
+    import pymupdf
+    from app.services.table_matieres import rendre_table, titre_markdown_de
+    resultat = list(pages)
+
+    def remplacer(numero: int, texte: str) -> None:
+        resultat[numero] = {**resultat[numero], "text": texte} if isinstance(resultat[numero], dict) else texte
+
+    with pymupdf.open(chemin_pdf) as doc:
+        pages_tdm = [n for n in pages_tdm if n < len(doc)]
+        if not pages_tdm:
+            return pages
+        titre = titre_markdown_de(_texte_page(resultat[pages_tdm[0]]))
+        remplacer(pages_tdm[0], rendre_table(doc, pages_tdm, titre))
+        for numero in pages_tdm[1:]:
+            remplacer(numero, "")
+    return resultat
 
 
 def _assembler_pages_avec_images(pages: list[dict], chemin_pdf: str) -> str:
