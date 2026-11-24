@@ -107,20 +107,34 @@ details { background: var(--surface); border: 1px solid var(--border); border-ra
 summary { cursor: pointer; font-weight: 600; }
 .maj { border-left: 3px solid var(--accent); background: var(--accent-bg); padding: 10px 14px; border-radius: 0 8px 8px 0; margin-bottom: 18px; max-width: 80ch; }
 .maj ul { margin: 6px 0 0; padding-left: 18px; }
-@media (prefers-reduced-motion: no-preference) { nav.tabs button { transition: background .15s, color .15s; } }
+/* Onglet Transformations : schéma filtrable par scénario */
+.flux .box { position: relative; }
+.flux .box .fmts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.flux .box code { font-size: 11px; word-break: break-word; }
+.flux.choisi .box:not(.on) { opacity: .32; }
+.flux .box.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.flux .box.canal { border-style: dashed; border-color: var(--amber); background: var(--amber-bg); flex-basis: 100%; }
+.fmt { display: inline-block; font: 500 10px/1 var(--font-mono); padding: 3px 6px; border-radius: 5px; border: 1px solid var(--border); color: var(--text-2); background: var(--surface-2); }
+.fmt.texte { background: var(--accent-bg); color: var(--accent); border-color: transparent; }
+.fmt.image { background: var(--amber-bg); color: var(--amber); border-color: transparent; }
+.fmt.audio { background: var(--green-bg); color: var(--green); border-color: transparent; }
+.scen-intro { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
+td.note { font-size: 12px; color: var(--text-2); }
+@media (prefers-reduced-motion: no-preference) { nav.tabs button { transition: background .15s, color .15s; } .flux .box { transition: opacity .15s; } }
 </style>
 </head>
 <body>
 <div class="wrap">
 <header class="top">
-  <div class="kicker">toledo · état des lieux au 17/11/2026 (première version : 19/10)</div>
+  <div class="kicker">toledo · état des lieux au 23/11/2026 (première version : 19/10)</div>
   <h1>Ce que toledo fait, et comment les usages s'y rattachent</h1>
-  <p class="lede">Produit, architecture, fonctions backend et frontend, puis une carte des usages pour planifier la refonte autour de la maquette 2 (« Que voulez-vous faire ? »), aujourd'hui livrée.</p>
+  <p class="lede">Produit, architecture, transformations de l'ingestion à la sortie (scénarios, fonctions, stockage), fonctions backend et frontend, puis une carte des usages pour planifier la refonte autour de la maquette 2 (« Que voulez-vous faire ? »), aujourd'hui livrée.</p>
 </header>
 
 <nav class="tabs" role="tablist" id="tabs">
   <button role="tab" data-t="produit" aria-selected="true">Produit</button>
   <button role="tab" data-t="archi" aria-selected="false">Architecture</button>
+  <button role="tab" data-t="transfo" aria-selected="false">Transformations</button>
   <button role="tab" data-t="back" aria-selected="false">Backend</button>
   <button role="tab" data-t="front" aria-selected="false">Frontend</button>
   <button role="tab" data-t="usages" aria-selected="false">Usages</button>
@@ -138,13 +152,14 @@ summary { cursor: pointer; font-weight: 600; }
       <li>Quatre fonctions nouvelles : <b>Découper un PDF</b> en sections de N pages, <b>Documents complexes</b> (ex-Scan multi-colonnes, régions réglées page par page), <b>document scanné recréé</b> avec ses illustrations (PDF mis en page ou HTML), <b>signature visuelle</b> d'un PDF.</li>
       <li>Un cinquième onglet, <b>Anticipation</b> : ce qui est envisagé, construit ou livré, plus le rapport d'audit du code.</li>
       <li>Audit <code>/revue-code</code> de cinq zones sur six (moteur, api, extraction, etude-tts, frontend) : tous les constats à 80 ou plus corrigés. Reste <code>macos</code>.</li>
+      <li><b>23/11</b> : nouvel onglet <b>Transformations</b>. Il schématise ingestion, transformation et sortie, les fonctions utilisées par chaque scénario et la forme stockée à chaque étape. Il explique aussi pourquoi le PDF mis en page n'existe que pour un document passé par Documents complexes. Depuis le 22/11, la table des matières d'un PDF est extraite une entrée par ligne.</li>
     </ul></div>
   <div class="stats">
     <div class="stat"><b>60</b><span>routes API</span><em>49 au 19/10</em></div>
     <div class="stat"><b>5</b><span>onglets d'interface</span><em>+ Anticipation</em></div>
     <div class="stat"><b>2</b><span>clients : web + macOS</span></div>
     <div class="stat"><b>0</b><span>donnée envoyée au cloud</span></div>
-    <div class="stat"><b>616</b><span>tests pytest verts</span><em>320 au 19/10</em></div>
+    <div class="stat"><b>745</b><span>tests pytest verts</span><em>616 au 17/11, 320 au 19/10</em></div>
   </div>
   <div class="grid g2">
     <div class="card"><h3>Ce qu'on peut faire</h3>
@@ -234,6 +249,79 @@ summary { cursor: pointer; font-weight: 600; }
 </section>
 
 <!-- BACKEND -->
+<section class="panel" id="p-transfo" hidden>
+  <h2>Transformations : de l'ingestion à la sortie</h2>
+  <p class="sub">Toute entrée finit en <b>Markdown source</b>. Le moteur unique le traduit en <b>Markdown traduit</b>, et presque toutes les sorties sont tirées de ce texte. La mise en page (position des blocs, illustrations) ne passe pas par le Markdown. Seul Documents complexes l'enregistre, à part. C'est pourquoi le PDF mis en page n'existe aujourd'hui que pour ce chemin. Choisissez un scénario pour voir son trajet.</p>
+
+  <div class="scen-intro" id="f-scen" role="group" aria-label="Scénario"></div>
+
+  <div class="flux" id="flux">
+    <div class="layer"><div class="lab">1 · Ingestion</div><div class="boxes">
+      <div class="box" data-s="1 2 3 6"><b>PDF à couche texte</b><small>livre, article, export Word</small><div class="fmts"><span class="fmt">PDF</span></div></div>
+      <div class="box" data-s="4 5 6"><b>PDF scanné</b><small>pages en image, OCR absent ou fait en travers des colonnes</small><div class="fmts"><span class="fmt">PDF</span><span class="fmt image">image</span></div></div>
+      <div class="box" data-s="7 8"><b>Fichier Markdown</b><small><code>.md</code> importé tel quel</small><div class="fmts"><span class="fmt texte">texte</span></div></div>
+      <div class="box ext" data-s="1 2 3 4 5 6 7 8"><b>Import</b><small><code>POST /upload</code> : octets validés, rangés dans <code>uploads/&lt;sha256[:16]&gt;/</code>. Ou chemin absolu (mode avancé). Puis analyse (<code>/analyser</code>, LLM : qualité, durée, chapitres).</small></div>
+    </div></div>
+    <div class="arrow">↓</div>
+    <div class="layer"><div class="lab">2 · Préparer<br><span style="text-transform:none;letter-spacing:0">facultatif</span></div><div class="boxes">
+      <div class="box" data-s="6"><b>Découper</b><small>sections de N pages, signets conservés, sans LLM. Chaque section devient un document à part.</small><div class="fmts"><span class="fmt">_section_NN_pXXX-YYY.pdf</span></div></div>
+      <div class="box" data-s="5"><b>Documents complexes</b><small>OCR Tesseract refait par colonne et encadré, régions réglables page par page, sans LLM</small><div class="fmts"><span class="fmt texte">_scan_colonnes.md</span><span class="fmt">page-NNNN.json</span><span class="fmt">_regions.json</span></div></div>
+      <div class="box" data-s="7"><b>Segmentation</b><small>prototype : deux passes LLM proposent des chapitres à un texte sans titres</small><div class="fmts"><span class="fmt texte">_segmente.md</span></div></div>
+    </div></div>
+    <div class="arrow">↓</div>
+    <div class="layer"><div class="lab">3 · Extraire<br><span style="text-transform:none;letter-spacing:0">→ Markdown source</span></div><div class="boxes">
+      <div class="box" data-s="1 2 6"><b>pymupdf4llm</b><small>extracteur par défaut, sans OCR. Table des matières une entrée par ligne (22/11), annexe des liens.</small><div class="fmts"><span class="fmt texte">_converti_py.md</span></div></div>
+      <div class="box" data-s="2"><b>+ images</b><small>flag <code>extraction_images_pdf</code> (désactivé) : images écrites à part, tag masqué <code>⟦IMGk⟧</code> pendant la traduction</small><div class="fmts"><span class="fmt image">_images/img-k.png</span></div></div>
+      <div class="box" data-s="3"><b>Marker</b><small>modèles de mise en page, plus lent. Images ignorées, table des matières non retravaillée.</small><div class="fmts"><span class="fmt texte">_converti_ma.md</span></div></div>
+      <div class="box" data-s="4"><b>Tesseract pleine page</b><small>OCR de la page entière à 300 dpi. Pas de colonnes, pas de géométrie.</small><div class="fmts"><span class="fmt texte">_converti_te.md</span></div></div>
+      <div class="box" data-s="5 7 8"><b>Lecture directe</b><small>un Markdown (importé, segmenté ou issu du scan) est relu tel quel</small><div class="fmts"><span class="fmt texte">.md</span></div></div>
+    </div></div>
+    <div class="arrow">↓</div>
+    <div class="layer"><div class="lab">4 · Traduire<br><span style="text-transform:none;letter-spacing:0">moteur unique</span></div><div class="boxes">
+      <div class="box" data-s="1 2 3 4 5 6 7 8"><b>Chapitres</b><small>signets du PDF reliés aux titres, sinon titres Markdown, sinon « Document entier » (<code>/chapitres</code>)</small><div class="fmts"><span class="fmt">liste ordonnée</span></div></div>
+      <div class="box" data-s="1 2 3 4 5 6 7 8"><b>Traduction</b><small>Ollama, sous-morceaux ≤ 3000 car., glossaire, contrôle de langue, cache par contenu. Un chapitre n'est écrit que complet.</small><div class="fmts"><span class="fmt texte">_traduit_&lt;modèle&gt;.md</span><span class="fmt">.state.json</span><span class="fmt">.cache.json</span><span class="fmt">toledo.db</span></div></div>
+    </div></div>
+    <div class="arrow">↓</div>
+    <div class="layer"><div class="lab">5 · Sortir</div><div class="boxes">
+      <div class="box" data-s="1 2 3 4 5 6 7 8"><b>Lire, comparer</b><small>Bibliothèque, chapitre par chapitre, original en regard</small><div class="fmts"><span class="fmt texte">écran</span></div></div>
+      <div class="box" data-s="1 2 3 4 5 6 7 8"><b>Export HTML du document</b><small>fait par le navigateur, sommaire dynamique, images incluses si le flag les a extraites</small><div class="fmts"><span class="fmt">.html (choisi)</span></div></div>
+      <div class="box" data-s="1 2 3 4 5 6 7 8"><b>Fiche d'étude</b><small>points clés et quiz (LLM), stratégie sections ou condensation, export HTML</small><div class="fmts"><span class="fmt texte">_fiche_&lt;modèle&gt;_&lt;stratégie&gt;.md</span></div></div>
+      <div class="box" data-s="1 2 3 4 5 6 7 8"><b>Audio</b><small>Piper, Kokoro ou voix clonée OpenVoice, par chapitre</small><div class="fmts"><span class="fmt audio">_audio_&lt;moteur&gt;_&lt;voix&gt;.wav</span></div></div>
+      <div class="box" data-s="5"><b>PDF mis en page · HTML interactif</b><small>format d'origine, illustrations replacées, texte coulé dans les colonnes. Exige la géométrie du scan.</small><div class="fmts"><span class="fmt">_mise_en_page.pdf</span><span class="fmt">_interactif.html</span></div></div>
+      <div class="box" data-s="1 2 3 4 5 6"><b>Signer</b><small>signature visuelle sur une copie. Le PDF d'origine, ou le PDF traduit s'il existe (chemin 5).</small><div class="fmts"><span class="fmt">_signe.pdf</span></div></div>
+      <div class="box canal" data-s="5"><b>Canal « mise en page », à côté du Markdown</b><small>Documents complexes écrit <code>page-NNNN.json</code> (blocs, icônes, pieds de page, réglages), et la reconstruction le complète par <code>_scan_colonnes_illustrations/</code> (JPG, PNG, <code>manifeste.json</code>). Aucun autre chemin ne conserve la position des blocs. Un PDF à couche texte la porte pourtant en lui (<code>get_text("dict")</code>), mais rien ne la lit encore.</small></div>
+    </div></div>
+  </div>
+
+  <div class="card detail" id="d-scen"></div>
+
+  <h3 style="margin-top:22px">Sorties possibles par scénario</h3>
+  <div class="legend"><span><i class="dot full"></i> disponible</span><span><i class="dot part"></i> partiel (voir le scénario)</span><span><i class="dot none"></i> impossible aujourd'hui</span></div>
+  <div class="card scroll"><table><thead><tr><th>Scénario</th><th class="c">Lire · comparer</th><th class="c">HTML document</th><th class="c">Images</th><th class="c">Fiche</th><th class="c">Audio</th><th class="c">PDF mis en page</th><th class="c">HTML interactif</th><th class="c">Signer</th></tr></thead><tbody id="t-scen"></tbody></table></div>
+
+  <h3 style="margin-top:22px">Comment l'information est stockée</h3>
+  <p class="sub">Tout est écrit à côté du fichier source (dans <code>uploads/&lt;hash&gt;/</code> pour un import par navigateur), sauf la base centrale et les registres. Le texte est la forme pivot ; image, géométrie et audio sont des fichiers à part.</p>
+  <div class="filters" id="f-stock"></div>
+  <div class="card scroll"><table><thead><tr><th>Fichier</th><th>Nature</th><th>Contenu</th><th>Écrit par</th><th>À savoir</th></tr></thead><tbody id="t-stock"></tbody></table></div>
+
+  <h3 style="margin-top:22px">Ce que le schéma explique</h3>
+  <ul class="plain">
+    <li><b>Une seule forme pivot, le texte.</b> Extraire, c'est passer du PDF au Markdown, et tout ce qui n'est pas du texte s'y perd. Les images ne sont gardées que si le flag est actif (fichiers PNG à part, référencés par un tag). La position des blocs n'est gardée que par Documents complexes.</li>
+    <li><b>Pourquoi le PDF mis en page n'est proposé qu'au chemin 5.</b> <code>reconstruction.localiser()</code> refuse toute source qui n'est pas un <code>_scan_colonnes.md</code> : il lui faut <code>page-NNNN.json</code> pour savoir où couler le texte. Une traduction lancée depuis l'Accueil part d'un <code>_converti_py.md</code> sans géométrie.</li>
+    <li><b>Les sorties « texte » sont communes à tous les chemins</b> : lecture, comparaison, export HTML, fiche, audio. Un nouvel extracteur en hérite d'office.</li>
+    <li><b>Deux exports HTML coexistent</b> : celui de la Bibliothèque, fait par le navigateur et jamais stocké par le backend, et le HTML interactif, écrit par le backend à côté de la traduction. macOS n'a ni l'un ni l'autre.</li>
+    <li><b>Les améliorations d'extraction ne valent que pour un extracteur.</b> La table des matières ligne par ligne et les images ne concernent que pymupdf4llm. Marker et Tesseract n'en profitent pas.</li>
+  </ul>
+
+  <h3 style="margin-top:22px">Pistes pour offrir toutes les sorties à tous les documents</h3>
+  <div class="card scroll"><table><thead><tr><th>Piste</th><th>Ce qu'elle change dans le schéma</th><th>Effet</th></tr></thead><tbody>
+    <tr><td><b>1. PDF « lecture » pour tout document</b></td><td>Une sortie de plus à l'étape 5, tirée du Markdown traduit (texte recomposé, sommaire paginé, signets). Rendu HTML déplacé dans le backend.</td><td>Un PDF pour les huit scénarios. Un seul rendu pour le web, le PDF et macOS.</td></tr>
+    <tr><td><b>2. Géométrie pour les PDF à couche texte</b></td><td>Un adaptateur écrit <code>page-NNNN.json</code> depuis <code>get_text("dict")</code> à l'étape 3, et un fichier annexe relie chaque paragraphe à sa page.</td><td>PDF mis en page et HTML interactif pour les chemins 1, 2, 3 et 6. Variante : garder la page d'origine en fond et remplacer seulement le texte.</td></tr>
+    <tr><td><b>3. Un seul point d'entrée</b></td><td>L'Accueil détecte la nature du PDF (couche texte, scan, colonnes) et propose l'étape 2 au besoin. La Bibliothèque liste toutes les sorties, grisées avec leur raison quand elles sont indisponibles.</td><td>L'utilisateur voit ce qu'il peut obtenir avant de lancer.</td></tr>
+  </tbody></table></div>
+  <p class="sub" style="margin-top:10px">Ordre suggéré : 1, puis 2, puis 3. Chacune est livrable seule.</p>
+</section>
+
 <section class="panel" id="p-back" hidden>
   <h2>Fonctions backend</h2>
   <p class="sub">Les 60 routes, regroupées par famille. « nouveau » marque les 11 routes apparues depuis le 19/10. Filtrez pour isoler une famille.</p>
@@ -455,6 +543,91 @@ const USAGES = [
   routes:["/glossaire","/feature-flags","/modeles"],
   gap:"Le glossaire est dans le Labo, les styles dans les Réglages. Le glossaire gagnerait à apparaître dans l'étape Traduire."}
 ];
+// Transformations. `sorties` : [Lire, HTML document, Images, Fiche, Audio, PDF mis en page, HTML interactif, Signer],
+// 2 = disponible, 1 = partiel, 0 = impossible ; `notes` explique chaque 1 et 0 significatif.
+const SCENARIOS = [
+ {id:1,n:"PDF à couche texte, depuis l'Accueil",entree:"Accueil (objectif Lire, Étudier ou Écouter) ou Nouveau document",
+  etapes:["Importer","Analyser","pymupdf4llm","Chapitres","Traduire","Bibliothèque"],
+  flags:["analyse_preliminaire","pause_reprise","extraction_urls"],
+  services:["uploads","analysis_agent","pdf_extractor","table_matieres","translation_runner","translator","cache_traduction","glossaire","controle_langue","store"],
+  routes:["/upload","/analyser","/chapitres","/translate","/bibliotheque","/chapitres/contenu"],
+  sorties:[2,2,0,2,2,0,0,1],
+  notes:["Images : le flag extraction_images_pdf est désactivé par défaut (chemin 2).","PDF mis en page et HTML interactif : pas de géométrie de page, refusé par reconstruction.localiser().","Signer : seulement le PDF d'origine, non traduit, faute de PDF traduit."]},
+ {id:2,n:"PDF à couche texte avec ses images",entree:"Comme le chemin 1, flag extraction_images_pdf actif",
+  etapes:["Importer","pymupdf4llm + images","Tags ⟦IMGk⟧ masqués","Traduire","Tags restaurés","Bibliothèque"],
+  flags:["extraction_images_pdf (désactivé)","mode_avance (affichage /image)"],
+  services:["pdf_extractor (_assembler_pages_avec_images)","translation_runner","bibliotheque-exports.js"],
+  routes:["/convert","/translate","/image","/chapitres/contenu"],
+  sorties:[2,2,2,2,2,0,0,1],
+  notes:["Les images sont affichées dans la lecture et l'export HTML, à leur place dans le flux du texte, pas à leur position sur la page.","Export HTML : seuls les chapitres de sommet portent leurs images."]},
+ {id:3,n:"PDF à mise en page chargée, extracteur Marker",entree:"Réglages du lot › extracteur (mode avancé)",
+  etapes:["Importer","Marker","Chapitres","Traduire","Bibliothèque"],
+  flags:["mode_avance"],
+  services:["pdf_extractor (_extraire_avec_marker)","translation_runner"],
+  routes:["/config/extracteurs","/convert","/translate"],
+  sorties:[2,2,0,2,2,0,0,1],
+  notes:["Marker renvoie des images, mais le code les ignore volontairement (portée du flag limitée à pymupdf4llm).","La table des matières n'est pas retravaillée ligne par ligne."]},
+ {id:4,n:"PDF scanné simple, OCR pleine page",entree:"Réglages du lot › extracteur Tesseract (mode avancé)",
+  etapes:["Importer","Tesseract 300 dpi","Chapitres","Traduire","Bibliothèque"],
+  flags:["mode_avance"],
+  services:["pdf_extractor (_extraire_avec_tesseract)","translation_runner"],
+  routes:["/config/extracteurs","/convert","/translate"],
+  sorties:[2,2,0,2,2,0,0,1],
+  notes:["Les colonnes sont lues en travers : chemin à réserver aux pages à une colonne.","Aucune géométrie ni illustration conservée, donc pas de reconstruction."]},
+ {id:5,n:"PDF scanné à colonnes, Documents complexes",entree:"Accueil › objectif Nettoyer, ou Laboratoire › Documents complexes",
+  etapes:["Importer","Analyser","Scan par colonne","Vérifier les régions","Traduire","Recréer"],
+  flags:["extraction_scan_colonnes","reconstruction_scan","signature_pdf"],
+  services:["scan_colonnes","translation_runner","reconstruction","signature","parcours.js (enchaînement)"],
+  routes:["/labo/scan-colonnes","/labo/scan-colonnes/statut","/labo/scan-colonnes/geometrie","/labo/scan-colonnes/reglage-page","/translate","/reconstruction/info","/reconstruction/{format}","/telecharger"],
+  sorties:[2,2,1,2,2,2,2,2],
+  notes:["Images : présentes dans le PDF mis en page et le HTML interactif, pas dans la lecture ni l'export HTML de la Bibliothèque.","Signer : le PDF d'origine et le PDF traduit mis en page.","L'enchaînement scan puis traduction est porté par la page ouverte."]},
+ {id:6,n:"Gros PDF découpé en sections",entree:"Laboratoire › Découper (puis chaque section comme le chemin 1 ou 5)",
+  etapes:["Découper en N pages","Importer chaque section","Chemin 1 ou 5"],
+  flags:["decoupe_pdf"],
+  services:["decoupe","puis ceux du chemin 1 ou 5"],
+  routes:["/labo/decoupe/plan","/labo/decoupe"],
+  sorties:[2,2,1,2,2,1,1,1],
+  notes:["Chaque section est un document distinct : une traduction, une fiche et un audio par section, sans document réassemblé.","Les sorties suivent le chemin choisi pour la section : 1 (texte) ou 5 (mise en page).","Les sections ne sont pas ajoutées au lot automatiquement."]},
+ {id:7,n:"Texte sans titres, segmenté",entree:"Laboratoire › Segmentation (prototype)",
+  etapes:["Estimer","Proposer des chapitres (LLM)","Générer _segmente.md","Importer","Traduire"],
+  flags:["mode_avance"],
+  services:["segmentation","translation_runner"],
+  routes:["/labo/segmentation/estimation","/labo/segmentation","/labo/segmentation/generer","/translate"],
+  sorties:[2,2,0,2,2,0,0,0],
+  notes:["Le .md généré se renvoie à la main dans le lot.","Aucun PDF associé, donc rien à signer."]},
+ {id:8,n:"Fichier Markdown importé",entree:"Accueil ou Nouveau document",
+  etapes:["Importer .md","Lecture directe","Chapitres","Traduire","Bibliothèque"],
+  flags:[],
+  services:["uploads","pdf_extractor (_lire_source)","translation_runner"],
+  routes:["/upload","/chapitres","/translate"],
+  sorties:[2,2,0,2,2,0,0,0],
+  notes:["Les images référencées par le .md ne sont pas servies (GET /image ne sert que celles extraites d'un PDF).","Aucun PDF associé, donc rien à signer."]}
+];
+// [fichier, nature, contenu, écrit par, à savoir, étape]
+const STOCKAGE = [
+ ["uploads/<sha256[:16]>/<nom>","PDF ou texte","Octets importés, validés par contenu","uploads.py","Idempotent : même fichier, même dossier. Le PDF d'origine n'est jamais modifié.","Ingestion"],
+ ["<base>_section_NN_pXXX-YYY.pdf","PDF","Une section de N pages, signets conservés","decoupe.py","Nom stable ; 409 si la même découpe existe.","Préparer"],
+ ["<base>_scan_colonnes.md","texte (Markdown)","Texte OCR par colonne, titres numérotés, ⟦icône:page.k⟧","scan_colonnes.py","Devient la source de la traduction.","Préparer"],
+ ["<base>_scan_colonnes_pages/page-NNNN.json","JSON (géométrie)","Blocs de la page, boîtes d'icônes et de pieds, réglages","scan_colonnes.py","Seule géométrie de page du produit. Effacée par « Réinitialiser ».","Préparer"],
+ ["<base>_scan_colonnes_regions.json","JSON","Régions réglées à la main, page par page","scan_colonnes.py","Travail de l'utilisateur : jamais effacé par Réinitialiser.","Préparer"],
+ ["<base>_scan_colonnes.state.json","JSON (état)","Avancement et réglages du scan","scan_colonnes.py","En cours sans job actif → annule à la lecture.","Préparer"],
+ ["<base>_segmente.md","texte (Markdown)","Texte avec chapitres proposés par le LLM","segmentation.py","Prototype, à réimporter à la main.","Préparer"],
+ ["<base>_converti_<xx>.md","texte (Markdown)","En-tête extracteur, texte, tags image, annexe des liens","pdf_extractor.py","xx = 2 lettres de l'extracteur (py, ma, te). Relu tel quel : le supprimer après un changement d'extraction.","Extraire"],
+ ["<base>_images/img-k.png","image (PNG)","Images embarquées dans le PDF","pdf_extractor.py","Seulement avec le flag extraction_images_pdf et pymupdf4llm.","Extraire"],
+ ["<source>_traduit_<modèle>.md","texte (Markdown)","Chapitres traduits, marqueurs <!-- === chapitre N : titre === -->, en-tête modèle et langues","translation_runner.py","Réécrit depuis la base à chaque chapitre. Doit rester un vrai fichier (le frontend en dérive le dossier des images).","Traduire"],
+ ["<source>_traduit_<modèle>.state.json","JSON (état)","Statut, chapitres traduits ou échoués, compteurs, options du document","translation_runner.py","Filet lisible : la base est lue d'abord.","Traduire"],
+ ["<source>_traduit_<modèle>.cache.json","JSON","Sous-morceau traduit, clé SHA-256 du contenu, du modèle, des langues et du glossaire","cache_traduction.py","Doublé dans la table morceaux. Permet un rejeu à cache chaud.","Traduire"],
+ ["backend/toledo.db","SQLite","Tables documents, etats, morceaux, chapitres, stats_runs","store.py","Une base centrale, prioritaire en lecture. stats_runs : une ligne par passage (Chronique).","Traduire"],
+ ["backend/bibliotheque.json","JSON (registre)","Liste des documents de la Bibliothèque","bibliotheque.py","Écrit en double avec la base, pour toujours.","Traduire"],
+ ["backend/glossaire.json","JSON","Termes imposés à la traduction","glossaire.py","Entre dans la clé du cache : le changer invalide le cache.","Traduire"],
+ ["<source>_fiche_<modèle>_<stratégie>.md (+ .state.json)","texte (Markdown)","Points clés et quiz par chapitre","study_runner.py","Réponse coupée au plafond num_predict = erreur, jamais une fiche tronquée.","Sortir"],
+ ["<traduit>_audio_<moteur>_<voix>.wav (+ .tts.state.json)","audio (WAV)","Lecture d'un chapitre","tts_runner.py","Voix clonées : registre tts_modeles/openvoice/voix_utilisateur/.","Sortir"],
+ ["<base>_scan_colonnes_illustrations/","image (JPG, PNG) + JSON","Illustrations et icônes découpées dans le scan, aperçus, manifeste.json","reconstruction.py","Cache versionné (VERSION_CACHE) : une nouvelle détection l'invalide.","Sortir"],
+ ["<traduit>_mise_en_page.pdf","PDF","Format d'origine, illustrations replacées, texte coulé","reconstruction.py","Chemin 5 seulement.","Sortir"],
+ ["<traduit>_interactif.html","HTML autonome","Lecture continue ou page par page avec le scan en regard","reconstruction.py","Chemin 5 seulement, aucune ressource externe.","Sortir"],
+ ["<pdf>_signe.pdf","PDF","Copie avec signature visuelle","signature.py","Re-signer ajoute au même fichier ; signer l'original est refusé si _signe existe.","Sortir"],
+ ["Export HTML (document, fiche)","HTML autonome","Sommaire dynamique, images en base64","navigateur (module-bibliotheque.js)","Jamais stocké par le backend : enregistré là où l'utilisateur le choisit.","Sortir"]
+];
 const $=(s,r=document)=>r.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const mcls=m=>({GET:"m-get",POST:"m-post",DELETE:"m-del",PUT:"m-put",PATCH:"m-put"}[m]);
@@ -488,6 +661,43 @@ function detail(i){
 }
 document.querySelectorAll(".usage").forEach(r=>{r.onclick=()=>detail(+r.dataset.i);r.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();detail(+r.dataset.i);}};});
 detail(0);
+
+// Transformations : un scénario choisi allume ses boîtes du schéma (les autres s'estompent).
+const SORTIES=["Lire · comparer","HTML document","Images","Fiche","Audio","PDF mis en page","HTML interactif","Signer"];
+let scen=0;
+function drawScen(){
+  $("#f-scen").innerHTML=[`<button class="chip" data-s="0" aria-pressed="${scen===0}">Tous les chemins</button>`]
+    .concat(SCENARIOS.map(s=>`<button class="chip" data-s="${s.id}" aria-pressed="${scen===s.id}">${s.id}. ${esc(s.n)}</button>`)).join("");
+  document.querySelectorAll("#f-scen .chip").forEach(c=>c.onclick=()=>{scen=+c.dataset.s;drawScen();});
+  $("#flux").classList.toggle("choisi",scen!==0);
+  document.querySelectorAll("#flux .box").forEach(b=>b.classList.toggle("on",scen!==0&&(b.dataset.s||"").split(" ").includes(String(scen))));
+  document.querySelectorAll("#t-scen tr").forEach(r=>r.setAttribute("aria-selected",String(+r.dataset.s===scen)));
+  const s=SCENARIOS.find(x=>x.id===scen);
+  $("#d-scen").hidden=!s;
+  if(!s) return;
+  const pills=(l,cls="")=>l.length?l.map(x=>`<span class="pill ${cls}">${esc(x)}</span>`).join(" "):"<span class=\"pill\">aucun</span>";
+  $("#d-scen").innerHTML=`<h3>${s.id}. ${esc(s.n)}</h3><p>Point d'entrée : ${esc(s.entree)}</p>
+   <ol class="steps">${s.etapes.map(e=>`<li>${esc(e)}</li>`).join("")}</ol>
+   <h3>Feature flags</h3><p>${pills(s.flags,"acc")}</p>
+   <h3>Services et modules</h3><p>${pills(s.services)}</p>
+   <h3>Routes</h3><p>${pills(s.routes)}</p>
+   <h3>Sorties</h3><p>${SORTIES.map((o,i)=>`<span class="pill ${["bad","warn","ok"][s.sorties[i]]}">${esc(o)}</span>`).join(" ")}</p>
+   <ul class="plain">${s.notes.map(n=>`<li>${esc(n)}</li>`).join("")}</ul>`;
+}
+$("#t-scen").innerHTML=SCENARIOS.map(s=>`<tr class="usage" tabindex="0" data-s="${s.id}"><td><b>${s.id}.</b> ${esc(s.n)}</td>${s.sorties.map(cell).join("")}</tr>`).join("");
+document.querySelectorAll("#t-scen tr").forEach(r=>{const go=()=>{scen=+r.dataset.s;drawScen();$("#flux").scrollIntoView({block:"start"});};
+  r.onclick=go;r.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}};});
+drawScen();
+
+const etapesStock=["Toutes",...new Set(STOCKAGE.map(r=>r[5]))]; let etapeStock="Toutes";
+function drawStock(){
+  $("#f-stock").innerHTML=etapesStock.map(e=>`<button class="chip" data-e="${esc(e)}" aria-pressed="${e===etapeStock}">${esc(e)}</button>`).join("");
+  document.querySelectorAll("#f-stock .chip").forEach(c=>c.onclick=()=>{etapeStock=c.dataset.e;drawStock();});
+  const fmt=n=>/^texte/.test(n)?"texte":/^image/.test(n)?"image":/^audio/.test(n)?"audio":"";
+  $("#t-stock").innerHTML=STOCKAGE.filter(r=>etapeStock==="Toutes"||r[5]===etapeStock).map(r=>
+    `<tr><td><code>${esc(r[0])}</code></td><td><span class="fmt ${fmt(r[1])}">${esc(r[1])}</span></td><td>${esc(r[2])}</td><td class="note"><code>${esc(r[3])}</code></td><td class="note">${esc(r[4])}</td></tr>`).join("");
+}
+drawStock();
 show(location.hash.slice(1)||"produit");
 </script>
 </body>
