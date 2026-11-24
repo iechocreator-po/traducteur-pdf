@@ -49,7 +49,9 @@ modules chargés depuis `frontend/js/` (`commun.js` + un fichier par module) :
 - **Nouveau document** : lot multi-fichiers, import navigateur (`POST /api/upload`) ou chemin absolu (mode avancé), analyse auto,
   réglages, lancement en file séquentielle, planification (`scheduler.py`).
 - **Bibliothèque** : lecture par chapitre, audio TTS, fiches « points clés + quiz » (`services/etude.py`, `study_runner.py`,
-  sortie `<base>_fiche_<xx>.md`), export HTML autonome (flag `export_fiche_html`).
+  sortie `<base>_fiche_<xx>.md`), export HTML autonome (flag `export_fiche_html`). Exports « ⬇ PDF mis en page » /
+  « ⬇ HTML interactif » : scan → `reconstruction.py` (format d'origine) ; tout autre document → `export_document.py`
+  (PDF A4 à signets, page autonome avec l'original en regard). Mêmes noms de sortie (`_mise_en_page.pdf`, `_interactif.html`).
 - **Laboratoire** (mode avancé seulement) : état système, glossaire, TTS, voix clonées, outils document, **Scan multi-colonnes**
   (OCR par colonne des PDF scannés, sans LLM, flag `extraction_scan_colonnes`), **Chronique** (historique jetons/durées de chaque
   traitement, estimateur de durée).
