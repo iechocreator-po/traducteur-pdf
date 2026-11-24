@@ -1108,29 +1108,45 @@ def lancer_decoupe(req: DecoupeRequest) -> dict:
 
 @router.get("/reconstruction/info")
 def info_reconstruction(chemin_sortie: str) -> dict:
-    """Le document vient-il du Scan multi-colonnes (donc reconstructible) ? Lecture seule, rapide."""
+    """
+    Exports « mis en page » disponibles ? Scan multi-colonnes → reconstruction (mode « scan ») ; tout autre document
+    → export recomposé (mode « document », services/export_document.py). Lecture seule, rapide.
+    """
     chemin = valider_chemin_source(chemin_sortie, extensions=(".md",), label="Traduction")
-    from app.services.reconstruction import info
-    return info(chemin)
+    from app.services import export_document, reconstruction
+    try:
+        reconstruction.localiser(chemin)
+    except reconstruction.PasUnScan:
+        return export_document.info(chemin)
+    except reconstruction.ReconstructionImpossible:
+        pass   # scan aux fichiers manquants : info() en donne la raison
+    return {"mode": "scan", **reconstruction.info(chemin)}
 
 
 @router.post("/reconstruction/{format_sortie}")
 def generer_reconstruction(format_sortie: str, chemin_sortie: str, titre: str | None = None) -> dict:
     """
-    Écrit à côté de la traduction `_mise_en_page.pdf` (format=pdf) ou `_interactif.html` (format=html).
-    Synchrone : quelques secondes pour un scan de 3 pages (rendu + détection mis en cache).
+    Écrit à côté de la traduction `_mise_en_page.pdf` (format=pdf) ou `_interactif.html` (format=html), pour un scan
+    (reconstruction) comme pour un document natif (export recomposé). Synchrone : quelques secondes pour un scan de
+    3 pages ; de l'ordre de la minute pour un livre entier en PDF.
     """
     _exiger_flag("reconstruction_scan")
     if format_sortie not in ("pdf", "html"):
         raise HTTPException(status_code=404, detail="Format inconnu (pdf ou html).")
     chemin = valider_chemin_source(chemin_sortie, extensions=(".md",), label="Traduction")
-    from app.services import reconstruction
+    from app.services import export_document, reconstruction
 
     try:
-        if format_sortie == "pdf":
-            return reconstruction.generer_pdf(chemin)
-        return reconstruction.generer_html(chemin, titre=titre)
-    except reconstruction.ReconstructionImpossible as e:
+        try:
+            if format_sortie == "pdf":
+                return reconstruction.generer_pdf(chemin)
+            return reconstruction.generer_html(chemin, titre=titre)
+        except reconstruction.PasUnScan:
+            # Document natif : pas de géométrie de scan, le texte traduit est recomposé (A4 / page continue).
+            if format_sortie == "pdf":
+                return export_document.generer_pdf(chemin, titre=titre)
+            return export_document.generer_html(chemin, titre=titre)
+    except (reconstruction.ReconstructionImpossible, export_document.ExportImpossible) as e:
         raise HTTPException(status_code=409, detail=str(e))
 
 

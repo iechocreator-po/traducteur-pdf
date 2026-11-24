@@ -1,10 +1,11 @@
 /**
  * Bibliothèque — exports d'un document et signature (bandeau de lecture).
  *
- *  - « ⬇ PDF mis en page » / « ⬇ HTML interactif » : montrés pour tout document, actifs seulement pour une
- *    traduction issue du Scan multi-colonnes (GET /reconstruction/info), sinon inactifs avec la raison. Le backend recrée le document au format
- *    d'origine avec ses illustrations (services/reconstruction.py) ; le fichier est écrit à côté
- *    de la traduction, puis téléchargé par /telecharger.
+ *  - « ⬇ PDF mis en page » / « ⬇ HTML interactif » : actifs pour tout document (GET /reconstruction/info dit le
+ *    mode). Traduction issue du Scan multi-colonnes (mode « scan ») : le backend recrée le document au format
+ *    d'origine avec ses illustrations (services/reconstruction.py). Tout autre document (mode « document ») : le
+ *    texte traduit est recomposé, PDF A4 paginé ou page interactive avec l'original en regard
+ *    (services/export_document.py). Le fichier est écrit à côté de la traduction, puis téléchargé par /telecharger.
  *  - « 🖼 Mise en page » : le même HTML interactif, LU dans la Bibliothèque (cadre à la place du corps de
  *    lecture) plutôt que téléchargé ; régénéré à chaque ouverture (rapide : géométrie en cache).
  *  - « ✍ Signer un PDF… » : signature VISUELLE (dessinée, tapée ou importée) placée à la souris
@@ -19,13 +20,12 @@
 
   const statut = (t) => { $("doc-export-statut").textContent = t || ""; };
 
-  // Les trois boutons de mise en page sont montrés pour TOUS les documents, pour que la barre soit la même quel
-  // que soit le fichier : hors Scan multi-colonnes, ils restent visibles mais inactifs (aria-disabled, pas
-  // `disabled`, pour garder l'infobulle) et un clic explique pourquoi dans le statut.
+  // Les trois boutons de mise en page sont montrés pour TOUS les documents. Inactifs seulement quand l'export est
+  // impossible (scan aux fichiers effacés, backend absent) : aria-disabled, pas `disabled`, pour garder
+  // l'infobulle, et un clic explique pourquoi dans le statut.
   const BOUTONS_MISE_EN_PAGE = ["doc-vue-interactive", "doc-pdf-mise-en-page", "doc-html-interactif"];
   const TITRES_MISE_EN_PAGE = Object.fromEntries(BOUTONS_MISE_EN_PAGE.map((id) => [id, $(id).title]));
-  const RAISON_PAR_DEFAUT = "Disponible pour un document passé par Documents complexes (Scan multi-colonnes) : "
-    + "la mise en page d'origine est reconstruite à partir des pages du scan.";
+  const RAISON_PAR_DEFAUT = "Export indisponible : le serveur local ne répond pas.";
 
   function regler(disponible, raison) {
     for (const id of BOUTONS_MISE_EN_PAGE) {
@@ -76,20 +76,31 @@
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
+  // Résumé d'une génération. Mode « document » (pas un scan) : le HTML n'a pas de pages, il a des chapitres.
+  function resume(r, format) {
+    if (r.mode !== "document") return `${r.pages} page(s), ${r.illustrations} illustration(s)`;
+    if (format === "pdf") return `${r.pages} page(s) A4, ${r.chapitres} chapitre(s), ${r.illustrations} image(s)`;
+    const original = r.original ? ` · original en regard pour ${r.original} chapitre(s)` : " · version d'origine indisponible";
+    return `${r.chapitres} chapitre(s), ${r.illustrations} image(s)${original}`;
+  }
+
   async function generer(format) {
     if (!doc) return;
     const bouton = $(format === "pdf" ? "doc-pdf-mise-en-page" : "doc-html-interactif");
     const libelle = bouton.textContent;
     bouton.disabled = true;
     bouton.textContent = "Préparation…";
-    statut(format === "pdf" ? "⏳ Reconstruction du PDF (illustrations + colonnes)…" : "⏳ Construction de la page HTML…");
+    const scan = !infoReconstruction || infoReconstruction.mode !== "document";
+    statut(format === "pdf"
+      ? (scan ? "⏳ Reconstruction du PDF (illustrations + colonnes)…" : "⏳ Mise en pages du PDF (un livre entier : jusqu'à une minute)…")
+      : "⏳ Construction de la page HTML…");
     try {
       const titre = (doc.nom || "").replace(/_scan_colonnes\.md$|\.md$/i, "");
       const r = await apiPost(
         `/reconstruction/${format}?chemin_sortie=${encodeURIComponent(doc.chemin_sortie)}&titre=${encodeURIComponent(titre)}`,
         {}, TIMEOUT_GENERATION_MS);
       await telecharger(r.chemin);
-      let msg = `✅ ${r.pages} page(s), ${r.illustrations} illustration(s) — enregistré aussi à côté de la traduction : ${nomFichier(r.chemin)}`;
+      let msg = `✅ ${resume(r, format)} — enregistré aussi à côté de la traduction : ${nomFichier(r.chemin)}`;
       if (r.pages_suite && r.pages_suite.length) {
         msg += ` · ⚠ texte trop long pour la page d'origine, continué sur une page « suite » : p. ${r.pages_suite.join(", ")}`;
       }
@@ -144,7 +155,7 @@
       $("lecture-interactif-cadre").srcdoc = html;
       $("lecture-interactif-onglet").href = urlVue;
       $("lecture-interactif-onglet").hidden = false;
-      etat.textContent = `${r.pages} page(s) · ${r.illustrations} illustration(s)`;
+      etat.textContent = resume(r, "html");
     } catch (e) {
       etat.textContent = `❌ ${e.message}`;
     }

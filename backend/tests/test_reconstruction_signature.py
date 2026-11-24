@@ -661,7 +661,8 @@ def test_routes_reconstruction(scan_traduit, tmp_path, monkeypatch):
     autre = tmp_path / "autre_traduit_m.md"
     autre.write_text("texte")
     r = client.post("/api/reconstruction/html", params={"chemin_sortie": str(autre)})
-    assert r.status_code == 409 and "Scan multi-colonnes" in r.json()["detail"]
+    # Hors scan, la route passe à l'export recomposé (services/export_document.py) : ce fichier sans chapitre est refusé.
+    assert r.status_code == 409 and "Aucun chapitre" in r.json()["detail"]
 
     _flags_off(monkeypatch, "reconstruction_scan")
     assert client.post("/api/reconstruction/pdf", params={"chemin_sortie": scan_traduit}).status_code == 403

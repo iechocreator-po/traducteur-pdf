@@ -415,14 +415,14 @@
           <button id="doc-comparer" class="ds-btn ds-btn--sm" aria-pressed="false"
                   title="Afficher la version d'origine à côté de la traduction">⇄ Comparer</button>
           <button id="doc-exporter" class="ds-btn ds-btn--sm" hidden>⬇ Exporter (HTML)…</button>
-          <!-- Traduction issue du Scan multi-colonnes : document recréé avec ses illustrations
-               (js/bibliotheque-exports.js, services/reconstruction.py). -->
+          <!-- Scan multi-colonnes : document recréé avec ses illustrations (services/reconstruction.py) ;
+               tout autre document : texte traduit recomposé (services/export_document.py). js/bibliotheque-exports.js. -->
           <button id="doc-vue-interactive" class="ds-btn ds-btn--sm" hidden aria-pressed="false"
-                  title="Lire la version mise en page (illustrations, colonnes, scan d'origine en regard) ici même">🖼 Mise en page</button>
+                  title="Lire la version interactive ici même (sommaire, recherche, original en regard)">🖼 Mise en page</button>
           <button id="doc-pdf-mise-en-page" class="ds-btn ds-btn--sm" hidden
-                  title="PDF au format d'origine : illustrations replacées, texte traduit dans les colonnes">⬇ PDF mis en page</button>
+                  title="PDF de la traduction : au format d'origine pour un scan, A4 paginé avec signets pour un autre document">⬇ PDF mis en page</button>
           <button id="doc-html-interactif" class="ds-btn ds-btn--sm" hidden
-                  title="Page HTML autonome : lecture continue avec illustrations, ou page par page avec le scan d'origine">⬇ HTML interactif</button>
+                  title="Page HTML autonome : sommaire, recherche, taille, thème, version d'origine en regard">⬇ HTML interactif</button>
           <button id="doc-signer" class="ds-btn ds-btn--sm" hidden
                   title="Apposer une signature sur un PDF de ce document (copie _signe.pdf)">✍ Signer un PDF…</button>
           <span id="doc-export-statut" class="aide doc-export-statut" role="status"></span>
@@ -1116,7 +1116,7 @@
   <script src="js/commun.js?v=14"></script>
   <script src="js/module-import.js?v=22"></script>
   <script src="js/module-bibliotheque.js?v=22"></script>
-  <script src="js/bibliotheque-exports.js?v=7"></script>
+  <script src="js/bibliotheque-exports.js?v=8"></script>
   <script src="js/module-laboratoire.js?v=13"></script>
   <script src="js/module-chronique.js?v=2"></script>
   <script src="js/module-anticipation.js?v=4"></script>

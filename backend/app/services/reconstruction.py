@@ -116,6 +116,10 @@ class ReconstructionImpossible(Exception):
     """Le document ne peut pas être reconstruit (pas issu du scan, fichiers manquants…)."""
 
 
+class PasUnScan(ReconstructionImpossible):
+    """Le document ne vient pas du Scan multi-colonnes : il s'exporte par services/export_document.py."""
+
+
 # ── Où sont les fichiers ─────────────────────────────────────────────────────
 
 def localiser(chemin_traduit: str) -> dict:
@@ -129,7 +133,7 @@ def localiser(chemin_traduit: str) -> dict:
         m = re.match(r"^(.*)_traduit(?:_[^/]*)?\.md$", chemin_traduit)
         source = f"{m.group(1)}.md" if m else None
     if not source or not source.endswith(f"{SUFFIXE_SCAN}.md"):
-        raise ReconstructionImpossible(
+        raise PasUnScan(
             "Ce document ne vient pas du Scan multi-colonnes : la mise en page d'origine "
             "n'est reconstruite que pour un PDF scanné nettoyé dans le Laboratoire.")
     pdf = source[: -len(f"{SUFFIXE_SCAN}.md")] + ".pdf"
