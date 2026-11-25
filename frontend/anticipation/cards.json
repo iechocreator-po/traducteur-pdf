@@ -4,27 +4,27 @@
   {
    "id": "audit-code",
    "featureId": null,
-   "titre": "Audit du code : ≈ 78 % du code actuel audité, ≈ 83 % relu en comptant les revues, une zone à auditer",
+   "titre": "Audit du code : ≈ 63 % du code actuel audité, ≈ 85 % relu en comptant les revues, deux zones à auditer",
    "description": "Taille de toledo, zones auditées avec les défauts trouvés, constats de chaque revue et ce qui reste à faire par priorité (skill commune /revue-code). Une revue ne lit que le code ajouté : elle ne vaut pas un audit.",
    "onglet": "Tous",
    "statut": "planifiee",
-   "date": "2026-11-17",
+   "date": "2026-11-24",
    "page": "docs/audit-code.html",
    "libelleBouton": "Ouvrir le rapport",
    "epingle": true,
    "derniereRevue": {
-    "date": "2026-11-09",
+    "date": "2026-11-24",
     "statut": "corrigee",
-    "portee": "Revue /revue-code de Découper un PDF et Documents complexes (272f826..603cd8c)",
-    "resultat": "4 constats à 80 ou plus, tous corrigés (#513 à #516) : pages perdues en tête de section découpée, régions retouchées relues par le PDF mis en page, focus clavier de l'éditeur, 27 mutations non détectées par les tests. 552 tests et ruff au vert, focus essayé dans le navigateur. Ni Ollama, ni livre réel. Deux entrées de la revue du 7/11 restent ouvertes (#508, #509).",
+    "portee": "Revue /revue-code de tout le code ajouté depuis l'audit frontend (ca7beb9..b521d68, 33 fichiers, ≈ 5 240 lignes ajoutées : documents complexes en étapes, redressement, découpe par chapitres, table des matières, tableaux et contrôle de langue, fiches refaites, exports pour tout document)",
+    "resultat": "9 constats à 80 ou plus, tous corrigés le 24/11 : CI GitHub rouge depuis le 18/11 (29 erreurs ruff, échec mécanique que la revue ne lançait pas), tableau Markdown ordinaire cassé par la traduction rangée par rangée, zone « conserver » prise pour de l'anglais non traduit, pages d'une préface prises pour la table des matières, mot « Civil » pris pour un chiffre romain, zone texte dessinée en bas de page qui ne rend rien, pied du PDF exporté illisible hors Latin-1, durée absente affichée vide dans la Bibliothèque, erreur d'aperçu effacée dans Documents complexes. pytest 759 passés (9 tests ajoutés, dont 8 échouent sur l'ancien code), ruff sans erreur, case « Temps de traduction » vérifiée dans le navigateur. Ni Ollama, ni scan réel, ni build Xcode.",
     "commits": [
-     "603cd8c",
-     "ea467f6"
+     "ca7beb9",
+     "b521d68"
     ]
    },
    "dernierAudit": {
     "date": "2026-11-16",
-    "portee": "Audit /revue-code de la zone « frontend » (JS, HTML et CSS de l'interface web, 22 fichiers, ≈ 8 700 lignes) ; une zone reste à auditer (macos)",
+    "portee": "Audit /revue-code de la zone « frontend » (JS, HTML et CSS de l'interface web, 22 fichiers, ≈ 8 700 lignes) ; deux zones restent à auditer (mise-en-page, créée le 18/11, et macos)",
     "resultat": "20 constats à 80 ou plus, tous corrigés le 17/11 (#544 à #563) : trois XSS (lien, image exportée, nom de voix), planification d'un lot qui ignorait les chapitres cochés, reprises qui lisaient les menus au lieu du document, extracteur non figé, timeouts de 15 s, doubles clics, course entre réponses, totaux à 0 qui mentent, quatre défauts CSS, langue TTS absente sur macOS. 616 tests au vert, 7 ajoutés qui échouent sur l'ancien code ; swiftc -typecheck sans erreur ; CSS vérifié dans le navigateur. Ni Ollama, ni scan réel, ni build Xcode.",
     "commits": [
      "f1d7fc5"

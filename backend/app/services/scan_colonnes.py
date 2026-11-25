@@ -382,11 +382,11 @@ def ocr_lignes(image, langue: str, y_decalage: int = 0, zone: bool = False) -> l
         f = ligne.split("\t")
         if len(f) < 12 or not f[11].strip():
             continue
-        l, t, w, h = int(f[6]), int(f[7]), int(f[8]), int(f[9])
-        x0, y0 = l // ECHELLE_OCR, t // ECHELLE_OCR
-        x1, y1 = max(x0 + 1, (l + w) // ECHELLE_OCR), max(y0 + 1, (t + h) // ECHELLE_OCR)
+        gx, t, w, h = int(f[6]), int(f[7]), int(f[8]), int(f[9])
+        x0, y0 = gx // ECHELLE_OCR, t // ECHELLE_OCR
+        x1, y1 = max(x0 + 1, (gx + w) // ECHELLE_OCR), max(y0 + 1, (t + h) // ECHELLE_OCR)
         lignes.setdefault((f[2], f[3], f[4]), []).append(dict(
-            l=l, t=t, w=w, h=h, c=float(f[10]), txt=f[11],
+            l=gx, t=t, w=w, h=h, c=float(f[10]), txt=f[11],
             sat=float(sat[y0:y1, x0:x1].mean()) if sat[y0:y1, x0:x1].size else 0.0,
             # boîte dans la page (x relatif au recadrage : voir _ancrer)
             boite=[x0, y0 + y_decalage, x1, y1 + y_decalage],
@@ -440,9 +440,9 @@ def _relire_numero_entree(image, mots: list[dict], langue: str) -> list[dict]:
     if not re.fullmatch(r"\d{3,5}", relu):
         return mots
     premier = mots[0]
-    l, t = min(m["l"] for m in mots[:tete]), min(m["t"] for m in mots[:tete])
-    numero = dict(premier, txt=relu, c=95.0, l=l, t=t,
-                  w=max(m["l"] + m["w"] for m in mots[:tete]) - l, h=max(m["t"] + m["h"] for m in mots[:tete]) - t)
+    gx, t = min(m["l"] for m in mots[:tete]), min(m["t"] for m in mots[:tete])
+    numero = dict(premier, txt=relu, c=95.0, l=gx, t=t,
+                  w=max(m["l"] + m["w"] for m in mots[:tete]) - gx, h=max(m["t"] + m["h"] for m in mots[:tete]) - t)
     if all("boite" in m for m in mots[:tete]):
         bs = [m["boite"] for m in mots[:tete]]
         numero["boite"] = [min(b[0] for b in bs), min(b[1] for b in bs), max(b[2] for b in bs), max(b[3] for b in bs)]
@@ -612,7 +612,9 @@ def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int,
                       filtrer: bool = True, icones: dict | None = None,
                       corps_defaut: float | None = None, pieds: list | None = None) -> list[tuple[str, str]]:
     """Lignes → paragraphes. Nouveau paragraphe sur retrait ou sur ligne courte finissant
-    une phrase ; les mots coupés en fin de ligne sont recollés."""
+    une phrase ; les mots coupés en fin de ligne sont recollés.
+    filtrer=False (zone dessinée à la main) : rien n'est jeté, ni paragraphe court ni ligne prise pour un pied de
+    page : l'utilisateur a dit que c'était du texte."""
     blocs: list[tuple[str, str]] = []
     cur, prec = "", None
     gauche0 = min((L["gauche"] for L in lignes), default=0)
@@ -643,7 +645,7 @@ def lignes_vers_blocs(lignes: list[dict], largeur_col: float, hauteur_page: int,
                 prec = None
                 continue
         txt = texte_ligne(L, icones)
-        if txt and est_pied_de_page(txt, L["haut"], hauteur_page):
+        if txt and filtrer and est_pied_de_page(txt, L["haut"], hauteur_page):
             # pas traduit, mais recopié à sa place par la reconstruction (folio « 4 What is this book? »)
             boites = [m["boite"] for m in L["mots"] if "boite" in m]
             if pieds is not None and boites:
@@ -1171,7 +1173,9 @@ def _lire_zone(image, zone: dict, langue: str, hauteur_page: int, avert: list[st
         return [("titre" if zone["type"] == "titre" else "conserve", texte)]
     if _ressemble_a_un_tableau(lignes):     # une rangée par paragraphe : fusionnées, les cellules se mélangent
         return [("para", t) for t in (texte_ligne(L, icones) for L in lignes) if t]
-    return lignes_vers_blocs(lignes, x1 - x0, hauteur_page, filtrer=False, icones=icones)
+    # Repli : une zone où l'OCR a lu du texte n'est jamais rendue vide (elle est masquée pour les colonnes).
+    return (lignes_vers_blocs(lignes, x1 - x0, hauteur_page, filtrer=False, icones=icones)
+            or [("para", " ".join(t for t in (texte_ligne(L, icones) for L in lignes) if t).strip())])
 
 
 def _ressemble_a_un_tableau(lignes: list[dict]) -> bool:

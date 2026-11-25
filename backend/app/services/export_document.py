@@ -150,16 +150,19 @@ def markdown_en_html(md: str, attribut_image: Callable[[str], str | None], prefi
         def est_separation(ligne: str) -> bool:
             return bool(re.match(r"^\|?[\s:|-]+\|[\s:|-]*$", ligne.strip()))
         avec_entete = len(tableau) > 1 and est_separation(tableau[1])
-        lignes = [l for l in tableau if not est_separation(l)]
+        lignes = [ln for ln in tableau if not est_separation(ln)]
         rangées = []
-        for i, l in enumerate(lignes):
+        for i, ln in enumerate(lignes):
             b = "th" if avec_entete and i == 0 else "td"
-            rangées.append("<tr>" + "".join(f"<{b}>{en_ligne(c)}</{b}>" for c in cellules(l)) + "</tr>")
+            rangées.append("<tr>" + "".join(f"<{b}>{en_ligne(c)}</{b}>" for c in cellules(ln)) + "</tr>")
         out.append('<div class="tableau"><table>' + "".join(rangées) + "</table></div>")
         tableau = []
 
     def tout_fermer():
-        vider(); fermer_liste(); fermer_citation(); fermer_tableau()
+        vider()
+        fermer_liste()
+        fermer_citation()
+        fermer_tableau()
 
     for ligne in md.split("\n"):
         t = ligne.strip()
@@ -195,7 +198,9 @@ def markdown_en_html(md: str, attribut_image: Callable[[str], str | None], prefi
             else:
                 out.append(f'<p class="image-absente">[image introuvable : {html_mod.escape(image.group(2))}]</p>')
         elif t.startswith("|") and t.endswith("|") and len(t) > 1:
-            vider(); fermer_liste(); fermer_citation()
+            vider()
+            fermer_liste()
+            fermer_citation()
             tableau.append(ligne)
         elif re.match(r"^([-*_]\s*){3,}$", t):
             tout_fermer()
@@ -214,10 +219,14 @@ def markdown_en_html(md: str, attribut_image: Callable[[str], str | None], prefi
             if titres is not None and texte_brut(texte):
                 titres.append((int(balise[1]), texte_brut(texte), ident))
         elif cite:
-            vider(); fermer_liste(); fermer_tableau()
+            vider()
+            fermer_liste()
+            fermer_tableau()
             citation.append(cite.group(1))
         elif puce or numero:
-            vider(); fermer_citation(); fermer_tableau()
+            vider()
+            fermer_citation()
+            fermer_tableau()
             voulue = "ul" if puce else "ol"
             if liste != voulue:
                 fermer_liste()
@@ -229,7 +238,9 @@ def markdown_en_html(md: str, attribut_image: Callable[[str], str | None], prefi
         elif t == "":
             tout_fermer()
         else:
-            fermer_liste(); fermer_citation(); fermer_tableau()
+            fermer_liste()
+            fermer_citation()
+            fermer_tableau()
             paragraphe.append(t)
     if code is not None:   # bloc jamais refermé : rendu quand même, rien n'est perdu
         out.append(f"<pre><code>{html_mod.escape(chr(10).join(code))}</code></pre>")
@@ -336,7 +347,7 @@ def lire_document(chemin_traduit: str, avec_source: bool) -> dict:
 
 
 def _a_du_texte(md: str) -> bool:
-    return any(l.strip() and not re.match(r"^\s*<!--.*-->\s*$", l) for l in (md or "").split("\n"))
+    return any(ln.strip() and not re.match(r"^\s*<!--.*-->\s*$", ln) for ln in (md or "").split("\n"))
 
 
 def _titre_chapitre(c: dict) -> str:
@@ -505,7 +516,12 @@ def generer_pdf(chemin_traduit: str, titre: str | None = None) -> dict:
     for i, page in enumerate(sortie):
         if i == 0:
             continue
-        page.insert_text((MARGE_PDF_PT, page_rect.height - 30), court, fontsize=7.5, color=(0.45, 0.45, 0.45))
+        # insert_htmlbox, pas insert_text : la police par défaut d'insert_text (Helvetica non embarquée) rendait tout
+        # caractère hors Latin-1 en « · » (« L’art… œuvre » → « L·art… ·uvre », revue du 24/11/2026) ; la boîte HTML
+        # a le même repli de polices que le corps (Story).
+        page.insert_htmlbox(pymupdf.Rect(MARGE_PDF_PT, page_rect.height - 39, page_rect.width - MARGE_PDF_PT - 60,
+                                         page_rect.height - 24),
+                            html_mod.escape(court), css="* { font-family: sans-serif; font-size: 7.5pt; color: #737373; }")
         folio = f"{i + 1} / {total}"
         largeur = pymupdf.get_text_length(folio, fontsize=8)
         page.insert_text((page_rect.width - MARGE_PDF_PT - largeur, page_rect.height - 30), folio, fontsize=8,

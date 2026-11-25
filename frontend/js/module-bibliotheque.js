@@ -877,7 +877,7 @@
   let estimationEnAttente = null;
   let numeroEstimation = 0;
 
-  function dureeLisible(secondes) {
+  function dureeCourte(secondes) {
     if (secondes == null || !Number.isFinite(secondes)) return null;
     const s = Math.max(0, Math.round(secondes));
     if (s < 60) return `${s} s`;
@@ -907,10 +907,10 @@
       }
       const volume = `${e.chapitres} chapitre${e.chapitres > 1 ? "s" : ""} · ${e.taches} étape${e.taches > 1 ? "s" : ""}`;
       if (e.statut === "ok") {
-        const fourchette = e.min != null && e.max != null && dureeLisible(e.min) !== dureeLisible(e.max)
-          ? ` (${dureeLisible(e.min)} à ${dureeLisible(e.max)})` : "";
+        const fourchette = e.min != null && e.max != null && dureeCourte(e.min) !== dureeCourte(e.max)
+          ? ` (${dureeCourte(e.min)} à ${dureeCourte(e.max)})` : "";
         zone.innerHTML = "<strong></strong><span></span>";
-        zone.children[0].textContent = `≈ ${dureeLisible(e.secondes)}${fourchette}`;
+        zone.children[0].textContent = `≈ ${dureeCourte(e.secondes)}${fourchette}`;
         zone.children[1].textContent = ` · ${volume} · ${e.description_base}`;
       } else {
         zone.textContent = `Durée : pas encore estimable (${e.echantillons ?? 0} fiche${(e.echantillons ?? 0) > 1 ? "s" : ""} `
@@ -931,7 +931,7 @@
       const reste = etat.estimation_restante_secondes - (maintenant - etat.estimation_maj_a);
       const origine = etat.etapes_completees > 0 ? "rythme observé" : (etat.estimation_base ? "Chronique" : "");
       morceaux.push(reste > 0
-        ? `reste ≈ ${dureeLisible(reste)}${origine ? ` (${origine})` : ""}`
+        ? `reste ≈ ${dureeCourte(reste)}${origine ? ` (${origine})` : ""}`
         : "dépasse l'estimation");
     } else {
       morceaux.push("reste : estimé après la 1re étape");
@@ -957,7 +957,7 @@
       const enErreur = (etat.echecs_passage || []).length;
       if (["termine", "erreur", "annule", "en_pause"].includes(etat.statut)) {
         arreterPollFiche();
-        const duree = etat.temps_ecoule_secondes ? ` en ${dureeLisible(etat.temps_ecoule_secondes)}` : "";
+        const duree = etat.temps_ecoule_secondes ? ` en ${dureeCourte(etat.temps_ecoule_secondes)}` : "";
         if (etat.statut === "annule") $("ia-statut").textContent = "✕ Annulé";
         else if (etat.statut === "en_pause") $("ia-statut").textContent = "⏸ En pause — « Générer » reprend là où elle s'est arrêtée.";
         else if (enErreur) $("ia-statut").textContent = etat.statut === "erreur"

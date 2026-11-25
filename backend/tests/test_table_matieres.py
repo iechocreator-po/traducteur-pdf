@@ -63,6 +63,21 @@ def test_pages_par_signet(tmp_path):
         assert pages_table_matieres(doc) == [1, 2]
 
 
+def test_signet_ne_prend_pas_une_preface_sans_signet(tmp_path):
+    """Contents p2, préface p3-4 sans signet, chapitre 1 p5 : la préface n'est pas une TdM (revue du 24/11/2026)."""
+    doc = pymupdf.open()
+    doc.new_page(width=432, height=648).insert_text((54, 100), "Cover", fontsize=20)
+    _page_tdm(doc)
+    for _ in range(2):
+        p = doc.new_page(width=432, height=648)
+        p.insert_text((54, 80), "Preface", fontsize=16)
+        for i in range(10):
+            p.insert_text((54, 120 + 16 * i), "This book began as a set of notes written over many years.", fontsize=10)
+    doc.new_page(width=432, height=648).insert_text((54, 100), "Chapter 1 body text.", fontsize=11)
+    doc.set_toc([[1, "Cover", 1], [1, "Contents", 2], [1, "1 Intro", 5]])
+    assert pages_table_matieres(doc) == [1]
+
+
 def test_pages_par_repli_sans_signet(tmp_path):
     with pymupdf.open(_pdf(tmp_path, signet=False)) as doc:
         assert pages_table_matieres(doc) == [1, 2]
@@ -84,7 +99,7 @@ def test_rendu_une_entree_par_ligne_avec_niveaux(tmp_path):
     assert "  - 1.1 Motivation, 3" in lignes
     assert "    - 1.2.1 The Sisyphus Paradigm, 4" in lignes
     assert "  - Exercises, 19" in lignes            # sans numéro : niveau de son retrait
-    assert not any(l.strip() == "- ix" or "ix" == l.strip() for l in lignes)  # folio retiré
+    assert not any(ln.strip() == "- ix" or "ix" == ln.strip() for ln in lignes)  # folio retiré
     assert "<br>" not in md and "|" not in md
 
 

@@ -109,8 +109,10 @@
     $("se-total").textContent = `/ ${fin}`;
     const nav = [$("se-prec"), $("se-suiv")];
     nav.forEach((b) => { b.disabled = true; });
-    await chargerApercuScan(etat.chemin, etat.page, $("se-double-page").value, $("se-apercu"), $("se-apercu-statut"));
-    $("se-apercu-statut").textContent = "";
+    // En cas d'échec, chargerApercuScan a écrit l'erreur dans le statut : on ne la vide qu'après un aperçu réussi.
+    if (await chargerApercuScan(etat.chemin, etat.page, $("se-double-page").value, $("se-apercu"), $("se-apercu-statut"))) {
+      $("se-apercu-statut").textContent = "";
+    }
     $("se-prec").disabled = etat.page <= debut;
     $("se-suiv").disabled = etat.page >= fin;
   }

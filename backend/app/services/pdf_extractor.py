@@ -519,10 +519,13 @@ def _titre_traduit_plausible(titre_source: str, titre_traduit: str | None) -> st
 
 # Numérotation en tête d'un titre SOURCE (« 20 Multiprocessing… », « Part 5: … », « Chapter 3. … », « IV Résultats »).
 # La table des matières la porte, mais le titre du corps traduit souvent pas : dans le PDF, le numéro est sur une ligne
-# à part. Un « I » isolé sans ponctuation n'en est pas un (« I Robot »).
+# à part. Un « I » isolé sans ponctuation n'en est pas un (« I Robot »). Un chiffre romain est en majuscules et bien
+# formé, un nombre a au plus 3 chiffres : « Civil War », « Ill Winds » ou « 2001 Highlights » ne sont pas numérotés
+# (« Civil Guerre de Sécession », revue du 24/11/2026).
+_ROMAIN = r"(?-i:(?=[IVXLC])C{0,3}(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
 _RE_NUMERO_TITRE = re.compile(
     r"^\s*(?P<prefixe>(?:(?P<mot>part|partie|parte|chapter|chapitre|cap[ií]tulo|section|book|livre)\s+)?"
-    r"(?P<num>\d+(?:\.\d+)*|[IVXLC]+)(?P<ponct>[.:)\-–—]?)\s+)(?=\S)",
+    r"(?P<num>\d{1,3}(?:\.\d+)*|" + _ROMAIN + r")(?P<ponct>[.:)\-–—]?)\s+)(?=\S)",
     re.IGNORECASE)
 
 

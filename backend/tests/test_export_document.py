@@ -93,6 +93,14 @@ def test_pdf_pagine(traduction):
     assert "<script>alert(1)</script>" in texte                  # échappé : montré comme du texte, jamais interprété
 
 
+def test_pied_de_page_garde_les_caracteres_hors_latin1(traduction):
+    """insert_text en Helvetica rendait « ’ », « œ », « — » et « … » en « · » dans le pied (revue du 24/11/2026)."""
+    titre = "L’art de la guerre — une œuvre ancienne, " + "x" * 40
+    r = export_document.generer_pdf(str(traduction), titre=titre)
+    pied = pymupdf.open(r["chemin"])[1].get_text()
+    assert "L’art de la guerre — une œuvre" in pied and "…" in pied and "·" not in pied
+
+
 def test_routes_basculent_sur_l_export_document(traduction):
     info = client.get("/api/reconstruction/info", params={"chemin_sortie": str(traduction)}).json()
     assert info["disponible"] is True and info["mode"] == "document"

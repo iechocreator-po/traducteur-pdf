@@ -1043,7 +1043,8 @@ def test_paragraphe_toujours_en_chinois_garde_en_anglais_et_signale(tmp_path, mo
 
 def _source_parties(tmp_path) -> str:
     """0 Part 1 › 1 Ch 1, 2 Ch 2 ; 3 Part 2 › 4 Ch 3."""
-    bloc = lambda titre, niveau: f"{'#' * niveau} {titre}\n\n" + (f"{titre.lower()} mot " * 60) + "\n\n"
+    def bloc(titre, niveau):
+        return f"{'#' * niveau} {titre}\n\n" + (f"{titre.lower()} mot " * 60) + "\n\n"
     contenu = (bloc("Part 1", 1) + bloc("Ch 1", 2) + bloc("Ch 2", 2)
                + bloc("Part 2", 1) + bloc("Ch 3", 2))
     chemin = tmp_path / "livre_parties.md"

@@ -265,6 +265,26 @@ def _restaurer_images(traduit: str, tags: list[str]) -> str:
 
 
 _RE_TABLEAU = re.compile(r"((?:^\| [^\n]*\|[ \t]*(?:\n|$))+)", re.M)
+# Une rangée de tirage exactement (scan_colonnes._texte_tirage) : clé courte, un seul libellé qui porte du texte, case
+# facultative. Un tableau Markdown ordinaire n'en est pas un : sa ligne « | --- | --- | » n'a pas de libellé, et ses
+# rangées de plus de deux colonnes ont un « | » dans le libellé. Traité rangée par rangée, il perdait ses colonnes.
+_RE_RANGEE_TIRAGE = re.compile(r"^\| [^|\n]{1,5} \| (?=[^|\n]*\w)[^|\n]*? \|(?: ☐ \|)?[ \t]*$")
+
+
+def _est_tirage(bloc: str) -> bool:
+    lignes = [ligne for ligne in bloc.splitlines() if ligne.strip()]
+    return bool(lignes) and all(_RE_RANGEE_TIRAGE.match(ligne) for ligne in lignes)
+
+
+def _decouper_tirages(texte: str) -> list[tuple[bool, str]]:
+    """[(est_un_tirage, morceau)] dans l'ordre ; un tableau qui n'est pas un tirage reste dans le texte voisin."""
+    morceaux, debut = [], 0
+    for m in _RE_TABLEAU.finditer(texte):
+        if _est_tirage(m.group(0)):
+            morceaux += [(False, texte[debut:m.start()]), (True, m.group(0))]
+            debut = m.end()
+    morceaux.append((False, texte[debut:]))
+    return morceaux
 
 
 def _traduire_tableau(tableau: str, modele: str, langue_source: str, langue_cible: str, termes_a_conserver,
@@ -304,11 +324,11 @@ def traduire_texte(
     # Tableau de tirage (« | 1–2 | Mazed Forest | ☐ | ») : traduit à part, libellé par libellé. Masqué par sentinelles
     # au milieu du texte, il revenait en désordre (qwen2.5, Cycle I section 3 p. 5, 19/11/2026 : libellés décalés d'une
     # rangée, quatre rangées rejetées plus loin sans libellé).
-    blocs = _RE_TABLEAU.split(texte)
+    blocs = _decouper_tirages(texte)
     if len(blocs) > 1:
         sortie = []
-        for i, bloc in enumerate(blocs):
-            if i % 2:
+        for est_tirage, bloc in blocs:
+            if est_tirage:
                 sortie.append(_traduire_tableau(bloc.strip("\n"), modele, langue_source, langue_cible,
                                                 termes_a_conserver, interruption, temperature))
             elif bloc.strip():

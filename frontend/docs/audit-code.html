@@ -23,7 +23,7 @@
   td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
   .gros { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .barre { height: 12px; border-radius: 6px; background: var(--surface-2, var(--border)); overflow: hidden; margin: 6px 0; }
-  .barre > i { display: block; height: 100%; background: var(--accent); width: 78%; }
+  .barre > i { display: block; height: 100%; background: var(--accent); width: 63%; }
   ol { margin: 0; padding-left: 20px; }
   li { margin-bottom: 6px; }
   code { font-size: 12px; }
@@ -31,9 +31,38 @@
 </head>
 <body>
 <main>
-<div class="bandeau">Rapport · mis à jour le 17 novembre 2026</div>
+<div class="bandeau">Rapport · mis à jour le 24 novembre 2026</div>
 <h1>Audit du code de toledo : où en est-on ?</h1>
-<p class="muted">La skill commune <code>/revue-code</code> a tourné huit fois : un audit de la zone « moteur » le 26 octobre (trois sous-agents, constats corrigés), une revue du code ajouté depuis, le 6 novembre (cinq passes, 36 constats, tous corrigés ; la parité macOS est un écart volontaire), puis une revue de ces correctifs le 7 novembre (9 constats, 7 corrigés, 2 ouverts), enfin une revue de Découper un PDF et de Documents complexes le 9 novembre (4 constats, tous corrigés), un audit de la zone « api » le 10 novembre (9 constats, tous corrigés), un audit de la zone « extraction » le 13 novembre (7 constats, tous corrigés), un audit de la zone « etude-tts » le 15 novembre (5 constats, tous corrigés), puis un audit de la zone « frontend » le 16 novembre (20 constats, tous corrigés). Une revue ne couvre que le code ajouté : une zone reste à auditer (macos). Les sections « sous le seuil » et « ce qui reste à faire » datent du 26 octobre.</p>
+<p class="muted">La skill commune <code>/revue-code</code> a tourné neuf fois. La dernière en date, le 24 novembre, est une revue de tout le code ajouté depuis l'audit frontend (9 constats, tous corrigés le jour même, voir ci-dessous). Avant elle :un audit de la zone « moteur » le 26 octobre (trois sous-agents, constats corrigés), une revue du code ajouté depuis, le 6 novembre (cinq passes, 36 constats, tous corrigés ; la parité macOS est un écart volontaire), puis une revue de ces correctifs le 7 novembre (9 constats, 7 corrigés, 2 ouverts), enfin une revue de Découper un PDF et de Documents complexes le 9 novembre (4 constats, tous corrigés), un audit de la zone « api » le 10 novembre (9 constats, tous corrigés), un audit de la zone « extraction » le 13 novembre (7 constats, tous corrigés), un audit de la zone « etude-tts » le 15 novembre (5 constats, tous corrigés), puis un audit de la zone « frontend » le 16 novembre (20 constats, tous corrigés). Une revue ne couvre que le code ajouté : deux zones restent à auditer (mise-en-page, définie le 18 novembre, et macos). Les sections « sous le seuil » et « ce qui reste à faire » datent du 26 octobre.</p>
+
+<section class="ds-card carte"><h2>Revue du 24 novembre 2026 (ca7beb9..b521d68)</h2>
+<p><span class="gros">9</span> constats à 80 ou plus sur tout le code ajouté depuis l'audit frontend (33 fichiers, ≈ 5 240 lignes ajoutées, quatre sous-agents : moteur et API, extraction, mise en page et exports, interface) : <strong>tous corrigés le 24/11</strong>. Huit viennent des passes ; le neuvième, la CI rouge, a été vu pendant les correctifs. Contenu revu : documents complexes en trois étapes, redressement des pages de biais, folios, découpe par chapitres, table des matières du PDF, tableaux traduits rangée par rangée et contrôle de langue, panneau Résumé &amp; quiz refait, sous-chapitres couverts, PDF mis en page et HTML interactif pour tout document. Mécanique : pytest 750 passés, <code>?v=N</code> incrémenté sur les 13 fichiers CSS et JS touchés, <code>swiftc -typecheck</code> sans erreur. Sept des huit constats des passes ont été démontrés par un script sur des données synthétiques. Après correctifs : pytest 759 passés (9 tests ajoutés, dont 8 échouent sur l'ancien code), ruff sans erreur, case « Temps de traduction » des infos du document vérifiée dans le navigateur (« 25 min 19 s »).</p>
+<table>
+<tr><th class="n">Note</th><th>Constat</th><th>État</th><th class="n">bilbao</th></tr>
+<tr><td class="n">100</td><td>CI GitHub rouge sur tous les pushs depuis le 18/11 : <code>ruff check app tests</code> trouve 29 erreurs (<code>l</code> ambigu, points-virgules, lambda) et la CI s'arrête avant pytest. La revue ne lançait que pytest : ruff est ajouté aux commandes mécaniques de <code>revue-pieges.md</code>.</td><td>corrigé</td><td class="n">—</td></tr>
+<tr><td class="n">85</td><td>Traduction : tout tableau Markdown <code>| a | b | c |</code> est pris pour un tableau de tirage (<code>translator.py:267</code>). La première colonne reste en anglais, les autres sont fusionnées en une seule (« Bob | 32 / PARIS »), la ligne de séparation part seule chez le modèle et des lignes vides cassent le tableau. Exécuté sur un <code>.md</code>. Les tableaux de pymupdf (<code>|a|b|</code>, sans espaces) n'en souffrent pas.</td><td>corrigé</td><td class="n">—</td></tr>
+<tr><td class="n">85</td><td>Contrôle de langue : une zone <code>&lt;!-- conserver --&gt;</code> en anglais est prise pour une dérive (<code>controle_langue.py:49</code>, piège 21). Elle entraîne 5 appels Ollama au lieu de 1, est marquée « non traduite » en ambré, n'entre jamais au cache et est donc retraduite à chaque rejeu. Exécuté, Ollama simulé. Les blocs de code d'un livre technique ont probablement la même cause (non démontré).</td><td>corrigé</td><td class="n">—</td></tr>
+<tr><td class="n">85</td><td>Table des matières par signet : toutes les pages jusqu'au signet suivant sont réécrites en liste, sans contrôle de leur profil (<code>table_matieres.py:114</code>). Une préface sans signet perd son titre, disparaît des chapitres et ses paragraphes sont fondus en une puce. Exécuté.</td><td>corrigé</td><td class="n">—</td></tr>
+<tr><td class="n">82</td><td>Numérotation des titres : <code>[IVXLC]+</code> sans distinction de casse prend « Civil », « Ill » ou « 2001 » pour un numéro (<code>pdf_extractor.py:525</code>). Exemple : « Civil War » devient « Civil Guerre de Sécession » dans la Bibliothèque. Exécuté.</td><td>corrigé</td><td class="n">—</td></tr>
+<tr><td class="n">80</td><td>Zone « texte » dessinée à la main en bas de page : ses lignes sont filtrées comme pied de page malgré <code>filtrer=False</code>, et le repli <code>or [("para", texte)]</code> a été retiré (<code>scan_colonnes.py:1173</code>). Une note de bas de page entourée ne rend rien, sans avertissement, alors qu'elle est masquée pour les colonnes. Exécuté, OCR simulé.</td><td>corrigé</td><td class="n">—</td></tr>
+<tr><td class="n">80</td><td>PDF exporté : le pied de page passe par <code>insert_text</code> en Helvetica non embarquée (<code>export_document.py:507</code>). « L’art… œuvre » sort en « L·art… ·uvre », à chaque page, et le « … » ajouté par la troncature est lui-même illisible. Exécuté.</td><td>corrigé</td><td class="n">—</td></tr>
+<tr><td class="n">90</td><td>Bibliothèque : <code>dureeLisible</code> est déclarée deux fois dans la même IIFE (<code>module-bibliotheque.js:222</code> et <code>:880</code>) et la seconde remplace la première. Dans les infos du document, une durée absente laisse une case vide au lieu de « — », et 0 s'affiche « 0 s » (piège 14, PC-10). Exécuté avec node.</td><td>corrigé</td><td class="n">—</td></tr>
+<tr><td class="n">80</td><td>Documents complexes, étape 2 : le message d'erreur de l'aperçu est effacé aussitôt écrit (<code>labo-scan-etapes.js:113</code>). Sur une page illisible ou un flag coupé, l'écran ne montre ni image ni erreur.</td><td>corrigé</td><td class="n">—</td></tr>
+</table>
+<p class="muted" style="margin:8px 0 4px">Sous le seuil, à surveiller :</p>
+<ul class="muted">
+<li>Durée des fiches (Chronique) faussée : le passage est étiqueté selon les cases cochées et non selon le travail fait (72) ; l'estimation compte aussi les passages en pause ou annulés (60).</li>
+<li>Marque « non traduit » portée par le paragraphe suivant quand le bloc en anglais est une liste ou un tableau, dans l'export (70) et dans la reconstruction du scan (55).</li>
+<li>Seuil de pied de page à 0,96 h mesuré sur le seul Cycle I (62).</li>
+<li>Estimation de fiche d'un document affichée sous un autre (60) ; réponse <code>/info</code> périmée dans Documents complexes (55).</li>
+<li>Export partiel sans mention « N/M chapitres » (55) ; temps écoulé de l'étude compté deux fois (55) ; estimation refusée pendant une génération (55).</li>
+<li>Cisaillement corrigé mais non signalé (55) ; <code>_remplacer_pages_tdm</code> sans repli en cas d'exception (55).</li>
+<li>Prédicat « défaut » de la traduction recopié trois fois (55) ; iframe <code>srcdoc</code> en <code>allow-same-origin</code> (52) ; Markdown en ligne implémenté trois fois, <code>LANGUES_HTML</code> en deux versions (52).</li>
+</ul>
+<p class="muted"><strong>Structure :</strong> <code>scan_colonnes.py</code> passe de 1 148 à 1 796 lignes. Trois fonctions dépassent 150 lignes : <code>demarrer_traduction</code> (178), <code>_traduire_avec_controle</code> (158) et <code>_executer_etude</code> (≈ 155). Aucun test direct pour <code>_lire_zone</code> (qui aurait attrapé un constat), <code>_remplacer_pages_tdm</code>, le redressement, ni la branche signet de la table des matières suivie de pages qui n'en sont pas.</p>
+<p class="muted"><strong>Parité macOS :</strong> aucune route touchée n'est appelée par macOS (découpe, scan, reconstruction, estimation) ; <code>/etude</code> garde ses valeurs par défaut. macOS ne peut donc pas régénérer une fiche ni produire séparément les points clés ou le quiz : c'est à classer comme écart volontaire ou non.</p>
+<p class="muted"><strong>Non vérifié :</strong> pas d'appel Ollama réel (pour les blocs de code et les tableaux) ; pas d'OCR réel sur un scan de biais ; aucun essai dans le navigateur de la vue Mise en page, de l'éditeur dans l'étape 2, des sélecteurs en cascade ni de l'erreur d'aperçu corrigée (vérifiée par lecture) ; référence golden <code>Chapter9_*</code> non comparée ; pas de build Xcode.</p>
+</section>
 
 <section class="ds-card carte"><h2>Audit de la zone « frontend » du 16 novembre 2026</h2>
 <p><span class="gros">20</span> constats à 80 ou plus sur l'interface web (22 fichiers, ≈ 8 700 lignes de JS, HTML et CSS, trois sous-agents, constats revérifiés dans le code) : <strong>tous corrigés</strong> le 17/11 (bilbao #544 à #563, toutes livrées, commit <code>f1d7fc5</code>). Six touchent aussi le serveur (planification d'un lot, reprise, extracteur, Chronique, scan) et deux l'app macOS. Après correctifs : pytest 616 passés (7 tests ajoutés, tous échouent sur l'ancien code), <code>swiftc -typecheck</code> sans erreur, focus clavier, logo, styles Plan et Classeur vérifiés dans le navigateur.</p>
@@ -183,19 +212,20 @@
 <section class="ds-card carte"><h2>Ce que contient toledo (mesuré, hors tests)</h2>
 <table>
 <tr><th>Bloc</th><th class="n">Fichiers</th><th class="n">Lignes</th></tr>
-<tr><td>Backend : services</td><td class="n">32</td><td class="n">8 757</td></tr>
-<tr><td>Backend : API, config, modèles, agents, main</td><td class="n">13</td><td class="n">2 094</td></tr>
-<tr><td>Backend : scripts de migration</td><td class="n">2</td><td class="n">297</td></tr>
-<tr><td>Interface web (frontend/js)</td><td class="n">15</td><td class="n">5 970</td></tr>
-<tr><td>App macOS (Swift)</td><td class="n">18</td><td class="n">3 821</td></tr>
-<tr><td><b>Total</b></td><td class="n"><b>80</b></td><td class="n"><b>~20 900</b></td></tr>
-<tr><td>Tests (pytest)</td><td class="n">35</td><td class="n">8 078</td></tr>
+<tr><td>Backend : services</td><td class="n">35</td><td class="n">12 224</td></tr>
+<tr><td>Backend : API, config, modèles, agents, main</td><td class="n">13</td><td class="n">2 316</td></tr>
+<tr><td>Backend : scripts de migration</td><td class="n">2</td><td class="n">312</td></tr>
+<tr><td>Interface web (frontend/js, index.html, frontend/css)</td><td class="n">24</td><td class="n">10 482</td></tr>
+<tr><td>App macOS (Swift, hors cibles de test)</td><td class="n">15</td><td class="n">3 762</td></tr>
+<tr><td><b>Total</b></td><td class="n"><b>89</b></td><td class="n"><b>~29 100</b></td></tr>
+<tr><td>Tests (pytest)</td><td class="n">41</td><td class="n">10 271</td></tr>
 </table>
-<p class="muted" style="margin-top:8px">Mesuré le 9/11/2026 ; CSS et HTML non comptés. La suite pytest passe : 552 tests en local (389 au 26/10/2026), avec un test intermittent.</p></section>
+<p class="muted" style="margin-top:8px">Mesuré le 24/11/2026 avec <code>wc -l</code>, HTML et CSS de l'interface compris cette fois (le 9/11 : ≈ 20 900 lignes sans eux). La suite pytest passe : 750 tests en local (552 au 9/11, 389 au 26/10).</p></section>
 
 <section class="ds-card carte"><h2>Couverture des audits</h2>
-<div class="gros">≈ 78 % <span class="muted" style="font-weight:400">en audit complet · ≈ 83 % en comptant les revues</span></div><div class="barre"><i></i></div>
-<p class="muted">Audit complet : ≈ 18 400 lignes lues sur ≈ 23 600 (« moteur », ≈ 3 000 lignes, le 26/10 ; « api », ≈ 2 200, le 10/11 ; « extraction », ≈ 2 450, le 13/11 ; « etude-tts », ≈ 2 050, le 15/11 ; « frontend », ≈ 8 700, le 16/11 : le total passe de ≈ 20 900 à ≈ 23 600 parce que la zone frontend, estimée à ≈ 6 000 lignes de JS, en compte ≈ 8 700 avec le HTML et le CSS). En comptant le code relu par les revues et absent de toute zone auditée (<code>reconstruction.py</code>, <code>signature.py</code>, <code>decoupe.py</code>, ≈ 1 240 lignes) : ≈ 19 600 lignes, sans compter deux fois le code relu par une revue puis audité. Une revue ne lit que le diff, pas toute une zone : elle ne vaut pas un audit.</p>
+<div class="gros">≈ 63 % <span class="muted" style="font-weight:400">en audit complet · ≈ 85 % en comptant les revues</span></div><div class="barre"><i></i></div>
+<p class="muted"><strong>Au 24/11 :</strong> le code atteint ≈ 29 100 lignes et l'audit complet en couvre toujours ≈ 18 400, soit ≈ 63 %. La baisse vient du code ajouté, pas de lignes perdues. La revue du 24/11 a lu les ≈ 5 240 lignes ajoutées depuis l'audit frontend : avec les ≈ 1 240 lignes des revues précédentes, ≈ 24 900 lignes ont été relues au moins une fois, soit ≈ 85 %. Reste jamais relu : le code de macOS qui n'a été touché par aucune revue.</p>
+<p class="muted">Au 17/11, audit complet : ≈ 18 400 lignes lues sur ≈ 23 600 (« moteur », ≈ 3 000 lignes, le 26/10 ; « api », ≈ 2 200, le 10/11 ; « extraction », ≈ 2 450, le 13/11 ; « etude-tts », ≈ 2 050, le 15/11 ; « frontend », ≈ 8 700, le 16/11 : le total passe de ≈ 20 900 à ≈ 23 600 parce que la zone frontend, estimée à ≈ 6 000 lignes de JS, en compte ≈ 8 700 avec le HTML et le CSS). En comptant le code relu par les revues et absent de toute zone auditée (<code>reconstruction.py</code>, <code>signature.py</code>, <code>decoupe.py</code>, ≈ 1 240 lignes) : ≈ 19 600 lignes, sans compter deux fois le code relu par une revue puis audité. Une revue ne lit que le diff, pas toute une zone : elle ne vaut pas un audit.</p>
 <table>
 <tr><th>Zone</th><th>État</th><th>Ce qui a été trouvé</th></tr>
 <tr><td><b>moteur</b> (translation_runner, translator, store, persistance, job_manager, cache, récupération, planificateur, soumission, énergie, bibliothèque)</td><td><span class="ds-badge ds-badge--success">fait</span></td>
@@ -206,6 +236,8 @@
 <tr><td><b>etude-tts</b> (étude, TTS, clonage vocal, stats, ≈ 2 050 lignes)</td><td><span class="ds-badge ds-badge--success">fait</span></td><td>5 constats à 80 ou plus, tous corrigés le 15/11 (#537 à #541), voir plus haut : voix clonée bloquée « en cours », audio précédent détruit, nom de voix dans le chemin, <code>num_ctx</code>, fiche non atomique.</td></tr>
 <tr><td><b>api</b> (routes, validation, erreurs, config, modèles, main, scripts, ≈ 2 200 lignes)</td><td><span class="ds-badge ds-badge--success">fait</span></td><td>9 constats à 80 ou plus, tous corrigés le 10/11 (#517 à #525), voir plus haut : double reprise qui efface une traduction, garde du serveur local, effets de bord au démarrage, flags. 44 routes testées sur 59 avant correctifs.</td></tr>
 <tr><td><b>frontend</b> (JS, HTML, CSS, ≈ 8 700 lignes, 3 sous-agents)</td><td><span class="ds-badge ds-badge--success">fait</span></td><td>20 constats à 80 ou plus, tous corrigés le 17/11 (#544 à #563), voir plus haut : trois XSS, planification d'un lot sans la sélection, reprises qui lisaient les menus, extracteur non figé, timeouts, doubles clics, quatre défauts CSS, parité TTS macOS.</td></tr>
+<tr><td>revue ca7beb9..b521d68 : tout le code ajouté depuis l'audit frontend (≈ 5 240 lignes ajoutées), 24/11</td><td><span class="ds-badge ds-badge--accent">revue</span></td><td>9 constats à 80 ou plus, tous corrigés le 24/11, voir plus haut : CI rouge (ruff), tableaux et zones « conserver » à la traduction, table des matières, numéros de titre, zone dessinée en bas de page, pied du PDF exporté, deux défauts d'affichage.</td></tr>
+<tr><td>mise-en-page (<code>reconstruction.py</code>, ≈ 1 320 lignes ; <code>export_document.py</code>, 737 lignes, à y ajouter)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>Zone définie le 18/11. Relue seulement par les revues des 6, 7, 9 et 24/11.</td></tr>
 <tr><td>macos (≈ 3 800 lignes)</td><td><span class="ds-badge ds-badge--warning">à faire</span></td><td>—</td></tr>
 </table></section>
 
@@ -233,7 +265,7 @@
 <table>
 <tr><th>Priorité</th><th>Contenu</th></tr>
 <tr><td><b>1. Pertes de données possibles</b></td><td>Écriture atomique de l'en-tête ; ordre « écrire puis compter » pour les chapitres ; récupération au démarrage indépendante du registre ; verrou sur la soumission.</td></tr>
-<tr><td><b>2. Zones non auditées</b></td><td>macos (≈ 3 800 lignes).</td></tr>
+<tr><td><b>2. Zones non auditées</b></td><td>mise-en-page (≈ 2 050 lignes avec <code>export_document.py</code>), puis macos (≈ 3 800 lignes).</td></tr>
 <tr><td><b>3. Fiabilité de fond</b></td><td>Réessais espacés du planificateur ; contrôle qualité des textes courts ; ETA de reprise ; suppression propagée au store pour les morceaux et les chapitres.</td></tr>
 <tr><td><b>4. Décisions à prendre</b></td><td>Une traduction « possiblement en boucle » doit-elle rester un avertissement ou devenir un échec reprenable ?</td></tr>
 <tr><td><b>5. Dette de structure</b></td><td><code>_executer_traduction</code> (≈ 193 lignes) et <code>demarrer_traduction</code> (≈ 143 lignes) ; <code>translation_runner.py</code> mêle cinq responsabilités ; cache réécrit en entier après chaque morceau.</td></tr>
@@ -245,7 +277,7 @@
 <li>Toute suppression se propage aux deux sources (JSON et store).</li>
 <li>Les pièges du produit sont dans <code>.claude/revue-pieges.md</code> : un défaut trouvé s'y ajoute.</li>
 </ol>
-<p class="muted" style="margin-top:8px"><b>Terminé =</b> les six zones auditées, la priorité 1 livrée et vérifiée avec Ollama sur un vrai document, le build Xcode confirmé par JP.</p></section>
+<p class="muted" style="margin-top:8px"><b>Terminé =</b> les sept zones auditées, la priorité 1 livrée et vérifiée avec Ollama sur un vrai document, le build Xcode confirmé par JP.</p></section>
 </main>
 </body>
 </html>

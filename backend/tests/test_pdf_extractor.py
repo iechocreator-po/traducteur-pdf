@@ -384,6 +384,10 @@ def test_chapitres_depuis_marqueurs_titre_traduit_absent_sur_corps_vide_ou_tronq
     ("I Robot", "Moi, robot", "Moi, robot"),
     ("Preamble", "Préambule", "Préambule"),
     ("3 Labeling", None, None),
+    ("Civil War", "Guerre de Sécession", "Guerre de Sécession"),
+    ("Ill Winds", "Vents mauvais", "Vents mauvais"),
+    ("2001 Highlights", "Les faits saillants", "Les faits saillants"),
+    ("XIV The Last Part", "La dernière partie", "XIV La dernière partie"),
 ])
 def test_numeroter_titre_traduit(source, traduit, attendu):
     from app.services.pdf_extractor import numeroter_titre_traduit

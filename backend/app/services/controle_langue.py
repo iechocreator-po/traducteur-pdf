@@ -38,8 +38,18 @@ for _l in ("français", "espagnol"):
     MOTS_OUTILS[_l] = MOTS_OUTILS[_l] - {"que"}
 
 
+# Texte gardé tel quel par conception : zone « conserver » (scan_colonnes) et bloc de code (règle du prompt). Il est
+# dans la langue d'origine sans être une dérive ; jugé, il faisait retraduire le morceau cinq fois et le marquait
+# « non traduit » à chaque rejeu (jamais mis en cache).
+_RE_GARDE_TEL_QUEL = re.compile(r"<!-- conserver -->\n.*?\n<!-- /conserver -->|^```.*?^```", re.S | re.M)
+
+
 def langue_inattendue(source: str, traduit: str, langue_cible: str) -> str | None:
-    """Description du défaut (« écriture étrangère : 旁观者… », « paragraphe en espagnol : … »), ou None."""
+    """Description du défaut (« écriture étrangère : 旁观者… », « paragraphe en espagnol : … »), ou None.
+    Le texte gardé tel quel (zone « conserver », bloc de code) n'est pas jugé ; un paragraphe ordinaire recopié tel
+    quel de la source, lui, est bien une dérive (le modèle n'a pas traduit)."""
+    source = _RE_GARDE_TEL_QUEL.sub("", source)
+    traduit = _RE_GARDE_TEL_QUEL.sub("", traduit)
     etrangers = _RE_ECRITURE_ETRANGERE.findall(traduit)
     if etrangers and not _RE_ECRITURE_ETRANGERE.search(source):
         return f"écriture étrangère dans la traduction : « {''.join(etrangers[:12])} »"

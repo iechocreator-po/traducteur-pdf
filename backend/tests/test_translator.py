@@ -402,3 +402,14 @@ def test_tableau_de_tirage_traduit_libelle_par_libelle(monkeypatch):
     sortie = orig("Choose.\n\n| α | Comes a Savior |\n| 1–2 | Mazed Forest | ☐ |\n\nNext.", "m", "anglais", "français")
     assert sortie == "Choisissez.\n\n| α | Viendra un Sauveur |\n| 1–2 | Forêt labyrinthique | ☐ |\n\nSuite."
     assert sorted(envoyes) == ["Choose.", "Comes a Savior", "Mazed Forest", "Next."]
+
+
+def test_tableau_markdown_ordinaire_n_est_pas_un_tirage(monkeypatch):
+    """Un tableau « | Name | Age | City | » était traduit rangée par rangée comme un tirage : colonnes fusionnées,
+    première colonne jamais traduite (revue du 24/11/2026). Il part en entier, avec son texte voisin."""
+    from app.services import translator as T
+    tableau = "| Name | Age | City |\n|------|-----|------|\n| Bob | 32 | Paris |"
+    assert T._decouper_tirages("Intro.\n\n" + tableau + "\n\nEnd.") == [(False, "Intro.\n\n" + tableau + "\n\nEnd.")]
+    deux_colonnes = "| Name | Age |\n| --- | --- |\n| Bob | 32 |"
+    assert not T._est_tirage(deux_colonnes)
+    assert T._est_tirage("| α | Comes a Savior |\n| 1–2 | Mazed Forest | ☐ |\n| Ω | Till Death |")

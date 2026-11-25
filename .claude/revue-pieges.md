@@ -12,6 +12,7 @@ Dossier de travail : `traducteur-pdf/backend/`. Un échec est un constat à 100.
 
 ```bash
 ./venv/bin/python -m pytest tests/ -q      # 389 tests au 26/10/2026 ; le pytest global échoue (pdfplumber absent hors venv)
+./venv/bin/python -m ruff check app tests  # la CI (tests.yml) le lance AVANT pytest : rouge du 18 au 24/11/2026 sans que la revue le voie
 ```
 
 - Ne pas démarrer le backend ni Ollama, ne pas lire `backend/toledo.db`, `bibliotheque.json`, `uploads/` ni les `.state.json`

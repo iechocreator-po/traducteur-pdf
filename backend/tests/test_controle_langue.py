@@ -26,3 +26,12 @@ def test_francais_normal_et_noms_propres_acceptes():
                "commencez à transpirer. Marcin Welnicki, Mateusz Lenart, Konrad Rekieć.")
     assert langue_inattendue("You knock on the door…", traduit, "français") is None
     assert langue_inattendue("x", "Marcin Welnicki Mateusz Lenart Konrad Rekieć Iain MacAskill Sylvie Gorak", "français") is None
+
+
+def test_zone_conserver_et_code_ne_sont_pas_des_derives():
+    """Une zone « conserver » ou un bloc de code restent en anglais par conception : jugés, ils faisaient retraduire
+    le morceau cinq fois et le marquaient « non traduit » (revue du 24/11/2026)."""
+    garde = "<!-- conserver -->\nYou have to choose the path that is the best for you and your party.\n<!-- /conserver -->"
+    code = "```\n# this is the loop that will run for each of the items and it will not stop\n```"
+    traduit = f"Vous entrez dans la salle.\n\n{garde}\n\n{code}"
+    assert langue_inattendue(f"You enter the room.\n\n{garde}\n\n{code}", traduit, "français") is None

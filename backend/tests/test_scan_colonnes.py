@@ -847,3 +847,15 @@ def test_rangees_de_tirage_regroupees_en_un_tableau():
                                                    "| 7 | Words of Love | ☐ |\n| Ω | Till Death |")
     # deux rangées seulement : pas un tableau
     assert [e[1] for e in S._regrouper_tirages(lus[:2], None, "eng")] == ["encadre", "encadre"]
+
+
+def test_zone_texte_dessinee_en_bas_de_page_n_est_pas_jetee(monkeypatch):
+    """Une note entourée à la main tout en bas de la page était prise pour un pied de page : rien rendu, sans
+    avertissement (revue du 24/11/2026). Une zone « texte » n'est jamais filtrée."""
+    note = _ligne_h([("See", 27), ("note", 27), ("12.", 27)], haut=1930)
+    monkeypatch.setattr(S, "ocr_lignes", lambda *a, **k: [note])
+    avert = []
+    blocs = S._lire_zone(Image.new("L", (1000, 2000), 255), {"type": "texte", "rect": [0, 1920, 400, 1970]},
+                         "eng", 2000, avert)
+    assert blocs and blocs[0][0] == "para" and "note" in blocs[0][1]
+    assert avert == []

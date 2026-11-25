@@ -88,10 +88,10 @@ def _est_entree(texte: str) -> bool:
 
 
 def _ratio_entrees(lignes: list[dict]) -> tuple[int, float]:
-    utiles = [l for l in lignes if not _RE_FOLIO.match(l["texte"])]
+    utiles = [ln for ln in lignes if not _RE_FOLIO.match(ln["texte"])]
     if not utiles:
         return 0, 0.0
-    n = sum(1 for l in utiles if _est_entree(l["texte"]))
+    n = sum(1 for ln in utiles if _est_entree(ln["texte"]))
     return len(utiles), n / len(utiles)
 
 
@@ -99,8 +99,9 @@ def pages_table_matieres(doc) -> list[int]:
     """
     Indices (base 0) des pages qui forment la table des matières imprimée, ou [] si aucune.
 
-    1. Signet PDF titré « Contents » / « Table des matières »… : de sa page jusqu'au signet suivant
-       (borné à PAGES_TDM_MAX). C'est le cas fiable, celui des livres d'éditeur.
+    1. Signet PDF titré « Contents » / « Table des matières »… : sa page, puis les suivantes jusqu'au signet
+       suivant (borné à PAGES_TDM_MAX) tant qu'elles gardent le profil d'une TdM (≥ RATIO_MIN_REPLI d'entrées).
+       C'est le cas fiable, celui des livres d'éditeur.
     2. Sinon, repli prudent : une page dont l'une des trois premières lignes est un titre de TdM ET
        dont ≥ 70 % des lignes finissent par un numéro de page ; puis les pages suivantes tant
        qu'elles gardent ce profil. Un document sans titre de TdM n'est jamais touché.
@@ -115,7 +116,14 @@ def pages_table_matieres(doc) -> list[int]:
         suivantes = [p for (_n, _t, p) in toc[i + 1:] if p > page]
         fin = (suivantes[0] - 1) if suivantes else page
         fin = min(fin, page + PAGES_TDM_MAX - 1, doc.page_count)
-        return list(range(page - 1, fin))
+        # Les pages après celle du signet ne suivent que si elles ont le profil d'une TdM : une préface sans signet
+        # entre « Contents » et le chapitre 1 était réécrite en liste, son titre et son chapitre perdus.
+        pages = [page - 1]
+        for numero in range(page, fin):
+            if _ratio_entrees(_lignes_visuelles(doc[numero]))[1] < RATIO_MIN_REPLI:
+                break
+            pages.append(numero)
+        return pages
 
     pages: list[int] = []
     for numero in range(doc.page_count):
@@ -127,7 +135,7 @@ def pages_table_matieres(doc) -> list[int]:
                 pages.append(numero)
                 continue
             break
-        titre = any(_RE_TITRE_TDM.match(l["texte"]) for l in lignes[:3])
+        titre = any(_RE_TITRE_TDM.match(ln["texte"]) for ln in lignes[:3])
         if titre and profil:
             pages.append(numero)
     return pages
@@ -136,7 +144,7 @@ def pages_table_matieres(doc) -> list[int]:
 def _niveaux_de_retrait(lignes: list[dict]) -> list[float]:
     """Retraits distincts de la page (regroupés à TOLERANCE_RETRAIT près), du plus à gauche au plus à droite."""
     paliers: list[float] = []
-    for x in sorted(l["x0"] for l in lignes):
+    for x in sorted(ln["x0"] for ln in lignes):
         if not paliers or x - paliers[-1] > TOLERANCE_RETRAIT:
             paliers.append(x)
     return paliers
@@ -169,40 +177,40 @@ def _entrees_page(page, titre_markdown: str | None, premiere: bool) -> list[tupl
     lignes = _lignes_visuelles(page)
     contenu = []
     titre_vu = False
-    for l in lignes:
-        if _RE_FOLIO.match(l["texte"]):
+    for ln in lignes:
+        if _RE_FOLIO.match(ln["texte"]):
             continue
         # En-tête courant « x   CONTENTS » / « CONTENTS   xi » : fragments tous folio ou titre.
-        textes = [f["texte"] for f in l["fragments"]]
+        textes = [f["texte"] for f in ln["fragments"]]
         if (len(textes) > 1 and any(_RE_TITRE_TDM.match(t) for t in textes)
                 and all(_RE_TITRE_TDM.match(t) or _RE_FOLIO.match(t) for t in textes)):
             continue
-        if _RE_TITRE_TDM.match(l["texte"]):
+        if _RE_TITRE_TDM.match(ln["texte"]):
             if premiere and not titre_vu:
                 titre_vu = True
-                contenu.append(("titre", l))
+                contenu.append(("titre", ln))
             continue  # en-tête courant des pages suivantes
-        contenu.append(("entree", l))
+        contenu.append(("entree", ln))
 
     # Titre trop long replié sur deux lignes : la première n'a pas de numéro de page, la suite
     # (même graisse, retrait égal ou plus grand) le porte. On recolle avant de numéroter.
     fusion: list[tuple[str, dict]] = []
-    for k, l in contenu:
+    for k, ln in contenu:
         if (k == "entree" and fusion and fusion[-1][0] == "entree"
                 and not _est_entree(fusion[-1][1]["texte"])
-                and l["gras"] == fusion[-1][1]["gras"]
-                and l["x0"] >= fusion[-1][1]["x0"] - TOLERANCE_RETRAIT):
+                and ln["gras"] == fusion[-1][1]["gras"]
+                and ln["x0"] >= fusion[-1][1]["x0"] - TOLERANCE_RETRAIT):
             prec = fusion[-1][1]
             fusion[-1] = ("entree", {
                 "x0": prec["x0"], "gras": prec["gras"],
-                "texte": f"{prec['texte']} {l['texte']}",
-                "fragments": prec["fragments"] + l["fragments"],
+                "texte": f"{prec['texte']} {ln['texte']}",
+                "fragments": prec["fragments"] + ln["fragments"],
             })
             continue
-        fusion.append((k, l))
+        fusion.append((k, ln))
     contenu = fusion
 
-    entrees = [l for (k, l) in contenu if k == "entree"]
+    entrees = [ln for (k, ln) in contenu if k == "entree"]
     paliers = _niveaux_de_retrait(entrees) if entrees else []
 
     def palier(x: float) -> int:
@@ -215,24 +223,24 @@ def _entrees_page(page, titre_markdown: str | None, premiere: bool) -> list[tupl
     # de ligne de chapitre, son retrait le plus à gauche serait pris pour le niveau 0. La
     # numérotation (« 2.2.1 » → 2) fait foi quand elle existe ; chaque palier de retrait hérite du
     # niveau des entrées numérotées qui s'y trouvent (« Exercises » au retrait des « 2.x » → 1).
-    def profondeur(l: dict) -> int | None:
-        m = _RE_NUMERO_SECTION.match(l["texte"].lstrip("*"))
+    def profondeur(ln: dict) -> int | None:
+        m = _RE_NUMERO_SECTION.match(ln["texte"].lstrip("*"))
         return m.group(1).count(".") if m else None
 
     niveau_du_palier: dict[int, int] = {}
-    for l in entrees:
-        p = profondeur(l)
+    for ln in entrees:
+        p = profondeur(ln)
         if p is not None:
-            niveau_du_palier.setdefault(palier(l["x0"]), p)
+            niveau_du_palier.setdefault(palier(ln["x0"]), p)
 
-    def niveau(l: dict) -> int:
-        p = profondeur(l)
+    def niveau(ln: dict) -> int:
+        p = profondeur(ln)
         if p is not None:
             return p
-        return niveau_du_palier.get(palier(l["x0"]), palier(l["x0"]))
+        return niveau_du_palier.get(palier(ln["x0"]), palier(ln["x0"]))
 
-    return [(None, titre_markdown or f"**{l['texte']}**") if k == "titre" else (niveau(l), _texte_entree(l))
-            for k, l in contenu]
+    return [(None, titre_markdown or f"**{ln['texte']}**") if k == "titre" else (niveau(ln), _texte_entree(ln))
+            for k, ln in contenu]
 
 
 def rendre_page(page, titre_markdown: str | None, premiere: bool) -> str:
